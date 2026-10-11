@@ -225,3 +225,9 @@ __marimo__/
 # Gowin
 impl/
 *.gprj.user
+
+# Sim
+sim/work/
+
+# Misc
+ai_workspace/
