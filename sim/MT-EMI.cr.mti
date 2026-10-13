@@ -42,9 +42,6 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	signed_fp_norm
 
-} {} {}} ../src/defines.vh {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/defines.vh
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-
 } {} {}} ../src/clock/clock.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/clock/clock.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module clock
@@ -79,6 +76,13 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	signal_sync
 
+} {} {}} ../src/signal_detection/signal_edge_detector.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/signal_detection/signal_edge_detector.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module signal_edge_detector
+
+Top level modules:
+	signal_edge_detector
+
 } {} {}} ../src/common/fsm.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/common/fsm.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module fsm
@@ -86,12 +90,21 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	fsm
 
-} {} {}} ../src/signal_detection/signal_edge_detector.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/signal_detection/signal_edge_detector.v
+} {} {}} ./tb/clock/clock_tb.vt {1 {vlog -work work -vopt -stats=none ./tb/clock/clock_tb.vt
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module signal_edge_detector
+-- Compiling module clock_tb
 
 Top level modules:
-	signal_edge_detector
+	clock_tb
+
+} {} {}} ../src/fixed_points/unsigned_fp_norm.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/unsigned_fp_norm.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module unsigned_fp_norm
+-- Compiling module unsigned_rnd
+-- Compiling module unsigned_sat
+
+Top level modules:
+	unsigned_fp_norm
 
 } {} {}} ../src/fixed_points/signed_fp_op.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/signed_fp_op.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -105,21 +118,5 @@ Top level modules:
 	signed_fp_sub
 	signed_fp_mult
 	signed_fp_div
-
-} {} {}} ../src/fixed_points/unsigned_fp_norm.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/unsigned_fp_norm.v
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module unsigned_fp_norm
--- Compiling module unsigned_rnd
--- Compiling module unsigned_sat
-
-Top level modules:
-	unsigned_fp_norm
-
-} {} {}} ./tb/clock/clock_tb.vt {1 {vlog -work work -vopt -stats=none ./tb/clock/clock_tb.vt
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module clock_tb
-
-Top level modules:
-	clock_tb
 
 } {} {}}

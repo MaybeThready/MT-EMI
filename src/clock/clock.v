@@ -10,15 +10,23 @@ module clock
     input clk_core,  // 50M
     input rst_n,
     output clk_sys,  // 98.304M
-    output clk_i2s,  // 1.536M
-    output clk_smp,  // 48k
-    output clk_scan,  // 12k
-    output rst_sys_n  // 系统复位信号
+    output rst_sys_n,  // 系统复位信号
+
+    output i2s_tick_up,  // 1.536M
+    output i2s_tick_down,
+    output smp_tick_up,  // 48k
+    output smp_tick_down,
+    output scan_tick_up,  // 12k
+    output scan_tick_down
 );
     wire lock;
     wire clk_sys_w;
     wire rst_async_n;
 
+    wire clk_i2s;
+    wire clk_smp;
+    wire clk_scan;
+    
     gowin_pll gowin_pll_u
     (
         .clkin(clk_core),
@@ -63,5 +71,15 @@ module clock
         .clk(clk_sys),
         .rst_n(rst_sys_n),
         .clk_div(clk_scan)
+    );
+
+    signal_edge_detector #(
+        .W(3)
+    ) sed_u (
+        .clk(clk_sys),
+        .rst_n(rst_sys_n),
+        .signal_sync({clk_i2s, clk_smp, clk_scan}),
+        .signal_posedge({i2s_tick_up, smp_tick_up, scan_tick_up}),
+        .signal_negedge({i2s_tick_down, smp_tick_down, scan_tick_down})
     );
 endmodule
