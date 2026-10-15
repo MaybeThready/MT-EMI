@@ -9,6 +9,7 @@
  * note_on：音符触发事件
  * init_phase: UQ0.16 初始相位
  * freq: UQ16.16 音符频率
+ * out_phase: UQ0.12 输出相位
  */
 module phase_accumulator_group
 #(
@@ -20,10 +21,11 @@ module phase_accumulator_group
     input [ACCUMULATOR_NUM-1:0] note_on,
     input [15:0] init_phase,
     input [31:0] freq [ACCUMULATOR_NUM-1:0],
+    output [11:0] out_phase [ACCUMULATOR_NUM-1:0],
+
     input out_ready,
     input in_valid,
-    output [11:0] out_phase [ACCUMULATOR_NUM-1:0],
     output out_valid,
     output in_ready
-)
+);
 endmodule
