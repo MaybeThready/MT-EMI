@@ -1,0 +1,51 @@
+`timescale 1ps/1ps
+
+`include "../../../src/defines.vh"
+
+module sys_ticker_tb();
+    reg clk_sys;
+    reg rst_n;
+
+    wire i2s_tick_up;  // 1.536M
+    wire i2s_tick_down;
+    wire smp_tick_up;  // 48k
+    wire smp_tick_down;
+    wire scan_tick_up;  // 12k
+    wire scan_tick_down;
+
+    sys_ticker st_u
+    (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+
+        .i2s_tick_up(i2s_tick_up),  // 1.536M
+        .i2s_tick_down(i2s_tick_down),
+        .smp_tick_up(smp_tick_up),  // 48k
+        .smp_tick_down(smp_tick_down),
+        .scan_tick_up(scan_tick_up),  // 12k
+        .scan_tick_down(scan_tick_down)
+    );
+
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    initial
+    begin
+        rst_n = 1'b0;
+        #20_000;
+        rst_n = 1'b1;
+        repeat(50)
+        begin
+            #20_000_000;
+        end
+        $stop;
+    end
+endmodule
