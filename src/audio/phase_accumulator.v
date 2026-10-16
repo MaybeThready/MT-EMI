@@ -54,13 +54,13 @@ module phase_accumulator
         .out(out_phase_w)
     );
 
-    localparam IDLE = 3'd0, RECEIVE = 3'd1, MULT = 3'd2, ADD = 3'd3, SEND = 3'd4;
+    localparam WF_TICK = 3'd0, WF_RECV = 3'd1, MULT = 3'd2, ADD = 3'd3, ASSIGN = 3'd4, WF_SEND = 3'd5;  // WF 是WaitingFor的简称
 
     wire [2:0] stc;
     reg [2:0] stn;
     fsm #(
         .W(3),
-        .INITIAL_STATE(IDLE)
+        .INITIAL_STATE(WF_TICK)
     ) fsm_u (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -71,19 +71,17 @@ module phase_accumulator
     always @(*)
     begin
         case (stc)
-            IDLE: stn = smp_tick_up ? RECEIVE : IDLE;
-            RECEIVE: stn = in_valid ? (note_on ? SEND: MULT) : RECEIVE;  // note_on 触发后不需要累加直接去发送数据
+            WF_TICK: stn = smp_tick_up ? WF_RECV : WF_TICK;
+            WF_RECV: stn = in_valid ? (note_on ? ASSIGN: MULT) : WF_RECV;  // note_on 触发后不需要累加直接去发送数据
             MULT: stn = ADD;  // 乘法占用一个周期
-            ADD: stn = SEND;  // 加法占用一个周期
-            SEND: stn = out_ready ? IDLE : SEND;
-            default: stn = IDLE;
+            ADD: stn = ASSIGN;  // 加法占用一个周期
+            ASSIGN: stn = WF_SEND;  // 非阻塞赋值占用一个周期
+            WF_SEND: stn = out_ready ? WF_TICK : WF_SEND;
+            default: stn = WF_TICK;
         endcase
     end
 
-    reg out_valid_r;
-    reg in_ready_r;
     reg [11:0] out_phase_r;
-    
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
@@ -91,20 +89,11 @@ module phase_accumulator
             freq_r <= '0;
             phase <= '0;
             out_phase_r <= '0;
-            out_valid_r <= 1'b0;
-            in_ready_r <= 1'b0;
         end
         else
         begin
-            out_valid_r <= 1'b0;  // 默认值
-            in_ready_r <= 1'b0;
             case (stc)
-                IDLE:
-                begin
-                    in_ready_r <= 1'b1;
-                end
-
-                RECEIVE:
+                WF_RECV:
                 begin
                     freq_r <= in_valid ? freq : freq_r;
                     phase <= in_valid & note_on ? {init_phase, {(PHASE_ACC_WIDTH - 16){1'b0}}} : phase;
@@ -115,16 +104,15 @@ module phase_accumulator
                     phase <= phase + phase_increment;
                 end
 
-                SEND:
+                ASSIGN:
                 begin
                     out_phase_r <= out_phase_w;
-                    out_valid_r <= 1'b1;
                 end
             endcase
         end
     end
 
     assign out_phase = out_phase_r;
-    assign out_valid = out_valid_r;
-    assign in_ready = in_ready_r;
+    assign out_valid = (stc == WF_SEND);
+    assign in_ready = (stc == WF_RECV);
 endmodule
