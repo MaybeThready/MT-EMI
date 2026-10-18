@@ -1,0 +1,297 @@
+`timescale 1ns/1ps
+/** ui_control_pipeline 自检：复位、握手背压及数据语义。
+ * 参考向量使用整数物理单位独立计算。
+ */
+module ui_control_pipeline_tb;
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    integer index;
+    integer cycle;
+    integer count;
+    integer file_handle;
+    integer scan_count;
+    string assets;
+    string file_path;
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "Missing ASSETS");
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Watchdog timeout");
+    end
+    localparam BATCH_ID_WIDTH=4;
+    reg scan_tick_up = '0;
+    reg [3:0] button_states = '0;
+    reg [BATCH_ID_WIDTH-1:0] button_batch_id = '0;
+    reg button_batch_last = '0;
+    reg button_in_valid = '0;
+    wire button_in_ready;
+    reg [7:0] knob_states = '0;
+    reg [7:0] knob_dirs = '0;
+    reg [7:0] knob_pressed = '0;
+    reg [BATCH_ID_WIDTH-1:0] knob_batch_id = '0;
+    reg knob_batch_last = '0;
+    reg knob_in_valid = '0;
+    wire knob_in_ready;
+    wire [3:0] wavetable_0 [0:0];
+    wire [3:0] wavetable_1 [0:0];
+    wire [15:0] wavetable_interp [0:0];
+    wire [15:0] init_phase [0:0];
+    wire [19:0] attack_ticks [0:0];
+    wire [19:0] decay_ticks [0:0];
+    wire [15:0] sustain_level [0:0];
+    wire [19:0] release_ticks [0:0];
+    wire [15:0] master_volume;
+    wire [15:0] reverb_mix;
+    wire [15:0] delay_mix;
+    wire [15:0] distortion_mix;
+    wire [15:0] chorus_mix;
+    wire out_valid;
+    reg out_ready = '0;
+    wire protocol_error;
+    wire configuration_error;
+    ui_control_pipeline #(
+        .BATCH_ID_WIDTH(BATCH_ID_WIDTH),
+        .WAVE_SELECT_STEPS(4)
+    ) ui_control_pipeline_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .scan_tick_up(scan_tick_up),
+        .button_states(button_states),
+        .button_batch_id(button_batch_id),
+        .button_batch_last(button_batch_last),
+        .button_in_valid(button_in_valid),
+        .button_in_ready(button_in_ready),
+        .knob_states(knob_states),
+        .knob_dirs(knob_dirs),
+        .knob_pressed(knob_pressed),
+        .knob_batch_id(knob_batch_id),
+        .knob_batch_last(knob_batch_last),
+        .knob_in_valid(knob_in_valid),
+        .knob_in_ready(knob_in_ready),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .wavetable_interp(wavetable_interp),
+        .init_phase(init_phase),
+        .attack_ticks(attack_ticks),
+        .decay_ticks(decay_ticks),
+        .sustain_level(sustain_level),
+        .release_ticks(release_ticks),
+        .master_volume(master_volume),
+        .reverb_mix(reverb_mix),
+        .delay_mix(delay_mix),
+        .distortion_mix(distortion_mix),
+        .chorus_mix(chorus_mix),
+        .out_valid(out_valid),
+        .out_ready(out_ready),
+        .protocol_error(protocol_error),
+        .configuration_error(configuration_error)
+    );
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            #1;
+        end
+    endtask
+
+    integer button_file;
+    integer knob_file;
+    integer expected_file;
+    integer final_file;
+    integer versions_file;
+    integer versions_scan;
+    integer reference_versions [0:1023][0:12];
+    integer version_count=0;
+    integer last_version=0;
+    integer candidate_version;
+    integer field_index;
+    reg version_matches;
+    reg version_found;
+    integer button_vector [0:1];
+    integer knob_vector [0:4];
+    integer expected_vector [0:13];
+    integer final_vector [0:12];
+    integer latest [0:12];
+    integer held_output [0:12];
+    integer button_scan;
+    integer knob_scan;
+    integer expected_scan;
+    integer sent_buttons=0;
+    integer sent_knobs=0;
+    integer committed=0;
+    integer published=0;
+    integer clocks=0;
+    integer backpressure_commits=0;
+    reg monitor_enable=1'b1;
+    reg stalled=1'b0;
+    reg sources_finished=1'b0;
+    integer monitor_index;
+
+    always @(negedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            clocks=clocks+1;
+            scan_tick_up=(clocks%19==0);
+            // 长时间输出阻塞跨越多个完整批次，本地提交仍应继续。
+            out_ready=sources_finished || ((clocks%503)>350);
+        end
+    end
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n) stalled=1'b0;
+        else if (monitor_enable)
+        begin
+            if (protocol_error || configuration_error) $fatal(1,"Pipeline rejected legal stream");
+            if (stalled)
+            begin
+                if (!out_valid) $fatal(1,"Output valid withdrawn during stall");
+                if (wavetable_0[0] !== held_output[0][3:0]) $fatal(1,"Mixed/stalled output wavetable_0");
+                if (wavetable_1[0] !== held_output[1][3:0]) $fatal(1,"Mixed/stalled output wavetable_1");
+                if (wavetable_interp[0] !== held_output[2][15:0]) $fatal(1,"Mixed/stalled output wavetable_interp");
+                if (init_phase[0] !== held_output[3][15:0]) $fatal(1,"Mixed/stalled output init_phase");
+                if (attack_ticks[0] !== held_output[4][19:0]) $fatal(1,"Mixed/stalled output attack_ticks");
+                if (decay_ticks[0] !== held_output[5][19:0]) $fatal(1,"Mixed/stalled output decay_ticks");
+                if (sustain_level[0] !== held_output[6][15:0]) $fatal(1,"Mixed/stalled output sustain_level");
+                if (release_ticks[0] !== held_output[7][19:0]) $fatal(1,"Mixed/stalled output release_ticks");
+                if (master_volume !== held_output[8][15:0]) $fatal(1,"Mixed/stalled output master_volume");
+                if (reverb_mix !== held_output[9][15:0]) $fatal(1,"Mixed/stalled output reverb_mix");
+                if (delay_mix !== held_output[10][15:0]) $fatal(1,"Mixed/stalled output delay_mix");
+                if (distortion_mix !== held_output[11][15:0]) $fatal(1,"Mixed/stalled output distortion_mix");
+                if (chorus_mix !== held_output[12][15:0]) $fatal(1,"Mixed/stalled output chorus_mix");
+            end
+            stalled=out_valid && !out_ready;
+            if (out_valid)
+            begin
+                held_output[0]=wavetable_0[0];
+                held_output[1]=wavetable_1[0];
+                held_output[2]=wavetable_interp[0];
+                held_output[3]=init_phase[0];
+                held_output[4]=attack_ticks[0];
+                held_output[5]=decay_ticks[0];
+                held_output[6]=sustain_level[0];
+                held_output[7]=release_ticks[0];
+                held_output[8]=master_volume;
+                held_output[9]=reverb_mix;
+                held_output[10]=delay_mix;
+                held_output[11]=distortion_mix;
+                held_output[12]=chorus_mix;
+            end
+            if (out_valid && out_ready)
+            begin
+                published=published+1;
+                latest[0]=wavetable_0[0];
+                latest[1]=wavetable_1[0];
+                latest[2]=wavetable_interp[0];
+                latest[3]=init_phase[0];
+                latest[4]=attack_ticks[0];
+                latest[5]=decay_ticks[0];
+                latest[6]=sustain_level[0];
+                latest[7]=release_ticks[0];
+                latest[8]=master_volume;
+                latest[9]=reverb_mix;
+                latest[10]=delay_mix;
+                latest[11]=distortion_mix;
+                latest[12]=chorus_mix;
+                // 每份发布的数据必须是已经提交的完整、有序参数版本，
+                // 允许通过合并跳过中间旧版本。
+                version_found=1'b0;
+                for (candidate_version=last_version;candidate_version<=committed;candidate_version=candidate_version+1)
+                begin
+                    version_matches=1'b1;
+                    for (field_index=0;field_index<13;field_index=field_index+1)
+                        if (latest[field_index] !== reference_versions[candidate_version][field_index]) version_matches=1'b0;
+                    if (version_matches && !version_found)
+                    begin
+                        version_found=1'b1;
+                        last_version=candidate_version;
+                    end
+                end
+                if (!version_found) $fatal(1,"Published mixed or out-of-order parameter version");
+            end
+            // 只观察子模块公开的完成／进度端口，不写入被测模块内部状态。
+            if (ui_control_pipeline_u.frame_done_valid && ui_control_pipeline_u.frame_done_ready)
+            begin
+                expected_scan=$fscanf(expected_file,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d",expected_vector[0],expected_vector[1],expected_vector[2],expected_vector[3],expected_vector[4],expected_vector[5],expected_vector[6],expected_vector[7],expected_vector[8],expected_vector[9],expected_vector[10],expected_vector[11],expected_vector[12],expected_vector[13]);
+                if (expected_scan!=14) $fatal(1,"Unexpected extra completion");
+                if ($signed(ui_control_pipeline_u.knob_parameter_controller_u.wave_progress) != expected_vector[13])
+                    $fatal(1,"Pipeline first-frame clear/order mismatch at %0d",committed);
+                committed=committed+1;
+                if (!out_ready) backpressure_commits=backpressure_commits+1;
+            end
+        end
+    end
+    initial
+    begin
+        #1;
+        button_file=$fopen({assets,"/pipeline_buttons.txt"},"r");
+        knob_file=$fopen({assets,"/pipeline_knobs.txt"},"r");
+        expected_file=$fopen({assets,"/pipeline_expected.txt"},"r");
+        final_file=$fopen({assets,"/pipeline_final.txt"},"r");
+        versions_file=$fopen({assets,"/pipeline_versions.txt"},"r");
+        if (!versions_file) $fatal(1,"Version oracle missing");
+        while (!$feof(versions_file))
+        begin
+            versions_scan=$fscanf(versions_file,"%d %d %d %d %d %d %d %d %d %d %d %d %d",
+                reference_versions[version_count][0],reference_versions[version_count][1],reference_versions[version_count][2],
+                reference_versions[version_count][3],reference_versions[version_count][4],reference_versions[version_count][5],
+                reference_versions[version_count][6],reference_versions[version_count][7],reference_versions[version_count][8],
+                reference_versions[version_count][9],reference_versions[version_count][10],reference_versions[version_count][11],reference_versions[version_count][12]);
+            if (versions_scan==13) version_count=version_count+1;
+        end
+        if (!button_file || !knob_file || !expected_file || !final_file) $fatal(1,"Pipeline vectors missing");
+        reset_dut;
+        fork
+            begin
+                button_scan=$fscanf(button_file,"%d %d",button_vector[0],button_vector[1]);
+                while (button_scan==2)
+                begin
+                    repeat (sent_buttons%9) @(negedge clk_sys);
+                    @(negedge clk_sys);
+                    button_batch_id=button_vector[0];button_states=button_vector[1];
+                    button_batch_last=1'b1;button_in_valid=1'b1;
+                    do @(posedge clk_sys); while (!button_in_ready);
+                    @(negedge clk_sys);button_in_valid=1'b0;
+                    sent_buttons=sent_buttons+1;
+                    button_scan=$fscanf(button_file,"%d %d",button_vector[0],button_vector[1]);
+                end
+            end
+            begin
+                knob_scan=$fscanf(knob_file,"%d %d %d %d %d",knob_vector[0],knob_vector[1],knob_vector[2],knob_vector[3],knob_vector[4]);
+                while (knob_scan==5)
+                begin
+                    repeat ((sent_knobs*7)%11) @(negedge clk_sys);
+                    @(negedge clk_sys);
+                    knob_batch_id=knob_vector[0];knob_batch_last=knob_vector[1];
+                    knob_states=knob_vector[2];knob_dirs=knob_vector[3];knob_pressed=knob_vector[4];
+                    knob_in_valid=1'b1;
+                    do @(posedge clk_sys); while (!knob_in_ready);
+                    @(negedge clk_sys);knob_in_valid=1'b0;
+                    sent_knobs=sent_knobs+1;
+                    knob_scan=$fscanf(knob_file,"%d %d %d %d %d",knob_vector[0],knob_vector[1],knob_vector[2],knob_vector[3],knob_vector[4]);
+                end
+            end
+        join
+        sources_finished=1'b1;
+        wait(committed==sent_knobs);
+        repeat (40) @(negedge clk_sys);
+        scan_count=$fscanf(final_file,"%d %d %d %d %d %d %d %d %d %d %d %d %d",final_vector[0],final_vector[1],final_vector[2],final_vector[3],final_vector[4],final_vector[5],final_vector[6],final_vector[7],final_vector[8],final_vector[9],final_vector[10],final_vector[11],final_vector[12]);
+        if (scan_count!=13) $fatal(1,"Bad final vector");
+        for (index=0;index<13;index=index+1)
+            if (latest[index] !== final_vector[index])
+                $fatal(1,"Pipeline final field %0d expected %0d got %0d",index,final_vector[index],latest[index]);
+        if (backpressure_commits<50 || sent_buttons!=160 || published<1) $fatal(1,"Insufficient integration coverage");
+        monitor_enable=1'b0;
+        reset_dut;
+        if (out_valid || protocol_error) $fatal(1,"Pipeline reset failed");
+        $display("UI_CONTROL_PIPELINE_PASS batches=%0d frames=%0d blocked_commits=%0d versions=%0d",sent_buttons,committed,backpressure_commits,published);
+        $finish;
+    end
+endmodule

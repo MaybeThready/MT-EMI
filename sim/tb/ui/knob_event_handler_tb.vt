@@ -1,0 +1,300 @@
+/**
+ * 旋钮事件自检：首帧基线、双向步进、持续按住、松开再按、同帧按转、
+ * 多路数组、空帧、tick 无关性、背压稳定、连续 valid、复位取消在途帧。
+ * 独立计分板仅观察公共接口，不读取 DUT 状态机或内部历史。
+ * 对每个输入握手建立预期事务，对所有有效输出检查载荷与最小延迟，
+ * 对输出握手计数。随机激励保持被背压的有效输入不变。
+ * KNOB_NUM 分别测试 1、3、8、16；SEED 用于可重复伪随机序列。
+ */
+`timescale 1ps/1ps
+module knob_event_handler_tb;
+    parameter KNOB_NUM = 8;
+    parameter SEED = 20261017;
+    localparam CLK_HALF_PERIOD = 5086;  // 约 98.304 MHz，1 ps 仿真分辨率
+
+    reg clk_sys;
+    reg rst_n;
+    reg scan_tick_up;
+    reg [KNOB_NUM-1:0] knob_states;
+    reg [KNOB_NUM-1:0] knob_dirs;
+    reg [KNOB_NUM-1:0] knob_pressed;
+    reg in_valid;
+    reg out_ready;
+    wire in_ready;
+    wire out_valid;
+    wire signed [1:0] knob_delta [KNOB_NUM-1:0];
+    wire [KNOB_NUM-1:0] knob_pressed_event;
+
+    knob_event_handler #(
+        .KNOB_NUM(KNOB_NUM)
+    ) knob_event_handler_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .scan_tick_up(scan_tick_up),
+        .knob_states(knob_states),
+        .knob_dirs(knob_dirs),
+        .knob_pressed(knob_pressed),
+        .knob_delta(knob_delta),
+        .knob_pressed_event(knob_pressed_event),
+        .in_valid(in_valid),
+        .in_ready(in_ready),
+        .out_valid(out_valid),
+        .out_ready(out_ready)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever #CLK_HALF_PERIOD clk_sys = ~clk_sys;
+    end
+
+    integer accepted_count;
+    integer delivered_count;
+    integer cancelled_count;
+    integer stalled_cycles;
+    integer positive_steps;
+    integer negative_steps;
+    integer press_count;
+    integer empty_count;
+    integer no_tick_count;
+    integer cycle_count;
+    integer accepted_cycle;
+    integer check_lane;
+    integer expected_delta [KNOB_NUM-1:0];
+    reg [KNOB_NUM-1:0] expected_pressed;
+    reg [KNOB_NUM-1:0] model_previous;
+    reg model_initialized;
+    reg pending;
+    reg last_input_fire;
+
+    // 计分板在上升沿读旧值，正好与 DUT 的握手采样沿一致。
+    always @(posedge clk_sys)
+    begin
+        cycle_count = cycle_count + 1;
+        last_input_fire = 1'b0;
+        if (!rst_n)
+        begin
+            if (in_ready !== 1'b0 || out_valid !== 1'b0)
+                $fatal(1, "Reset exposed a handshake");
+            if (pending)
+                cancelled_count = cancelled_count + 1;
+            pending = 1'b0;
+            model_initialized = 1'b0;
+            model_previous = {KNOB_NUM{1'b0}};
+        end
+        else
+        begin
+            if (out_valid !== pending || in_ready !== !pending)
+                $fatal(1, "Slot/valid mismatch at cycle %0d", cycle_count);
+            if (out_valid)
+            begin
+                if (cycle_count <= accepted_cycle)
+                    $fatal(1, "Output consumed before registered latency");
+                if (knob_pressed_event !== expected_pressed)
+                    $fatal(1, "Press mismatch: got %h expected %h", knob_pressed_event, expected_pressed);
+                for (check_lane = 0; check_lane < KNOB_NUM; check_lane = check_lane + 1)
+                begin
+                    if ($signed(knob_delta[check_lane]) !== expected_delta[check_lane])
+                        $fatal(1, "Delta mismatch lane=%0d got=%0d expected=%0d",
+                            check_lane, $signed(knob_delta[check_lane]), expected_delta[check_lane]);
+                end
+                if (out_ready)
+                begin
+                    delivered_count = delivered_count + 1;
+                    pending = 1'b0;
+                end
+                else
+                    stalled_cycles = stalled_cycles + 1;
+            end
+            if (in_valid && in_ready)
+            begin
+                if (pending || out_valid)
+                    $fatal(1, "Input overwrote an occupied slot");
+                expected_pressed = {KNOB_NUM{1'b0}};
+                for (check_lane = 0; check_lane < KNOB_NUM; check_lane = check_lane + 1)
+                begin
+                    // 按真值表生成数值预期，使用 integer 检查符号扩展。
+                    case ({knob_states[check_lane], knob_dirs[check_lane]})
+                        2'b10: expected_delta[check_lane] = -1;
+                        2'b11: expected_delta[check_lane] = 1;
+                        default: expected_delta[check_lane] = 0;
+                    endcase
+                    if (model_initialized && model_previous[check_lane] == 1'b0 &&
+                        knob_pressed[check_lane] == 1'b1)
+                        expected_pressed[check_lane] = 1'b1;
+                    if (expected_delta[check_lane] == 1)
+                        positive_steps = positive_steps + 1;
+                    if (expected_delta[check_lane] == -1)
+                        negative_steps = negative_steps + 1;
+                    if (expected_pressed[check_lane])
+                        press_count = press_count + 1;
+                end
+                if (knob_states == {KNOB_NUM{1'b0}} && expected_pressed == {KNOB_NUM{1'b0}})
+                    empty_count = empty_count + 1;
+                if (!scan_tick_up)
+                    no_tick_count = no_tick_count + 1;
+                model_previous = knob_pressed;
+                model_initialized = 1'b1;
+                pending = 1'b1;
+                accepted_cycle = cycle_count;
+                accepted_count = accepted_count + 1;
+                last_input_fire = 1'b1;
+            end
+            if (accepted_count != delivered_count + cancelled_count + pending)
+                $fatal(1, "Frame conservation failed");
+        end
+    end
+
+    // 在下降沿驱动，避免 TB 与 DUT 同沿竞争；返回时计分板已执行。
+    task drive_cycle;
+        input valid_value;
+        input ready_value;
+        input tick_value;
+        input [KNOB_NUM-1:0] states_value;
+        input [KNOB_NUM-1:0] dirs_value;
+        input [KNOB_NUM-1:0] pressed_value;
+        begin
+            @(negedge clk_sys);
+            in_valid = valid_value;
+            out_ready = ready_value;
+            scan_tick_up = tick_value;
+            knob_states = states_value;
+            knob_dirs = dirs_value;
+            knob_pressed = pressed_value;
+            @(posedge clk_sys);
+            #2;
+        end
+    endtask
+
+    task send_frame;
+        input [KNOB_NUM-1:0] states_value;
+        input [KNOB_NUM-1:0] dirs_value;
+        input [KNOB_NUM-1:0] pressed_value;
+        begin
+            drive_cycle(1'b1, 1'b1, 1'b0, states_value, dirs_value, pressed_value);
+            while (!last_input_fire)
+                drive_cycle(1'b1, 1'b1, 1'b0, states_value, dirs_value, pressed_value);
+        end
+    endtask
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            out_ready = 1'b0;
+            #2;
+            if (in_ready !== 1'b0 || out_valid !== 1'b0)
+                $fatal(1, "Asynchronous reset did not suppress handshake");
+            repeat (2) @(negedge clk_sys);
+            rst_n = 1'b1;
+        end
+    endtask
+
+    integer stimulus_index;
+    integer seed_state;
+    reg [31:0] random_value;
+    reg random_pending;
+    reg [KNOB_NUM-1:0] random_states;
+    reg [KNOB_NUM-1:0] random_dirs;
+    reg [KNOB_NUM-1:0] random_pressed;
+    reg [KNOB_NUM-1:0] lane_mask;
+
+    initial
+    begin
+        rst_n = 1'b0;
+        scan_tick_up = 1'b0;
+        in_valid = 1'b0;
+        out_ready = 1'b0;
+        knob_states = '0;
+        knob_dirs = '0;
+        knob_pressed = '0;
+        accepted_count = 0;
+        delivered_count = 0;
+        cancelled_count = 0;
+        stalled_cycles = 0;
+        positive_steps = 0;
+        negative_steps = 0;
+        press_count = 0;
+        empty_count = 0;
+        no_tick_count = 0;
+        cycle_count = 0;
+        accepted_cycle = 0;
+        pending = 1'b0;
+        model_initialized = 1'b0;
+        model_previous = '0;
+        last_input_fire = 1'b0;
+        seed_state = SEED;
+        random_pending = 1'b0;
+        reset_dut;
+
+        // 首帧全按住且正转：不能误发恢复默认，旋转仍然交付。
+        send_frame({KNOB_NUM{1'b1}}, {KNOB_NUM{1'b1}}, {KNOB_NUM{1'b1}});
+        // 下游长期不 ready，valid 必须独立出现；invalid 输入扰动不能污染历史。
+        repeat (40)
+            drive_cycle(1'b0, 1'b0, 1'b1, '0, '0, '0);
+        drive_cycle(1'b0, 1'b1, 1'b0, '0, '0, '0);
+        send_frame({KNOB_NUM{1'b1}}, {KNOB_NUM{1'b1}}, {KNOB_NUM{1'b1}});
+        send_frame({KNOB_NUM{1'b1}}, '0, {KNOB_NUM{1'b1}});
+        send_frame('0, {KNOB_NUM{1'b1}}, '0);
+        send_frame({KNOB_NUM{1'b1}}, '0, {KNOB_NUM{1'b1}});
+        send_frame('0, '0, {KNOB_NUM{1'b1}});
+
+        // 各 lane 单独释放再按，避免数组接线串路被全同值测试掩盖。
+        for (stimulus_index = 0; stimulus_index < KNOB_NUM; stimulus_index = stimulus_index + 1)
+        begin
+            lane_mask = '0;
+            lane_mask[stimulus_index] = 1'b1;
+            send_frame('0, '0, '0);
+            send_frame(lane_mask, lane_mask, lane_mask);
+            send_frame(lane_mask, '0, lane_mask);
+        end
+
+        // 取消一份尚未输出的事务；复位后按压基线必须重新建立。
+        reset_dut;
+        send_frame('0, '0, {KNOB_NUM{1'b1}});
+        send_frame('0, '0, '0);
+        send_frame('0, '0, {KNOB_NUM{1'b1}});
+        repeat (5)
+            drive_cycle(1'b0, 1'b0, 1'b0, '0, '0, '0);
+        reset_dut;
+        send_frame({KNOB_NUM{1'b1}}, '0, {KNOB_NUM{1'b1}});
+
+        // 随机流：队首在输入背压时不变，ready 与 tick 独立变化。
+        for (stimulus_index = 0; stimulus_index < 2400; stimulus_index = stimulus_index + 1)
+        begin
+            random_value = $random(seed_state);
+            if (!random_pending && random_value[0])
+            begin
+                random_pending = 1'b1;
+                random_states = $random(seed_state);
+                random_dirs = $random(seed_state);
+                random_pressed = $random(seed_state);
+            end
+            drive_cycle(random_pending, random_value[1], random_value[2],
+                random_states, random_dirs, random_pressed);
+            if (last_input_fire)
+                random_pending = 1'b0;
+        end
+        if (random_pending)
+            send_frame(random_states, random_dirs, random_pressed);
+        repeat (5)
+            drive_cycle(1'b0, 1'b1, 1'b0, '0, '0, '0);
+
+        if (pending || accepted_count != delivered_count + cancelled_count)
+            $fatal(1, "Final drain/conservation failure");
+        if (accepted_count < 300 || cancelled_count < 1 || stalled_cycles < 40 ||
+            positive_steps < KNOB_NUM || negative_steps < KNOB_NUM ||
+            press_count < KNOB_NUM || empty_count < 1 || no_tick_count < 10)
+            $fatal(1, "Required coverage missing");
+        $display("KNOB_EVENT_HANDLER_PASS knobs=%0d seed=%0d accepted=%0d delivered=%0d cancelled=%0d stalls=%0d",
+            KNOB_NUM, SEED, accepted_count, delivered_count, cancelled_count, stalled_cycles);
+        $finish;
+    end
+
+    initial
+    begin
+        #100000000;
+        $fatal(1, "Watchdog: possible handshake deadlock");
+    end
+endmodule
