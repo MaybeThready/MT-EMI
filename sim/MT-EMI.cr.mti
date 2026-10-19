@@ -1,4 +1,11 @@
-./tb/audio/phase_accumulator_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.vt
+D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/envelope.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/envelope.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module envelope
+
+Top level modules:
+	envelope
+
+} {} {}} ./tb/audio/phase_accumulator_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.vt
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module phase_accumulator_tb
 
@@ -12,6 +19,13 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	gowin_pll_MOD
 
+} {} {}} ../src/audio/phase_accumulator_group.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module phase_accumulator_group
+
+Top level modules:
+	phase_accumulator_group
+
 } {} {}} ../src/fixed_points/signed_fp_norm.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/signed_fp_norm.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module signed_fp_norm
@@ -21,12 +35,8 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	signed_fp_norm
 
-} {} {}} ../src/audio/phase_accumulator_group.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v
+} {} {}} ../src/defines.vh {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/defines.vh
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module phase_accumulator_group
-
-Top level modules:
-	phase_accumulator_group
 
 } {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/pll_init.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/pll_init.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -35,9 +45,6 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	PLL_INIT
 
-} {} {}} ../src/defines.vh {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/defines.vh
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
-
 } {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/signal_detection/signal_edge_detector.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/signal_detection/signal_edge_detector.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module signal_edge_detector
@@ -45,12 +52,47 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	signal_edge_detector
 
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.vt
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module phase_accumulator_tb
+
+Top level modules:
+	phase_accumulator_tb
+
 } {} {}} ../src/system/sys_clocker.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_clocker.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module sys_clocker
 
 Top level modules:
 	sys_clocker
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/envelope_group.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/envelope_group.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module envelope_group
+
+Top level modules:
+	envelope_group
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module phase_accumulator_group
+
+Top level modules:
+	phase_accumulator_group
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_clocker.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_clocker.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module sys_clocker
+
+Top level modules:
+	sys_clocker
+
+} {} {}} ./tb/clock/clock_tb.vt {1 {vlog -work work -vopt -stats=none ./tb/clock/clock_tb.vt
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module clock_tb
+
+Top level modules:
+	clock_tb
 
 } {} {}} ../src/fixed_points/signed_fp_op.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/signed_fp_op.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -65,33 +107,19 @@ Top level modules:
 	signed_fp_mult
 	signed_fp_div
 
-} {} {}} ./tb/clock/clock_tb.vt {1 {vlog -work work -vopt -stats=none ./tb/clock/clock_tb.vt
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module clock_tb
-
-Top level modules:
-	clock_tb
-
-} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_clocker.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_clocker.v
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module sys_clocker
-
-Top level modules:
-	sys_clocker
-
-} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/audio/phase_accumulator_group.v
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module phase_accumulator_group
-
-Top level modules:
-	phase_accumulator_group
-
 } {} {}} ../src/top.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/top.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module top
 
 Top level modules:
 	top
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/adsr_division/adsr_division.vo {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/adsr_division/adsr_division.vo
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module adsr_division
+
+Top level modules:
+	adsr_division
 
 } {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/unsigned_fp_op.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/fixed_points/unsigned_fp_op.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -105,6 +133,13 @@ Top level modules:
 	unsigned_fp_sub
 	unsigned_fp_mult
 	unsigned_fp_div
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_group_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_group_tb.vt
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module phase_accumulator_group_tb
+
+Top level modules:
+	phase_accumulator_group_tb
 
 } {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_ticker.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/system/sys_ticker.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -190,6 +225,13 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	phase_accumulator
 
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/envelope_group_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/envelope_group_tb.vt
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module envelope_group_tb
+
+Top level modules:
+	envelope_group_tb
+
 } {} {}} ../src/gowin_pll/gowin_pll.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/gowin_pll/gowin_pll.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module gowin_pll
@@ -248,19 +290,19 @@ Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 Top level modules:
 	signal_sync
 
-} {} {}} ./tb/audio/phase_accumulator_tb.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.v
-Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
--- Compiling module phase_accumulator_tb
-
-Top level modules:
-	phase_accumulator_tb
-
 } {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/src/top.v {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/top.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module top
 
 Top level modules:
 	top
+
+} {} {}} ./tb/audio/phase_accumulator_tb.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/phase_accumulator_tb.v
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module phase_accumulator_tb
+
+Top level modules:
+	phase_accumulator_tb
 
 } {} {}} ../src/pll_init.v {1 {vlog -work work -vopt -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/src/pll_init.v
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
@@ -284,6 +326,13 @@ Top level modules:
 	envelope_group_tb
 
 } {} {}} ./tb/audio/envelope_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/envelope_tb.vt
+Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
+-- Compiling module envelope_tb
+
+Top level modules:
+	envelope_tb
+
+} {} {}} D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/envelope_tb.vt {1 {vlog -work work -vopt -sv -stats=none D:/Work/EDCProject/26FPGA/MT-EMI/sim/tb/audio/envelope_tb.vt
 Model Technology ModelSim SE-64 vlog 2020.4 Compiler 2020.10 Oct 13 2020
 -- Compiling module envelope_tb
 
