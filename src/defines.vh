@@ -12,4 +12,7 @@
 `define SMP_TICK_FREQ (48_000)
 `define SCAN_TICK_FREQ (12_000)
 
+// ADSR 包络除法延迟
+`define ADSR_DIV_LATENCY (16)
+
 `endif

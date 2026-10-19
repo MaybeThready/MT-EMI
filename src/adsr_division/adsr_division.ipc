@@ -1,0 +1,17 @@
+[General]
+ipc_version=4
+file=adsr_division
+module=adsr_division
+target_device=gw5ast138c-003
+type=integer_division
+version=1.0
+
+[Config]
+DATA_TYPE=0
+DIVIDEND_DATA_WIDTH=4
+DIVISOR_DATA_WIDTH=20
+FRACTIONAL_DATA_WIDTH=32
+LANG=0
+LATENCY=16
+REMAINDER=fractional
+Synthesis_tool=GowinSynthesis
