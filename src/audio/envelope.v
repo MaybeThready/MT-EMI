@@ -63,7 +63,17 @@ module envelope
         .out(sub_result)
     );
 
-    localparam WF_TICK = 3'd0, WF_RECV = 3'd1, MULT = 3'd2, SUB = 3'd3, ASSIGN = 3'd4, WF_SEND = 3'd5;
+    localparam ATTACK = 3'd0, DECAY = 3'd1, SUSTAIN = 3'd2, RELEASE = 3'd3, DONE = 3'd4;
+    reg [2:0] adsr_state;
+    reg [15:0] volume_r;
+    reg [15:0] release_start_volume;
+    reg [19:0] attack_ticks_r, decay_ticks_r, release_ticks_r;
+    reg [15:0] sustain_level_r;
+    reg [31:0] k_a_r, k_d_r, k_r_r;
+    reg note_on_r, note_off_r;
+
+    localparam WF_TICK = 3'd0, WF_RECV = 3'd1, PROCESS = 3'd2,
+               MULT = 3'd3, SUB = 3'd4, ASSIGN = 3'd5, WF_SEND = 3'd6;
 
     wire [2:0] stc;
     reg [2:0] stn;
@@ -81,7 +91,8 @@ module envelope
     begin
         case (stc)
             WF_TICK: stn = smp_tick_up ? WF_RECV : WF_TICK;
-            WF_RECV: stn = in_valid ? ((note_on | note_off) ? WF_SEND : MULT) : WF_RECV;
+            WF_RECV: stn = in_valid ? PROCESS : WF_RECV;
+            PROCESS: stn = (note_on_r | note_off_r) ? WF_SEND : MULT;
             MULT: stn = SUB;  // 乘法占用一个周期
             SUB: stn = ASSIGN;  // 减法占用一个周期
             ASSIGN: stn = WF_SEND;  // 赋值占用一个周期
@@ -90,11 +101,6 @@ module envelope
         endcase
     end
 
-    localparam ATTACK = 3'd0, DECAY = 3'd1, SUSTAIN = 3'd2, RELEASE = 3'd3, DONE = 3'd4;
-    reg [2:0] adsr_state;
-    reg [15:0] volume_r;
-    reg [15:0] release_start_volume;
-    
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
@@ -105,6 +111,15 @@ module envelope
             mult_k <= '0;
             bias <= '0;
             release_start_volume <= '0;
+            attack_ticks_r <= '0;
+            decay_ticks_r <= '0;
+            release_ticks_r <= '0;
+            sustain_level_r <= '0;
+            k_a_r <= '0;
+            k_d_r <= '0;
+            k_r_r <= '0;
+            note_on_r <= 1'b0;
+            note_off_r <= 1'b0;
         end
         else
         begin
@@ -113,62 +128,75 @@ module envelope
                 begin
                     if (in_valid)
                     begin
-                        if (note_on)
-                        begin
-                            adsr_state <= ATTACK;
-                            current_tick <= '0;
-                            volume_r <= 16'd0;
-                        end
-                        else if (note_off)
-                        begin
-                            adsr_state <= RELEASE;
-                            current_tick <= '0;
-                            release_start_volume <= volume_r;
-                        end
-                        else
-                        begin
-                            current_tick <= (current_tick == '1) ? current_tick : current_tick + 1'b1;  // 默认加1
-                            case (adsr_state)
-                                ATTACK:
-                                    if (current_tick == attack_ticks)
-                                    begin
-                                        adsr_state <= DECAY;
-                                        current_tick <= '0;  // 伪 Attack 阶段，按照 Decay 处理
-                                        mult_k <= k_d;
-                                        bias <= '1;
-                                    end
-                                    else
-                                    begin
-                                        mult_k <= k_a;
-                                    end
-                                
-                                DECAY:
-                                    if (current_tick == decay_ticks)
-                                    begin
-                                        adsr_state <= SUSTAIN;
-                                        volume_r <= sustain_level;
-                                    end
-                                    else
-                                    begin
-                                        mult_k <= k_d;
-                                        bias <= '1;
-                                    end
+                        attack_ticks_r <= attack_ticks;
+                        decay_ticks_r <= decay_ticks;
+                        sustain_level_r <= sustain_level;
+                        release_ticks_r <= release_ticks;
+                        k_a_r <= k_a;
+                        k_d_r <= k_d;
+                        k_r_r <= k_r;
+                        note_on_r <= note_on;
+                        note_off_r <= note_off;
+                    end
+                end
 
-                                SUSTAIN:
-                                    volume_r <= sustain_level;
+                PROCESS:
+                begin
+                    if (note_on_r)
+                    begin
+                        adsr_state <= ATTACK;
+                        current_tick <= '0;
+                        volume_r <= 16'd0;
+                    end
+                    else if (note_off_r)
+                    begin
+                        adsr_state <= RELEASE;
+                        current_tick <= '0;
+                        release_start_volume <= volume_r;
+                    end
+                    else
+                    begin
+                        current_tick <= (current_tick == '1) ? current_tick : current_tick + 1'b1;  // 默认加1
+                        case (adsr_state)
+                            ATTACK:
+                                if (current_tick == attack_ticks_r)
+                                begin
+                                    adsr_state <= DECAY;
+                                    current_tick <= '0;  // 伪 Attack 阶段，按照 Decay 处理
+                                    mult_k <= k_d_r;
+                                    bias <= '1;
+                                end
+                                else
+                                begin
+                                    mult_k <= k_a_r;
+                                end
+                            
+                            DECAY:
+                                if (current_tick == decay_ticks_r)
+                                begin
+                                    adsr_state <= SUSTAIN;
+                                    volume_r <= sustain_level_r;
+                                end
+                                else
+                                begin
+                                    mult_k <= k_d_r;
+                                    bias <= '1;
+                                end
 
-                                RELEASE:
-                                    if (current_tick == release_ticks)
-                                    begin
-                                        adsr_state <= DONE;
-                                    end
-                                    else
-                                    begin
-                                        mult_k <= k_r;
-                                        bias <= release_start_volume;
-                                    end
-                            endcase
-                        end
+                            SUSTAIN:
+                                volume_r <= sustain_level_r;
+
+                            RELEASE:
+                                if (current_tick == release_ticks_r)
+                                begin
+                                    adsr_state <= DONE;
+                                end
+                                else
+                                begin
+                                    mult_k <= k_r_r;
+                                    bias <= release_start_volume;
+                                end
+                        endcase
                     end
                 end
 

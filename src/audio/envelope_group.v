@@ -91,8 +91,8 @@ module envelope_group
                MULT_A = 4'd5, GET_A = 4'd6,
                MULT_D = 4'd7, GET_D = 4'd8,
                MULT_R = 4'd9, GET_R = 4'd10,
-               WF_SUB_RECV = 4'd11, WF_SUB_SEND = 4'd12,
-               WF_SEND = 4'd13;
+               WF_SUB_RECV = 4'd11, SEND_SUB = 4'd12,
+               WF_SUB_SEND = 4'd13, WF_SEND = 4'd14;
 
     wire [3:0] stc;
     reg [3:0] stn;
@@ -109,6 +109,19 @@ module envelope_group
     wire div_done = div_wait_count == `ADSR_DIV_LATENCY;
     wire [ENVELOPE_NUM-1:0] out_valids, in_readys;
     wire in_valid_w, out_ready_w;
+    localparam VALID_GROUP_NUM = (ENVELOPE_NUM + 7) / 8;
+    wire [VALID_GROUP_NUM-1:0] valid_groups_w;
+    reg [VALID_GROUP_NUM-1:0] valid_groups_r;
+
+    genvar g;
+    generate
+        for (g = 0; g < VALID_GROUP_NUM; g = g + 1)
+        begin
+            localparam GROUP_WIDTH = (g + 1) * 8 > ENVELOPE_NUM ?
+                                     ENVELOPE_NUM - g * 8 : 8;
+            assign valid_groups_w[g] = &out_valids[g * 8 +: GROUP_WIDTH];
+        end
+    endgenerate
 
     always @(*)
     begin
@@ -124,11 +137,22 @@ module envelope_group
             GET_D: stn = MULT_R;
             MULT_R: stn = GET_R;
             GET_R: stn = lane_index == ENVELOPE_NUM - 1 ? WF_SUB_RECV : MULT_R;
-            WF_SUB_RECV: stn = (&in_readys) ? WF_SUB_SEND : WF_SUB_RECV;
-            WF_SUB_SEND: stn = (&out_valids) ? WF_SEND : WF_SUB_SEND;
+            WF_SUB_RECV: stn = (&in_readys) ? SEND_SUB : WF_SUB_RECV;
+            SEND_SUB: stn = WF_SUB_SEND;
+            WF_SUB_SEND: stn = (&valid_groups_r) ? WF_SEND : WF_SUB_SEND;
             WF_SEND: stn = out_ready ? WF_TICK : WF_SEND;
             default: stn = WF_TICK;
         endcase
+    end
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            valid_groups_r <= '0;
+        else if (stc == SEND_SUB)
+            valid_groups_r <= '0;
+        else
+            valid_groups_r <= valid_groups_w;
     end
 
     always @(*)
@@ -278,8 +302,8 @@ module envelope_group
         end
     endgenerate
 
-    assign in_valid_w = (stc == WF_SUB_RECV) & (&in_readys);
-    assign out_ready_w = (stc == WF_SEND) & out_ready & (&out_valids);
+    assign in_valid_w = (stc == SEND_SUB);
+    assign out_ready_w = (stc == WF_SEND) & out_ready;
     assign in_ready = (stc == WF_RECV);
-    assign out_valid = (stc == WF_SEND) & (&out_valids);
+    assign out_valid = (stc == WF_SEND);
 endmodule
