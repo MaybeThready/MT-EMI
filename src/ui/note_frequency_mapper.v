@@ -1,4 +1,6 @@
 /**
+ * note_frequency_mapper 模块 v2
+ * v2版本修改：去掉装载使能中重复的复位判断，频率和延迟不变。
  * 把琴键编号换算成音符频率，24 键对应 C4～B5，A4 为键 9。
  * key_id/occupied: 每个声部的键号及是否已分配；未分配或键号非法时输出零。
  * note_freq: 32 位 UQ16.16，编码为 round(频率 × 65536)，A4 为 440 Hz。
@@ -87,7 +89,8 @@ module note_frequency_mapper
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
                 frequency_r[voice] <= 32'd0;
         end
-        else if (in_valid && in_ready)
+        // 外层已处理异步复位；内部使能不再绕行含 rst_n 的公开 ready。
+        else if (in_valid && (current_state == STATE_WAIT_MAPPING))
         begin
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
                 frequency_r[voice] <= (occupied[voice] && (key_id[voice] < KEY_NUM)) ?

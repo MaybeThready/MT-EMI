@@ -70,13 +70,15 @@ module note_velocity_controller_tb;
             in_valid = 1'b0;
             for (voice = 0; voice < 3; voice = voice + 1)
                 key_velocity[voice] = ~key_velocity[voice];
-            // E0 已捕获，随后 E1 计算差值／候选，E2 提交结果。
+            // E0 已捕获，E1 下限处理、E2 计算差值／候选、E3 提交结果。
             if (out_valid || in_ready) $fatal(1, "力度计算阶段时序错误");
             occupied = 3'b000;
             held = 3'b000;
             note_on = 3'b000;
             for (voice = 0; voice < 3; voice = voice + 1)
                 key_id[voice] = 2'd3;
+            @(negedge clk_sys);
+            if (out_valid || in_ready) $fatal(1, "压力下限处理阶段提前发布结果");
             @(negedge clk_sys);
             if (out_valid || in_ready) $fatal(1, "中间计算阶段提前发布结果");
             @(negedge clk_sys);
@@ -91,8 +93,8 @@ module note_velocity_controller_tb;
             @(negedge clk_sys);
             out_ready = 1'b0;
         end
-        // 分别在捕获后、候选计算后、有效结果等待期间取消事务。
-        for (stage = 0; stage < 3; stage = stage + 1)
+        // 分别在压力捕获、下限处理、候选计算、结果等待期间取消事务。
+        for (stage = 0; stage < 4; stage = stage + 1)
         begin
             occupied = 3'b111;
             held = 3'b111;
@@ -116,12 +118,12 @@ module note_velocity_controller_tb;
             repeat (4) @(negedge clk_sys);
             if (out_valid || !in_ready) $fatal(1, "复位后泄漏旧事务");
         end
-        // ready 预先为高仍必须完成 E0/E1/E2，并在 E3 仅交付一次。
+        // ready 预先为高仍必须完成 E0/E1/E2/E3，并在 E4 仅交付一次。
         out_ready = 1'b1;
         in_valid = 1'b1;
         @(negedge clk_sys);
         in_valid = 1'b0;
-        repeat (2) @(negedge clk_sys);
+        repeat (3) @(negedge clk_sys);
         if (!out_valid) $fatal(1, "预置 ready 时未产生 valid");
         for (voice = 0; voice < 3; voice = voice + 1)
             if (note_velocity[voice] !== 16'hffff) $fatal(1, "复位后新事务错误");
@@ -130,7 +132,7 @@ module note_velocity_controller_tb;
         rst_n = 1'b0;
         #1;
         if (out_valid || note_velocity[0]) $fatal(1, "力度复位失败");
-        $display("NOTE_VELOCITY_CONTROLLER_PASS samples=815 voices=3 reset_stages=3");
+        $display("NOTE_VELOCITY_CONTROLLER_PASS samples=815 voices=3 reset_stages=4");
         $finish;
     end
 endmodule

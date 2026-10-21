@@ -1,10 +1,13 @@
 /**
+ * note_velocity_controller 模块 v2
+ * v2版本修改：压力选取与最低值判断分拍，缩短计算路径。
  * 将琴键压力换算成声部力度，按住时平滑变化，松开后保持最后力度。
  * key_id/key_velocity: 对应键号与压力；须和 occupied、held、note_on 属于同次输入。
  * note_velocity: 16 位 UQ0.16 压力音量，不包含总音量和 ADSR。
  * MIN_VELOCITY: 最小力度，3277 约为 5%；SLEW_STEP: 每次采样最大变化量。
  * 新音直接采用不低于最小值的压力；默认步长 274 在 48 kHz 下满程约 5 ms。
- * 输入接收、计算、更新分三拍；最早在接收后的第三个上升沿交付。
+ * IF-KEYBOARD-07：输入接收、下限处理、候选计算、更新分四拍；
+ * 最早在接收后的第四个上升沿交付，数值与背压规则不变。
  * NOTE: 只使用加减比较；等待接收时保持结果，不重复推进平滑。
  */
 module note_velocity_controller
@@ -28,17 +31,18 @@ module note_velocity_controller
     output out_valid,
     input out_ready
 );
-    localparam STATE_WAIT_SAMPLE = 2'd0;
-    // 等待输入、计算中间量、提交一次力度更新、保持结果等待下游。
-    localparam STATE_CALCULATE_STEP_CANDIDATES = 2'd1;
-    localparam STATE_APPLY_SMOOTHING = 2'd2;
-    localparam STATE_WAIT_RESULT_ACCEPT = 2'd3;
+    localparam STATE_WAIT_SAMPLE = 3'd0;
+    localparam STATE_CLAMP_TARGET_PRESSURE = 3'd1;
+    localparam STATE_CALCULATE_STEP_CANDIDATES = 3'd2;
+    localparam STATE_APPLY_SMOOTHING = 3'd3;
+    localparam STATE_WAIT_RESULT_ACCEPT = 3'd4;
     localparam signed [16:0] POSITIVE_SLEW_STEP = $signed({1'b0, SLEW_STEP});
     localparam signed [16:0] NEGATIVE_SLEW_STEP = -POSITIVE_SLEW_STEP;
-    wire [1:0] current_state;
-    reg [1:0] next_state;
+    wire [2:0] current_state;
+    reg [2:0] next_state;
     reg [15:0] velocity_r [MAX_POLYPHONY-1:0];
-    wire [15:0] target [MAX_POLYPHONY-1:0];
+    wire [15:0] selected_pressure [MAX_POLYPHONY-1:0];
+    reg [15:0] pressure_r [MAX_POLYPHONY-1:0];
     reg [15:0] target_r [MAX_POLYPHONY-1:0];
     reg signed [16:0] difference_r [MAX_POLYPHONY-1:0];
     reg [15:0] increased_velocity_r [MAX_POLYPHONY-1:0];
@@ -53,22 +57,22 @@ module note_velocity_controller
     generate
         for (voice_index = 0; voice_index < MAX_POLYPHONY; voice_index = voice_index + 1)
         begin : velocity_outputs
-            wire [15:0] pressure;
-            assign pressure = (key_id[voice_index] < KEY_NUM) ? key_velocity[key_id[voice_index]] : 16'd0;
-            assign target[voice_index] = (pressure < MIN_VELOCITY) ? MIN_VELOCITY : pressure;
+            assign selected_pressure[voice_index] = (key_id[voice_index] < KEY_NUM) ?
+                key_velocity[key_id[voice_index]] : 16'd0;
             assign note_velocity[voice_index] = velocity_r[voice_index];
         end
     endgenerate
     assign in_ready = rst_n && (current_state == STATE_WAIT_SAMPLE);
     // 复位状态本身无有效结果；异步复位仍保留在状态与数据寄存器。
     assign out_valid = (current_state == STATE_WAIT_RESULT_ACCEPT);
-    fsm #(.W(2), .INITIAL_STATE(STATE_WAIT_SAMPLE)) fsm_u (
+    fsm #(.W(3), .INITIAL_STATE(STATE_WAIT_SAMPLE)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
     always @(*)
     begin
         case (current_state)
-            STATE_WAIT_SAMPLE: next_state = in_valid ? STATE_CALCULATE_STEP_CANDIDATES : STATE_WAIT_SAMPLE;
+            STATE_WAIT_SAMPLE: next_state = in_valid ? STATE_CLAMP_TARGET_PRESSURE : STATE_WAIT_SAMPLE;
+            STATE_CLAMP_TARGET_PRESSURE: next_state = STATE_CALCULATE_STEP_CANDIDATES;
             STATE_CALCULATE_STEP_CANDIDATES: next_state = STATE_APPLY_SMOOTHING;
             STATE_APPLY_SMOOTHING: next_state = STATE_WAIT_RESULT_ACCEPT;
             STATE_WAIT_RESULT_ACCEPT: next_state = out_ready ? STATE_WAIT_SAMPLE : STATE_WAIT_RESULT_ACCEPT;
@@ -85,6 +89,7 @@ module note_velocity_controller
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
             begin
                 velocity_r[voice] <= 16'd0;
+                pressure_r[voice] <= 16'd0;
                 target_r[voice] <= 16'd0;
             end
         end
@@ -95,8 +100,15 @@ module note_velocity_controller
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
             begin
                 occupied_r[voice] <= occupied[voice] && (key_id[voice] < KEY_NUM);
-                target_r[voice] <= target[voice];
+                pressure_r[voice] <= selected_pressure[voice];
             end
+        end
+        else if (current_state == STATE_CLAMP_TARGET_PRESSURE)
+        begin
+            // 压力多路选择和最低 5% 比较分拍；使用已接收的压力，不读取变化中的输入。
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                target_r[voice] <= (pressure_r[voice] < MIN_VELOCITY) ?
+                    MIN_VELOCITY : pressure_r[voice];
         end
         else if (current_state == STATE_APPLY_SMOOTHING)
         begin
@@ -119,7 +131,7 @@ module note_velocity_controller
         end
     end
     // 中间候选连续计算，不需要一个状态信号驱动 32 路的 1568 个 CE。
-    // E0 目标捕获后，E1 候选稳定；只有 E2 提交状态可以改变公开力度。
+    // E0 原始压力捕获，E1 下限处理，E2 候选稳定；只有 E3 提交状态改变公开力度。
     // 背压期间中间量可变化，公开结果仍保持；异步复位行为保持原约定。
     always @(posedge clk_sys or negedge rst_n)
     begin

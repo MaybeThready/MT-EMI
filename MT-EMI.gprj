@@ -20,5 +20,20 @@
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
+        <File path="src/ui/button_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_frame_events.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_note_pipeline.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_voice_allocator.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/knob_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/knob_parameter_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_frequency_mapper.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_velocity_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_control_pipeline.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_control_state.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_input_frame_joiner.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_parameter_encoder.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/user_interface.v" type="file.verilog" enable="1"/>
+        <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
     </FileList>
 </Project>

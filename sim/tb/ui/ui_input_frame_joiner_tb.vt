@@ -286,7 +286,11 @@ module ui_input_frame_joiner_tb;
                 if (protocol_error) $fatal(1,"Invented missing-last timeout");
                 send_knob(4'd1,8'd0,1'b1);
             end
-            repeat (5) @(negedge clk_sys);
+            // 错帧先入缓冲，下一沿检查并停机；优化不能改变报错时刻。
+            if (protocol_error) $fatal(1, "错误标志在检查前提前置位");
+            @(negedge clk_sys);
+            if (!protocol_error) $fatal(1, "错误标志未在检查沿置位 case %0d", index);
+            repeat (4) @(negedge clk_sys);
             if (!protocol_error || button_in_ready || knob_in_ready || button_out_valid || knob_out_valid)
                 $fatal(1,"Protocol error not latched case %0d",index);
             repeat (4) @(negedge clk_sys);

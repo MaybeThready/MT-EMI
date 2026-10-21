@@ -2,6 +2,13 @@
 
 
 
+**v2 版本修改（2026-10-21）优化了时序，并修复了modelsim工程的路径问题：**
+
+- `keyboard_note_pipeline.v`：采样装载与结果确认分拍。
+- `note_velocity_controller.v`：压力选取与最低值判断分拍。
+- `note_frequency_mapper.v`：去掉装载使能中重复的复位判断。
+- `ui_input_frame_joiner.v`：单独判断协议错误，报错时刻不变。
+
 ## 1. 输入数据和动作是什么意思
 
 **一帧输入，就是驱动一次交给 UI 的一组数据。**
@@ -148,4 +155,9 @@ flowchart TB
 
 
 
+
+
+## 5. 本版交付与运行
+
+- 本版输出最早在smp-tick 后第七个系统时钟沿握手，比旧版多 3 拍（约 30.54 ns）；音频按 `valid && ready` 接收
 

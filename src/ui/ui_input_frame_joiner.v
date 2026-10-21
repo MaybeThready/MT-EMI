@@ -1,4 +1,6 @@
 /**
+ * ui_input_frame_joiner 模块 v2
+ * v2版本修改：单独判断协议错误，报错和停机时刻不变。
  * 协调按钮和旋钮的处理顺序，避免切换模式时用错旋钮步长。
  * 先处理按钮并保存模式和粗细调设置，再逐组处理对应的旋钮动作。
  * button_batch_id/knob_batch_id: 同批编号；BATCH_ID_WIDTH 为编号位宽。
@@ -78,13 +80,15 @@ module ui_input_frame_joiner
     reg edit_enable_r;
     reg edit_target_r;
     reg batch_clear_r;
+    // 与错误状态同沿更新，避免状态译码串入下游宽总线的写使能。
+    reg protocol_error_r /* synthesis syn_preserve = 1 */;
 
     fsm #(
         .W(3), .INITIAL_STATE(STATE_WAIT_BATCH_INPUTS)
     ) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
-    assign protocol_error = current_state == STATE_PROTOCOL_ERROR;
+    assign protocol_error = protocol_error_r;
     assign button_in_ready = rst_n && !protocol_error && !button_buffer_full;
     assign knob_in_ready = rst_n && !protocol_error && !knob_buffer_full;
     assign button_out_valid = rst_n && (current_state == STATE_SEND_BUTTON_FRAME);
@@ -144,6 +148,7 @@ module ui_input_frame_joiner
     begin
         if (!rst_n)
         begin
+            protocol_error_r <= 1'b0;
             expected_batch_id <= {BATCH_ID_WIDTH{1'b0}};
             button_buffer_full <= 1'b0;
             button_states_r <= 4'd0;
@@ -165,6 +170,21 @@ module ui_input_frame_joiner
         end
         else
         begin
+            // 只检查会产生错误的状态，不让无关的 ready/valid 穿过完整 next_state 译码。
+            // 与 FSM 进入错误状态同沿置位，保留非法状态停机及复位恢复行为。
+            case (current_state)
+                STATE_WAIT_BATCH_INPUTS:
+                    protocol_error_r <=
+                        (button_buffer_full && ((button_batch_id_r != expected_batch_id) || !button_batch_last_r)) ||
+                        (knob_buffer_full && (knob_batch_id_r != expected_batch_id));
+                STATE_WAIT_KNOB_FRAME:
+                    protocol_error_r <= knob_buffer_full && (knob_batch_id_r != expected_batch_id);
+                STATE_SEND_BUTTON_FRAME, STATE_WAIT_CONTROL_CONTEXT,
+                STATE_SEND_KNOB_FRAME, STATE_WAIT_FRAME_COMMIT:
+                    protocol_error_r <= 1'b0;
+                default:
+                    protocol_error_r <= 1'b1;
+            endcase
             if (button_in_valid && button_in_ready)
             begin
                 button_buffer_full <= 1'b1;

@@ -1,9 +1,13 @@
 /**
+ * keyboard_note_pipeline 模块 v2
+ * v2版本修改：分拍装载采样数据并确认计算完成，缩短握手路径。
  * 键盘处理顶层：连接按键检测、声部分配、音高换算和压力平滑。
  * smp_tick_up: 启动一次音符输出；没有新输入时仍更新压力平滑。
  * sample_ready: 可以开始下一次计算；sample_overrun: 尚未完成又来了采样脉冲。
  * note_on/note_off: 每次输入产生的通知只交付一次，不随后续采样重复发送。
  * 等待音频接收时保持结果；同拍新算出的按键结果留到下次采样使用。
+ * IF-KEYBOARD-06/07：采样决定、装载、压力下限与结果汇合分拍；最早在 tick 后第七沿交付。
+ * 输入事件在音频接收前保持不变，因此装载延后一拍不会改变本次采样内容。
  * VELOCITY_SLEW_STEP: 每次采样的最大力度变化，UQ0.16 编码。
  * TODO: 当前只输出基准音高，未加入弯音。
  */
@@ -32,11 +36,13 @@ module keyboard_note_pipeline
     output sample_ready,
     output sample_overrun
 );
-    localparam STATE_WAIT_SAMPLE_TICK = 2'd0;
-    localparam STATE_START_CONVERSION = 2'd1;
-    localparam STATE_WAIT_AUDIO_ACCEPT = 2'd2;
-    wire [1:0] current_state;
-    reg [1:0] next_state;
+    localparam STATE_WAIT_SAMPLE_TICK = 3'd0;
+    localparam STATE_CAPTURE_SAMPLE_INPUT = 3'd1;
+    localparam STATE_START_CONVERSION = 3'd2;
+    localparam STATE_WAIT_CONVERSION_RESULTS = 3'd3;
+    localparam STATE_WAIT_AUDIO_ACCEPT = 3'd4;
+    wire [2:0] current_state;
+    reg [2:0] next_state;
     wire event_valid;
     wire event_ready;
     wire [MAX_POLYPHONY-1:0] event_on;
@@ -61,8 +67,8 @@ module keyboard_note_pipeline
     wire result_accept;
     integer voice;
     integer key_index;
-    // 状态及子模块 valid 均异步清零，不再串接高扇出复位网。
-    assign out_valid = (current_state == STATE_WAIT_AUDIO_ACCEPT) && frequency_valid && velocity_valid;
+    // 两路结果已经确认并保持，公开 valid 不再组合穿过子模块计算完成信号。
+    assign out_valid = (current_state == STATE_WAIT_AUDIO_ACCEPT);
     assign result_accept = out_valid && out_ready;
     assign event_ready = result_accept && sample_has_frame_r;
     wire sample_available;
@@ -99,7 +105,7 @@ module keyboard_note_pipeline
         .in_valid(conversion_valid), .in_ready(velocity_ready), .note_velocity(note_velocity),
         .out_valid(velocity_valid), .out_ready(result_accept)
     );
-    fsm #(.W(2), .INITIAL_STATE(STATE_WAIT_SAMPLE_TICK)) fsm_u (
+    fsm #(.W(3), .INITIAL_STATE(STATE_WAIT_SAMPLE_TICK)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
     always @(*)
@@ -107,11 +113,15 @@ module keyboard_note_pipeline
         next_state = current_state;
         case (current_state)
             STATE_WAIT_SAMPLE_TICK:
-                if (smp_tick_up) next_state = STATE_START_CONVERSION;
+                if (smp_tick_up) next_state = STATE_CAPTURE_SAMPLE_INPUT;
+            STATE_CAPTURE_SAMPLE_INPUT:
+                next_state = STATE_START_CONVERSION;
             STATE_START_CONVERSION:
-                if (conversion_valid) next_state = STATE_WAIT_AUDIO_ACCEPT;
+                next_state = STATE_WAIT_CONVERSION_RESULTS;
+            STATE_WAIT_CONVERSION_RESULTS:
+                if (frequency_valid && velocity_valid) next_state = STATE_WAIT_AUDIO_ACCEPT;
             STATE_WAIT_AUDIO_ACCEPT:
-                if (result_accept) next_state = smp_tick_up ? STATE_START_CONVERSION : STATE_WAIT_SAMPLE_TICK;
+                if (result_accept) next_state = smp_tick_up ? STATE_CAPTURE_SAMPLE_INPUT : STATE_WAIT_SAMPLE_TICK;
             default: next_state = STATE_WAIT_SAMPLE_TICK;
         endcase
     end
@@ -140,15 +150,17 @@ module keyboard_note_pipeline
                 sample_has_frame_r <= event_valid && !event_ready;
                 sample_on_r <= (event_valid && !event_ready) ? event_on : {MAX_POLYPHONY{1'b0}};
                 sample_off_r <= (event_valid && !event_ready) ? event_off : {MAX_POLYPHONY{1'b0}};
-                if (event_valid && !event_ready)
-                begin
-                    latest_occupied_r <= event_occupied;
-                    latest_held_r <= event_held;
-                    for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-                        latest_key_id_r[voice] <= event_key_id[voice];
-                    for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
-                        latest_pressure_r[key_index] <= event_pressure[key_index];
-                end
+            end
+            // 使用上一拍锁存的决定驱动大组寄存器，切断 ready 到数据使能的组合长路径。
+            // 此时 event_ready 必为零；没有在 tick 选中的新帧不能提前进入本次采样。
+            if ((current_state == STATE_CAPTURE_SAMPLE_INPUT) && sample_has_frame_r)
+            begin
+                latest_occupied_r <= event_occupied;
+                latest_held_r <= event_held;
+                for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                    latest_key_id_r[voice] <= event_key_id[voice];
+                for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
+                    latest_pressure_r[key_index] <= event_pressure[key_index];
             end
         end
     end

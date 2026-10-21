@@ -76,9 +76,9 @@ module user_interface_keyboard_tb;
             begin
                 @(negedge clk_sys);
                 cycles = cycles + 1;
-                if (cycles > 4) $fatal(1, "采样计算超时");
+                if (cycles > 7) $fatal(1, "采样计算超时");
             end
-            if (cycles != 3) $fatal(1, "频率与力度汇合延迟不符合三级力度流水约定");
+            if (cycles != 6) $fatal(1, "采样装载、压力下限与结果确认流水延迟错误");
             for (stall = 0; stall <= stalled_ticks; stall = stall + 1)
             begin
                 if (note_on !== expected_on || note_off !== expected_off ||
