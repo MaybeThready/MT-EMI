@@ -1,11 +1,13 @@
 /**
- * 用户交互顶层：处理琴键、按钮和旋钮，向音频模块输出音符及音色参数。
+ * 用户交互顶层 v3：处理琴键、按钮和旋钮，向音频输出音符及音色参数。
+ * v3 版本修改：新增音色存储与菜单接口，保留 v2 键盘流水和原音频接口。
  * 输入一次接收整组键盘、压力、按钮和旋钮数据；接收条件为 in_valid && in_ready。
  * 输出由 smp_tick_up 启动更新，out_valid && out_ready 时整组交付一次。
  * 等待接收时保持 valid 和数据不变；rst_n 接系统的 rst_sys_n。
  * NOTE: 相对 S1，ADR 改为 20 位采样周期数，新增总音量和四种效果干湿比。
  * NOTE: 新增 button_states、smp_tick_up 和错误指示，详见交接 README。
  * NOTE: 键盘与参数各取采样前已完成的结果，不保证同一输入同时生效。
+ * NOTE: 新增音色存储和菜单接口；成功读取目前仅恢复参数，不清音，待音频接口确定。
  * TODO: 弯音尚未实现；note_busy 的更新规则待音频负责人确认。
  */
 module user_interface
@@ -54,7 +56,27 @@ module user_interface
     output [15:0] distortion_mix,
     output [15:0] chorus_mix,
     output configuration_error,
-    output sample_overrun
+    output sample_overrun,
+    // 存储接口以 UI 为参照：out 发请求，in 收结果；槽号 0～15 对应界面 01～16。
+    // out_ready 由存储返回，in_ready 由 UI 输出；均按 clk_sys 上升沿握手。
+    output storage_out_valid,
+    input storage_out_ready,
+    output storage_out_write,
+    output [3:0] storage_out_slot,
+    output [511:0] storage_out_data,
+    input storage_in_valid,
+    output storage_in_ready,
+    input [2:0] storage_in_status,
+    input [511:0] storage_in_data,
+    output [2:0] menu_page,
+    output [1:0] menu_selection,
+    output [3:0] menu_slot,
+    output menu_save,
+    output [3:0] menu_result_status,
+    input storage_catalog_valid,
+    input [15:0] storage_slot_present,
+    output menu_slot_known,
+    output menu_slot_present
 );
     localparam STATE_WAIT_COMBINED_FRAME = 1'b0;
     localparam STATE_DELIVER_FRAME_TO_ALL_SOURCES = 1'b1;
@@ -237,6 +259,24 @@ module user_interface
         .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS),
         .SMP_TICK_FREQ(SMP_TICK_FREQ)
     ) ui_control_pipeline_u (
+        .storage_out_valid(storage_out_valid),
+        .storage_out_ready(storage_out_ready),
+        .storage_out_write(storage_out_write),
+        .storage_out_slot(storage_out_slot),
+        .storage_out_data(storage_out_data),
+        .storage_in_valid(storage_in_valid),
+        .storage_in_ready(storage_in_ready),
+        .storage_in_status(storage_in_status),
+        .storage_in_data(storage_in_data),
+        .menu_page(menu_page),
+        .menu_selection(menu_selection),
+        .menu_slot(menu_slot),
+        .menu_save(menu_save),
+        .menu_result_status(menu_result_status),
+        .storage_catalog_valid(storage_catalog_valid),
+        .storage_slot_present(storage_slot_present),
+        .menu_slot_known(menu_slot_known),
+        .menu_slot_present(menu_slot_present),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .scan_tick_up(scan_tick_up),

@@ -59,6 +59,11 @@ module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter S
     knob_parameter_controller #(
         .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) knob_parameter_controller_u (
+        // 存储未接入的旧测试：新增输入明确接零，输出留空。
+        .preset_load_valid(1'b0),
+        .preset_load_ready(),
+        .preset_load_parameters(192'd0),
+        .preset_current_parameters(),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .knob_delta(knob_delta),

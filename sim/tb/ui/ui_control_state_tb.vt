@@ -36,6 +36,19 @@ module ui_control_state_tb;
     reg context_ready = 1'b0;
     integer value [0:5];
     ui_control_state ui_control_state_u (
+        // 存储未接入的旧测试：新增输入明确接零，输出留空。
+        .preset_command_valid(),
+        .preset_command_ready(1'b0),
+        .preset_command_write(),
+        .preset_command_slot(),
+        .preset_result_valid(1'b0),
+        .preset_result_ready(),
+        .preset_result_status(4'd0),
+        .menu_page(),
+        .menu_selection(),
+        .menu_slot(),
+        .menu_save(),
+        .menu_result_status(),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .button_pressed_event(button_pressed_event),

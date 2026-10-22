@@ -1,5 +1,6 @@
 /**
- * 根据旋钮动作修改音色参数，处理粗细调、限幅和恢复默认值。
+ * 旋钮参数模块 v2：修改音色参数，处理粗细调、限幅和恢复默认值。
+ * v2 版本修改：导出保存参数，校验通过后整组装载音色，保留总音量。
  * knob_delta: 每路 -1/0/+1 步；mode/fine_adjust: 本次使用的模式及微调开关。
  * 参数按百分比、角度、毫秒保存；按下旋钮恢复默认，优先于同次转动。
  * frame_done_valid: 本次旋钮已处理完成，即使没有修改参数也返回确认。
@@ -40,7 +41,12 @@ module knob_parameter_controller
     output [6:0] distortion_mix_percent,
     output [6:0] chorus_mix_percent,
     output parameter_valid,
-    input parameter_ready
+    input parameter_ready,
+    // 新增：已校验的整组音色；优先于下一次旋钮事件，总音量保持不变。
+    input preset_load_valid,
+    output preset_load_ready,
+    input [191:0] preset_load_parameters,
+    output [191:0] preset_current_parameters
 );
     // 冻结数据传输属性；握手后不再使用实时输入。
     integer capture_index;
@@ -64,7 +70,7 @@ module knob_parameter_controller
     reg [6:0] delay_mix_percent_previous;
     reg [6:0] distortion_mix_percent_previous;
     reg [6:0] chorus_mix_percent_previous;
-    // 状态分别表示完成槽空闲，以及本帧已提交但尚未收到确认。
+    // 依次等待输入、计算修改、标记更新、等待本次处理完成被接收。
     localparam STATE_WAIT_EVENT_FRAME = 2'd0;
     localparam STATE_CALCULATE_FRAME = 2'd1;
     localparam STATE_MARK_PARAMETERS_DIRTY = 2'd2;
@@ -168,8 +174,28 @@ module knob_parameter_controller
     reg [6:0] chorus_mix_percent_snapshot_r;
     assign chorus_mix_percent = chorus_mix_percent_snapshot_r;
 
+    assign preset_current_parameters = {
+        {9'd0, chorus_mix_percent_r},
+        {9'd0, distortion_mix_percent_r},
+        {9'd0, delay_mix_percent_r},
+        {9'd0, reverb_mix_percent_r},
+        {3'd0, release_ms_r},
+        {9'd0, sustain_percent_r},
+        {5'd0, decay_ms_r},
+        {5'd0, attack_ms_r},
+        {7'd0, phase_degrees_r},
+        {9'd0, interp_percent_r},
+        {12'd0, wavetable_1_r},
+        {12'd0, wavetable_0_r}
+    };
+
     assign configuration_error = (WAVE_SELECT_STEPS < 1) || (WAVE_SELECT_STEPS > 32767);
-    assign in_ready = rst_n && !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME);
+    wire preset_load_request;
+    assign in_ready = rst_n && !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME)
+        && !preset_load_request;
+    // 未使用音色功能时，preset_load_valid 必须接 0，不允许悬空。
+    assign preset_load_request = preset_load_valid;
+    assign preset_load_ready = rst_n && !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME);
     assign frame_done_valid = rst_n && (current_state == STATE_WAIT_COMPLETION_ACCEPT);
     assign parameter_valid = rst_n && snapshot_valid_r;
     assign wave_progress = wave_progress_r;
@@ -400,6 +426,23 @@ module knob_parameter_controller
                 delay_mix_percent_r <= delay_mix_percent_next;
                 distortion_mix_percent_r <= distortion_mix_percent_next;
                 chorus_mix_percent_r <= chorus_mix_percent_next;
+            end
+            if (preset_load_request && preset_load_ready)
+            begin
+                wavetable_0_r <= preset_load_parameters[3:0];
+                wavetable_1_r <= preset_load_parameters[19:16];
+                interp_percent_r <= preset_load_parameters[38:32];
+                phase_degrees_r <= preset_load_parameters[56:48];
+                attack_ms_r <= preset_load_parameters[74:64];
+                decay_ms_r <= preset_load_parameters[90:80];
+                sustain_percent_r <= preset_load_parameters[102:96];
+                release_ms_r <= preset_load_parameters[124:112];
+                reverb_mix_percent_r <= preset_load_parameters[134:128];
+                delay_mix_percent_r <= preset_load_parameters[150:144];
+                distortion_mix_percent_r <= preset_load_parameters[166:160];
+                chorus_mix_percent_r <= preset_load_parameters[182:176];
+                wave_progress_r <= '0;
+                snapshot_dirty_r <= 1'b1;
             end
             if ((current_state == STATE_MARK_PARAMETERS_DIRTY) && bank_changed)
                 snapshot_dirty_r <= 1'b1;

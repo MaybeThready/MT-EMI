@@ -9,9 +9,10 @@ import sys
 sys.dont_write_bytecode = True
 import random
 from pathlib import Path
-from generate_parameter_rtl import ROOT, FIELDS
+ROOT = Path(__file__).resolve().parents[2]
+FIELDS = [('wavetable_0', 4, 0, True), ('wavetable_1', 4, 1, True), ('interp_percent', 7, 0, True), ('phase_degrees', 9, 0, True), ('attack_ms', 11, 5, True), ('decay_ms', 11, 150, True), ('sustain_percent', 7, 70, True), ('release_ms', 13, 200, True), ('master_percent', 7, 30, False), ('reverb', 7, 0, False), ('delay', 7, 0, False), ('distortion', 7, 0, False), ('chorus', 7, 0, False)]
 
-ASSETS = ROOT / 'sim/assets'
+ASSETS = ROOT / 'assets/ui/test_vectors/control'
 ASSETS.mkdir(parents=True, exist_ok=True)
 DEFAULTS = [x[2] for x in FIELDS]
 
@@ -88,25 +89,48 @@ def make_encoder(freq):
     rows.append(v+encode(v,freq))
     write_vectors(f'encoder_{freq}.txt',rows)
 
+
+class MenuReference:
+    """按使用说明解释单次按钮动作；此回归无存储响应，执行后等待。"""
+    def __init__(self):
+        self.page = 'play'
+        self.selection = 0
+    def step(self, press, mode):
+        clear = 0
+        if self.page == 'play':
+            if press & 1:
+                self.page, self.selection, clear = 'main', 0, 1
+            elif press & 2:
+                mode, clear = mode ^ 1, 1
+        elif self.page == 'main':
+            if press & 8 or (press & 1 and self.selection == 0):
+                self.page, clear = 'play', 1
+            elif press & 1:
+                self.page = 'advanced' if self.selection == 3 else 'slots'
+            elif press & 2:
+                self.selection = max(0, self.selection - 1)
+            elif press & 4 and self.selection < 3:
+                self.selection += 1
+        elif self.page == 'slots':
+            if press & 8: self.page = 'main'
+            elif press & 1: self.page = 'confirm'
+        elif self.page == 'confirm':
+            if press & 8: self.page = 'slots'
+            elif press & 1: self.page = 'busy'
+        elif self.page == 'advanced':
+            if press & 9: self.page = 'main'
+        return mode, self.page != 'play', clear
+
 def make_control():
     rows=[]
     mode=0
     menu=False
+    menu_model=MenuReference()
     rng=random.Random(41017)
     for i in range(512):
         press = i%16 if i<32 else rng.randrange(16)
         held = press | rng.randrange(16)
-        clear=0
-        if menu:
-            if press&8:
-                menu=False
-                clear=1
-        elif press&1:
-            menu=True
-            clear=1
-        elif press&2:
-            mode ^= 1
-            clear=1
+        mode,menu,clear=menu_model.step(press,mode)
         rows.append([press,held,mode,int(bool(held&8) and not menu),int(not menu),clear])
     write_vectors('control.txt',rows)
 
@@ -115,6 +139,7 @@ def make_pipeline():
     bank=Bank(4)
     mode=0
     menu=False
+    menu_model=MenuReference()
     previous_button=None
     previous_knob=None
     buttons=[]
@@ -128,14 +153,7 @@ def make_pipeline():
         b=levels[batch] if batch<len(levels) else rng.randrange(16)
         press=0 if previous_button is None else b & ~previous_button
         previous_button=b
-        clear=0
-        if menu:
-            if press&8:
-                menu=False; clear=1
-        elif press&1:
-            menu=True; clear=1
-        elif press&2:
-            mode ^= 1; clear=1
+        mode,menu,clear=menu_model.step(press,mode)
         fine=int(bool(b&8) and not menu)
         count=4 if batch<12 else rng.randrange(1,6)
         buttons.append([batch%16,b])

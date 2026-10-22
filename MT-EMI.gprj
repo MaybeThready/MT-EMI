@@ -35,5 +35,7 @@
         <File path="src/ui/ui_parameter_encoder.v" type="file.verilog" enable="1"/>
         <File path="src/ui/user_interface.v" type="file.verilog" enable="1"/>
         <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
+        <File path="src/ui/preset_record_codec.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_preset_controller.v" type="file.verilog" enable="1"/>
     </FileList>
 </Project>

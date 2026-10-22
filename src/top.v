@@ -164,6 +164,25 @@ module top
     user_interface #(
         .WAVE_SELECT_STEPS(4), .SMP_TICK_FREQ(`SMP_TICK_FREQ)
     ) user_interface_u (
+        // 诊断顶层尚未接存储驱动：新增输入接零，菜单与存储输出留空。
+        .storage_out_valid(),
+        .storage_out_ready(1'b0),
+        .storage_out_write(),
+        .storage_out_slot(),
+        .storage_out_data(),
+        .storage_in_valid(1'b0),
+        .storage_in_ready(),
+        .storage_in_status(3'd0),
+        .storage_in_data(512'd0),
+        .menu_page(),
+        .menu_selection(),
+        .menu_slot(),
+        .menu_save(),
+        .menu_result_status(),
+        .storage_catalog_valid(1'b0),
+        .storage_slot_present(16'd0),
+        .menu_slot_known(),
+        .menu_slot_present(),
         .clk_sys(clk_sys),
         .rst_n(rst_sys_n),
         .scan_tick_up(scan_tick_up),

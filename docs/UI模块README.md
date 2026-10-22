@@ -1,13 +1,25 @@
 # UI 模块交接说明
 
+**v3修改（2026-10-22）：** 
+1、新增音色读取与保存**交互设置**功能；实际存储、读取清音仍未实现。
+2、时序约束报告
+检查项	当前最差裕量
+Setup：	+0.547 ns	
+Hold：	+0.148 ns	
+Recovery：	+5.448 ns	
+Removal：	+0.455 ns	
+Minimum Pulse Width：	+0.222 ns
 
 
-**v2 版本修改（2026-10-21）优化了时序，并修复了modelsim工程的路径问题：**
+**v2 修改：**
 
 - `keyboard_note_pipeline.v`：采样装载与结果确认分拍。
 - `note_velocity_controller.v`：压力选取与最低值判断分拍。
 - `note_frequency_mapper.v`：去掉装载使能中重复的复位判断。
 - `ui_input_frame_joiner.v`：单独判断协议错误，报错时刻不变。
+- `ui_preset_controller.v`：去掉内部命令／响应接收中重复的复位门控，公共接口和握手拍数不变；修改前 +0.090 ns 基准已备份。
+
+
 
 ## 1. 输入数据和动作是什么意思
 
@@ -34,27 +46,35 @@ flowchart TB
         K1["琴键处理<br/>keyboard_note_pipeline.v<br/>管理琴键处理和采样输出<br/>keyboard_event_handler.v<br/>连接按下检测、声部分配并保存压力"]
         C1["按钮／旋钮处理<br/>ui_control_pipeline.v<br/>连接按钮、旋钮和参数模块<br/>ui_input_frame_joiner.v<br/>先处理按钮，再处理对应的旋钮动作"]
         K2["keyboard_frame_events.v<br/>判断哪些琴键刚按下、刚松开"]
-        C2["button_event_handler.v<br/>判断 B1～B4 刚按下、松开或按住<br/>ui_control_state.v<br/>设置模式、粗细调和菜单进出"]
+        C2["button_event_handler.v<br/>判断 B1～B4 刚按下、松开或按住<br/>ui_control_state.v<br/>设置模式、粗细调和保存／读取菜单"]
         K3["keyboard_voice_allocator.v<br/>分配声部；声部满时替换旧音"]
         C3["knob_event_handler.v<br/>输出旋转增减步数及按压动作"]
         K4["note_frequency_mapper.v<br/>键号换成音高<br/>note_velocity_controller.v<br/>压力换成力度，并平滑变化"]
-        C4["knob_parameter_controller.v<br/>按模式修改参数<br/>粗细调、限幅、按压恢复默认"]
+        C4["knob_parameter_controller.v<br/>按模式修改参数<br/>粗细调、限幅、恢复默认、装载音色"]
         K5["keyboard_note_pipeline.v<br/>保存音符、音高和力度<br/>等待音频接收"]
         C5["ui_parameter_encoder.v<br/>把毫秒、角度、百分比<br/>换成音频需要的数值"]
         O["user_interface.v<br/>按采样节拍整理音符和音色参数<br/>交给音频后，本次按下／松开动作不再重复发送"]
         I --> K1 & C1
         K1 --> K2 --> K3 --> K4 --> K5 --> O
         C1 --> C2 --> C3 --> C4 --> C5 --> O
+        P["ui_preset_controller.v<br/>音色保存／读取控制"]
+        R["preset_record_codec.v<br/>记录封装、CRC 和范围检查"]
+        C2 -->|确认操作| P
+        C4 -->|保存参数| P
+        P -->|读取成功装载| C4
+        P <--> R
     end
     D --> I
+    P <-->|请求／响应| S["存储驱动（待实现）"]
+    C2 -->|页面、槽号、结果| LCD["显示驱动（待实现）<br/>绘制菜单和提示"]
     O --> A["音频（待联调）<br/>channel_rack.v 等：产生声音、执行 ADSR<br/>应用总音量和效果干湿比；返回 note_busy"]
     classDef done fill:#e9f5eb,stroke:#38834b,color:#172d1d;
     classDef pending fill:#f5f5f5,stroke:#777,stroke-dasharray:5 5,color:#333;
-    class I,K1,K2,K3,K4,K5,C1,C2,C3,C4,C5,O done;
-    class D,A pending;
+    class I,K1,K2,K3,K4,K5,C1,C2,C3,C4,C5,O,P,R done;
+    class D,A,S,LCD pending;
 ```
 
-音高换算和压力平滑实际上同时计算。`note_busy` 是音频返回给 UI 的声部忙闲状态
+音高换算和压力平滑实际上同时计算。`note_busy` 是音频返回给 UI 的声部忙闲状态。图中绿色表示 UI 逻辑已实现，不表示对应外设或真实声音已验证。
 
 **同一次输入先处理按钮，再处理旋钮。** 例如 B4 已按住且旋钮转动，先确定微调，再按微调步长修改参数。琴键与参数分别计算；同一次输入的新音与新音色，当前不保证在同一个音频采样点生效。
 
@@ -72,25 +92,48 @@ flowchart TB
 | `ui_control_pipeline.v` | 连接按钮、旋钮、参数修改和数值换算模块 |
 | `ui_input_frame_joiner.v` | 让同一次输入先处理按钮，再处理旋钮，避免用错模式或步长 |
 | `button_event_handler.v` | 判断 B1～B4 的按下、松开和按住状态 |
-| `ui_control_state.v` | B2 切模式，B4 微调，B1 进菜单、B4 返回 |
+| `ui_control_state.v` | 演奏模式／微调；菜单选项、槽位、确认、取消和结果页 |
 | `knob_event_handler.v` | 输出每个旋钮本次增加／减少一步，以及刚按下动作 |
 | `knob_parameter_controller.v` | 保存并修改参数，处理粗细调、边界限制和恢复默认 |
 | `ui_parameter_encoder.v` | 把毫秒、角度、百分比换成音频模块所需编码 |
+| `ui_preset_controller.v` | 锁存保存内容，发起读写，读取成功后装载整组参数 |
+| `preset_record_codec.v` | 生成或检查 64 字节记录、CRC、格式和参数范围 |
 
 ### 已实现与未实现
 
 | 状态 | 内容 |
 | --- | --- |
-| 已实现 | 单音、多音演奏，24 键／32 声部分配，压力控制力度及平滑 |
+| 已实现 | 单音／复音所需的 UI 通知、24 键／32 声部分配、压力控制力度及平滑；真实声音由音频模块产生 |
 | 已实现 | 模式 0／1、粗细调、旋钮按压恢复默认、波形选择与插值、初相、ADSR 参数设置 |
 | 已实现 | 输出总音量、混响／延迟／失真／合唱的干湿比；实际音频运算由音频模块完成 |
-| 部分实现 | 菜单只实现进入、返回及暂停旋钮编辑，尚不能选择和执行菜单项目 |
-| 未实现 | 弯音、16 槽音色保存读取、读取时停音、完整菜单、模式 2、高级音效参数、多通道编辑、显示接口 |
+| 已实现 | 16 槽菜单、确认／取消／结果、读写事务、记录校验、整组装载和显示状态输出 |
+| 未实现 | 实际存储驱动、断电保存、读取清音、弯音、模式 2、高级音效参数、多通道编辑和屏幕绘制 |
 | 待联调 | 实际驱动、音频接收和忙闲反馈；尚未上板 |
+
+### 音色保存和读取怎样运行
+
+演奏界面按 B1 打开菜单；菜单内 B2／B3 选择、B1 确认、B4 返回或取消。槽位显示 01～16，执行读写后等待结果，期间不能重复确认或取消。菜单期间暂停旋钮编辑，琴键处理继续运行。
+
+```mermaid
+flowchart TB
+    MENU["ui_control_state.v<br/>选择保存／读取、槽位并确认"] --> CTRL["ui_preset_controller.v<br/>一次执行一个命令"]
+    CTRL -->|保存| SAVE["锁存当前 12 个音色参数<br/>preset_record_codec.v 生成记录和 CRC"]
+    SAVE --> WRITE["存储驱动可靠写入后返回结果<br/>当前由 TB 模型代替"]
+    CTRL -->|读取| READ["存储驱动返回记录<br/>preset_record_codec.v 检查 CRC、格式和范围"]
+    READ --> CHECK{检查通过？}
+    CHECK -->|是| APPLY["knob_parameter_controller.v<br/>一次装载整组参数，保留总音量和模式"]
+    CHECK -->|否| FAIL["原参数不变，显示错误"]
+    APPLY --> ENC["ui_parameter_encoder.v → user_interface.v<br/>换算后按采样节拍交给音频"]
+    WRITE --> RESULT["ui_control_state.v<br/>显示成功或失败状态"]
+    APPLY -->|UI 装载完成| RESULT
+    FAIL --> RESULT
+```
+
+
 
 ## 3. 对外接口重点
 
-对接文件为 **`ui/user_interface.v`**。下面只列连接时需要理解的重点，完整声明直接看该文件。
+
 
 ### 驱动 → UI
 
@@ -118,9 +161,53 @@ flowchart TB
 
 总音量和四个干湿比均为 16 位 UQ0.16，UI 的 100% 输出 `16'hFFFF`，略小于数学上的 1；波形插值的 100% 为 `16'h8000`，可精确表示 1。音频端负责增益、混合及必要的平滑处理。
 
+### UI ↔ 存储（仅交互，实际存储模块未完成）
+
+接口
+**注意！：通信的握手规则与原来一致，只是为了区分“音频接口”和“存储接口”，信号名字不同。**
+| 信号 | 方向／位宽 |  含义|
+| --- | --- | --- |
+| **`storage_out_valid`** | 输出，1 位 | 通信 |
+| **`storage_out_ready`** | 输入，1 位 | 通信 |
+| **`storage_in_valid`** | 输入，1 位 | 通信 |
+| **`storage_in_ready`** | 输出，1 位 | 通信 |
+| `storage_out_write` | 输出，1 位 | 1＝保存，0＝读取 |
+| `storage_out_slot` | 输出，4 位 | 槽号 0～15，对应屏幕上的 01～16；
+| `storage_out_data` | 输出，512 位 | 保存的数据 |
+| `storage_in_data` | 输入，512 位 | 读取的数据 |
+| `storage_in_status` | 输入，3 位 | 0＝成功，1＝空槽（用于读取），2～7＝存储失败；当前 UI 将 2～7 统一显示为驱动错误 |
+| `storage_catalog_valid` | 输入，1 位 | 槽位目录已有效；为 0 表示情况未知 |
+| `storage_slot_present` | 输入，16 位 | bit i＝1 表示槽 i 有记录；仅在目录有效时使用 |
+
+
+
+#### 时钟
+
+- UI 和存储接口都在 **`clk_sys` 上升沿**检查 `valid && ready`，复位接系统 `rst_sys_n`。`scan_tick_up` 用于控件扫描，`smp_tick_up` 用于安排音频输出，**存储请求和响应不需要与它们同拍**。
+
+
+
+#### 64 字节保存内容
+
+
+| 16 位字序号 | 内容（字 n 对应 `record[16*n +: 16]`） |
+| --- | --- |
+| 0～3 | 标识 `0x5549`、版本 1、槽号 0～15、字段数 18 |
+| 4～15 | 左波形、右波形、插值%、初相°、Attack ms、Decay ms、Sustain %、Release ms、混响%、延迟%、失真%、合唱% |
+| 16～21 | 六个高级效果参数占位，当前为 0； |
+| 22～30 | 保留字段，当前为 0 |
+| 31 | 16 位 CRC 校验值 |
+
+
+
+
+### UI → 显示（简单增加一些接口，未实现）
+
+`menu_page/selection/slot/save/result_status` 给出页面、选项、槽号、操作和结果；`menu_slot_known/present` 给出当前槽是否已知、是否有内容。显示模块只负责绘制界面
+
 ### 系统连接和配置
 
-- `clk_sys` 为系统时钟；`rst_n` 接 `rst_sys_n`。`smp_tick_up` 每个采样周期触发一次计算
+- `clk_sys` 为系统时钟；`rst_n` 接 `rst_sys_n`。`scan_tick_up`、`smp_tick_up` 都是单拍使能，不是新的业务时钟；输入按握手接收，采样脉冲安排音频输出。
 - `WAVE_SELECT_STEPS` 是 K1 换一张波形要转多少步。**当前默认 0 表示未配置，会阻止正常工作**；合法范围 1～32767，测试用的 4 还不是产品约定。
 - `SMP_TICK_FREQ` 是时间换算用的采样率，默认 48000 Hz；必须和音频端一致。
 - 压力平滑默认步长 274，在 48 kHz 下满量程变化约 5 ms，后续可调整。
@@ -130,6 +217,7 @@ flowchart TB
 
 | 变化 | 现在怎样做 |  同步|
 | --- | --- | --- |
+| **新增音色存储和菜单状态接口** | UI 可以选择 16 槽并发起保存／读取，显示页号、槽号和结果 | 后续完成存储驱动 |
 | **ADR 时间的位宽、单位改变** | 从 32 位系统时钟周期改为 **20 位采样周期**。例如 48 kHz 下 5 ms 对应 240 | 音频包络及上层接线同步修改 |
 | **新增总音量和四种干湿比输出** | UI 给出整体音量、混响／延迟／失真／合唱的混合比例 | 音频端增加对应输入，并执行增益和效果混合 |
 | **新增按钮输入、采样脉冲和错误指示** | `button_states` 接 B1～B4；`smp_tick_up` 安排输出；两个错误信号用于检查运行状态 | 系统顶层补接这些信号 |
@@ -137,7 +225,7 @@ flowchart TB
 | **旋钮模块不再输出累计参数值** | 原 `knob_value` 改为 `knob_delta`，只表示本次 -1/0/+1 步；参数模块按模式和粗细调累计 | 单独使用 `knob_event_handler.v` 的地方需修改；通过 UI 顶层连接的音频端不接这个内部信号 |
 | **键盘事件模块增加压力和声部状态** | 增加压力输入／保存输出，以及 `occupied/held` | 仅直接使用 `keyboard_event_handler.v` 时需要补接；整机通过 UI 顶层连接即可 |
 
-其余 S1 公共接口名称、位宽和数组方向保留。建议使用具名端口连接。初相改变后，现有相位累加器在下次 `note_on` 时加载，不会立即重置正在发声的音符。
+
 
 ## 4. 待约定的协议
 
@@ -148,16 +236,8 @@ flowchart TB
 | 音频什么时候接收和完成 | 音符通知只处理一次；需约定最晚接收时间，以及音频来不及处理时怎样恢复 |
 | `note_busy` 何时置位、清零 | 当前只有确认新音开始又结束，才自动回收已松开的声部；新音替换旧音、极短音和 Release=0 的反馈规则须确认 |
 | 满声部时怎样重新起音 | 当前优先空闲，其次最早触发的已松开音符，再次最早触发的按住音符；替换时只发新 `note_on`，音频须重启该声部 |
-| 采样率与比例编码 | UI 和音频统一 ADR 换算采样率；当前标称 48 kHz、实际约 47971.491 Hz。确认干湿比的效果顺序、混合位置及 100% 编码 |
+| 采样率与比例编码 | UI 和音频统一 ADR 换算采样率；当前标称 48 kHz，按 50 MHz 输入及 PLL 配置推算约 47971.491 Hz（非实测）。确认干湿比的效果顺序、混合位置及 100% 编码 |
 | K1 波形切换步数 | `WAVE_SELECT_STEPS` 值待定 |
 | 压力及上电时已按住的控件 | 驱动负责压力校准；首次输入中琴键按住会起音，按钮和旋钮按压只记录初始状态、不触发动作 |
-| 后续弯音和音色保存读取 | 需约定弯音中心、存储读写结果、读取时停音及尾音清除；目前没有实现这些功能 |
-
-
-
-
-
-## 5. 本版交付与运行
-
-- 本版输出最早在smp-tick 后第七个系统时钟沿握手，比旧版多 3 拍（约 30.54 ns）；音频按 `valid && ready` 接收
-
+| 后续弯音、存储硬件及清音 | 优先评估 SPI NOR Flash；具体芯片／地址区、掉电保护、超时和读取清音仍待确定，另需约定弯音校准 |
+ | 

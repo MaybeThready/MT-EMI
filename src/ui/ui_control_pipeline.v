@@ -1,5 +1,6 @@
 /**
- * 连接按钮、旋钮和参数设置模块，输出一整组音色参数。
+ * 控制链模块 v2：连接按钮、旋钮和参数设置，输出整组音色参数。
+ * v2 版本修改：接入菜单命令、音色读写和整组参数装载。
  * 同一批输入先更新按钮决定的模式、粗细调，再处理旋钮。
  * button_batch_id/knob_batch_id: 配对编号，由 user_interface 自动生成。
  * out_valid/out_ready: 交付更新后的参数；按采样节拍发送由 user_interface 负责。
@@ -44,8 +45,41 @@ module ui_control_pipeline
     output out_valid,
     input out_ready,
     output protocol_error,
-    output configuration_error
+    output configuration_error,
+    // 存储接口以 UI 为参照：out 发请求，in 收结果；槽号 0～15 对应界面 01～16。
+    output storage_out_valid,
+    input storage_out_ready,
+    output storage_out_write,
+    output [3:0] storage_out_slot,
+    output [511:0] storage_out_data,
+    input storage_in_valid,
+    output storage_in_ready,
+    input [2:0] storage_in_status,
+    input [511:0] storage_in_data,
+    output [2:0] menu_page,
+    output [1:0] menu_selection,
+    output [3:0] menu_slot,
+    output menu_save,
+    output [3:0] menu_result_status,
+    input storage_catalog_valid,
+    input [15:0] storage_slot_present,
+    output menu_slot_known,
+    output menu_slot_present
 );
+    // 目录由存储驱动在上电扫描后提供；未知不能显示为“空槽”。
+    assign menu_slot_known = storage_catalog_valid;
+    assign menu_slot_present = storage_catalog_valid && storage_slot_present[menu_slot];
+    wire preset_command_valid;
+    wire preset_command_ready;
+    wire preset_command_write;
+    wire [3:0] preset_command_slot;
+    wire preset_result_valid;
+    wire preset_result_ready;
+    wire [3:0] preset_result_status;
+    wire [191:0] current_parameters;
+    wire [191:0] loaded_parameters;
+    wire preset_load_valid;
+    wire preset_load_ready;
     wire [3:0] handler_button_states;
     wire button_out_valid;
     wire button_out_ready;
@@ -148,6 +182,12 @@ module ui_control_pipeline
     );
 
     ui_control_state ui_control_state_u (
+        .preset_command_valid(preset_command_valid), .preset_command_ready(preset_command_ready),
+        .preset_command_write(preset_command_write), .preset_command_slot(preset_command_slot),
+        .preset_result_valid(preset_result_valid), .preset_result_ready(preset_result_ready),
+        .preset_result_status(preset_result_status),
+        .menu_page(menu_page), .menu_selection(menu_selection), .menu_slot(menu_slot),
+        .menu_save(menu_save), .menu_result_status(menu_result_status),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .button_pressed_event(button_pressed_event),
@@ -182,6 +222,8 @@ module ui_control_pipeline
     knob_parameter_controller #(
         .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) knob_parameter_controller_u (
+        .preset_load_valid(preset_load_valid), .preset_load_ready(preset_load_ready),
+        .preset_load_parameters(loaded_parameters), .preset_current_parameters(current_parameters),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .knob_delta(knob_delta),
@@ -251,4 +293,17 @@ module ui_control_pipeline
         .out_ready(out_ready)
     );
 
+    ui_preset_controller ui_preset_controller_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .command_valid(preset_command_valid), .command_ready(preset_command_ready),
+        .command_write(preset_command_write), .command_slot(preset_command_slot),
+        .current_parameters(current_parameters),
+        .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
+        .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot),
+        .storage_out_data(storage_out_data),
+        .storage_in_valid(storage_in_valid), .storage_in_ready(storage_in_ready),
+        .storage_in_status(storage_in_status), .storage_in_data(storage_in_data),
+        .apply_valid(preset_load_valid), .apply_ready(preset_load_ready), .apply_parameters(loaded_parameters),
+        .result_valid(preset_result_valid), .result_ready(preset_result_ready), .result_status(preset_result_status)
+    );
 endmodule

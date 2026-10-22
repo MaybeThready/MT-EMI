@@ -70,6 +70,25 @@ module user_interface_system_tb;
     user_interface #(
         .KEY_NUM(24), .MAX_POLYPHONY(32), .WAVE_SELECT_STEPS(4), .SMP_TICK_FREQ(48000)
     ) user_interface_u (
+        // 存储未接入的旧测试：新增输入明确接零，输出留空。
+        .storage_out_valid(),
+        .storage_out_ready(1'b0),
+        .storage_out_write(),
+        .storage_out_slot(),
+        .storage_out_data(),
+        .storage_in_valid(1'b0),
+        .storage_in_ready(),
+        .storage_in_status(3'd0),
+        .storage_in_data(512'd0),
+        .menu_page(),
+        .menu_selection(),
+        .menu_slot(),
+        .menu_save(),
+        .menu_result_status(),
+        .storage_catalog_valid(1'b0),
+        .storage_slot_present(16'd0),
+        .menu_slot_known(),
+        .menu_slot_present(),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .button_states(button_states),
         .knob_states(knob_states), .knob_dirs(knob_dirs), .knob_pressed(knob_pressed),
