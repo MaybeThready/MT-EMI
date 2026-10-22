@@ -227,7 +227,13 @@ impl/
 *.gprj.user
 
 # Sim
-sim/work/
+sim/work
+sim/work_*
+sim/*.wlf
+sim/*.cr.mti
+sim/transcript
+sim/modelsim.ini
+*.mpf
 
 # Misc
 ai_workspace/
