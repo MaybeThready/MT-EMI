@@ -173,10 +173,10 @@ module phase_accumulator_tb();
             end
 
             repeat (3) @(negedge clk_sys);
-            if (out_valid !== 1'b0 || in_ready !== 1'b1)
+            if (out_valid !== 1'b0 || in_ready !== 1'b0)
             begin
                 error_count = error_count + 1;
-                $display("FAIL %0s: handshake did not complete", note_name);
+                $display("FAIL %0s: did not return to waiting for sample tick", note_name);
             end
         end
     endtask

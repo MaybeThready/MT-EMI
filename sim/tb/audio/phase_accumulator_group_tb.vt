@@ -126,6 +126,21 @@ module phase_accumulator_group_tb();
             out_ready = (output_stall == 0);
             old_transfer_count = group_transfer_count;
 
+            // The group forwards the tick before both lanes can accept input.
+            wait_cycles = 0;
+            while (in_ready !== 1'b1 && wait_cycles < 8)
+            begin
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (in_ready !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input ready timeout: scenario=%0d, sample=%0d, time=%0t",
+                         scenario_id, sample_count, $time);
+                $stop;
+            end
+
             for (i = 0; i < input_delay; i = i + 1)
             begin
                 if (in_ready !== 1'b1 || out_valid !== 1'b0)

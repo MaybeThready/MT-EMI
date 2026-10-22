@@ -32,10 +32,40 @@ module phase_accumulator_group
     output out_valid,
     output in_ready
 );
-    wire out_ready_w;
-    wire in_valid_w;
+    localparam WF_TICK = 3'd0, SEND_TICK = 3'd1, WF_SUB_RECV = 3'd2,
+               WF_RECV = 3'd3, WF_SUB_SEND = 3'd4, WF_SEND = 3'd5;
+
+    wire [2:0] stc;
+    reg [2:0] stn;
+    fsm #(
+        .W(3),
+        .INITIAL_STATE(WF_TICK)
+    ) fsm_u (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .stn(stn),
+        .stc(stc)
+    );
+
     wire [ACCUMULATOR_NUM-1:0] out_valids;
     wire [ACCUMULATOR_NUM-1:0] in_readys;
+    wire smp_tick_w = (stc == SEND_TICK);
+    wire in_valid_w = (stc == WF_RECV) & in_valid;
+    wire out_ready_w = (stc == WF_SEND) & out_ready;
+
+    always @(*)
+    begin
+        case (stc)
+            WF_TICK: stn = smp_tick_up ? SEND_TICK : WF_TICK;
+            SEND_TICK: stn = WF_SUB_RECV;
+            WF_SUB_RECV: stn = (&in_readys) ? WF_RECV : WF_SUB_RECV;
+            WF_RECV: stn = in_valid ? WF_SUB_SEND : WF_RECV;
+            WF_SUB_SEND: stn = (&out_valids) ? WF_SEND : WF_SUB_SEND;
+            WF_SEND: stn = out_ready ? WF_TICK : WF_SEND;
+            default: stn = WF_TICK;
+        endcase
+    end
+
     genvar i;
     generate
         for (i = 0; i < ACCUMULATOR_NUM; i = i + 1)
@@ -46,7 +76,7 @@ module phase_accumulator_group
             ) pa_u (
                 .clk_sys(clk_sys),
                 .rst_n(rst_n),
-                .smp_tick_up(smp_tick_up),
+                .smp_tick_up(smp_tick_w),
                 .note_on(note_on[i]),
                 .init_phase(init_phase),
                 .freq(freq[i]),
@@ -60,8 +90,6 @@ module phase_accumulator_group
         end
     endgenerate
 
-    assign out_ready_w = out_ready & (&out_valids);
-    assign in_valid_w = in_valid & (&in_readys);
-    assign out_valid = &out_valids;
-    assign in_ready = &in_readys;
+    assign in_ready = (stc == WF_RECV);
+    assign out_valid = (stc == WF_SEND);
 endmodule
