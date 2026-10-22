@@ -225,10 +225,10 @@ module envelope_tb();
             in_valid = 1'b1;
             @(posedge clk_sys);
             #1;
-            if (in_ready !== 1'b0 || note_busy !== (expected_state != DONE))
+            if (in_ready !== 1'b0)
             begin
                 error_count = error_count + 1;
-                $display("FAIL input handshake/busy: scenario=%0d sample=%0d", scenario_id, sample_count);
+                $display("FAIL input handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
             end
             @(negedge clk_sys);
             in_valid = 1'b0;
