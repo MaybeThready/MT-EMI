@@ -1,0 +1,199 @@
+`timescale 1ns/1ps
+/** ui_parameter_encoder 自检：复位、握手背压及数据语义。
+ * 参考向量使用整数物理单位独立计算。
+ */
+module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    integer index;
+    integer cycle;
+    integer count;
+    integer file_handle;
+    integer scan_count;
+    string assets;
+    string file_path;
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "Missing ASSETS");
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Watchdog timeout");
+    end
+    reg in_valid=1'b0;
+    wire in_ready;
+    wire out_valid;
+    reg out_ready=1'b0;
+    integer value [0:25];
+    reg [3:0] wavetable_0 [0:0];
+    reg [3:0] wavetable_1 [0:0];
+    reg [6:0] interp_percent [0:0];
+    reg [8:0] phase_degrees [0:0];
+    reg [10:0] attack_ms [0:0];
+    reg [10:0] decay_ms [0:0];
+    reg [6:0] sustain_percent [0:0];
+    reg [12:0] release_ms [0:0];
+    reg [6:0] master_percent;
+    reg [6:0] reverb_mix_percent;
+    reg [6:0] delay_mix_percent;
+    reg [6:0] distortion_mix_percent;
+    reg [6:0] chorus_mix_percent;
+    wire [3:0] out_wavetable_0 [0:0];
+    wire [3:0] out_wavetable_1 [0:0];
+    wire [15:0] out_wavetable_interp [0:0];
+    wire [15:0] out_init_phase [0:0];
+    wire [19:0] out_attack_ticks [0:0];
+    wire [19:0] out_decay_ticks [0:0];
+    wire [15:0] out_sustain_level [0:0];
+    wire [19:0] out_release_ticks [0:0];
+    wire [15:0] out_master_volume;
+    wire [15:0] out_reverb_mix;
+    wire [15:0] out_delay_mix;
+    wire [15:0] out_distortion_mix;
+    wire [15:0] out_chorus_mix;
+    ui_parameter_encoder #(
+        .SMP_TICK_FREQ(SMP_TICK_FREQ)
+    ) ui_parameter_encoder_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .in_valid(in_valid),
+        .in_ready(in_ready),
+        .out_valid(out_valid),
+        .out_ready(out_ready),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .interp_percent(interp_percent),
+        .phase_degrees(phase_degrees),
+        .attack_ms(attack_ms),
+        .decay_ms(decay_ms),
+        .sustain_percent(sustain_percent),
+        .release_ms(release_ms),
+        .master_percent(master_percent),
+        .reverb_mix_percent(reverb_mix_percent),
+        .delay_mix_percent(delay_mix_percent),
+        .distortion_mix_percent(distortion_mix_percent),
+        .chorus_mix_percent(chorus_mix_percent),
+        .encoded_wavetable_0(out_wavetable_0),
+        .encoded_wavetable_1(out_wavetable_1),
+        .wavetable_interp(out_wavetable_interp),
+        .init_phase(out_init_phase),
+        .attack_ticks(out_attack_ticks),
+        .decay_ticks(out_decay_ticks),
+        .sustain_level(out_sustain_level),
+        .release_ticks(out_release_ticks),
+        .master_volume(out_master_volume),
+        .reverb_mix(out_reverb_mix),
+        .delay_mix(out_delay_mix),
+        .distortion_mix(out_distortion_mix),
+        .chorus_mix(out_chorus_mix)
+    );
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            #1;
+        end
+    endtask
+    task check_output;
+        begin
+            if (!out_valid) $fatal(1,"Missing encoder valid");
+            if (out_wavetable_0[0] !== value[13][3:0]) $fatal(1,"Encoder wavetable_0 vector %0d expected %0d got %0d",index,value[13],out_wavetable_0[0]);
+            if (out_wavetable_1[0] !== value[14][3:0]) $fatal(1,"Encoder wavetable_1 vector %0d expected %0d got %0d",index,value[14],out_wavetable_1[0]);
+            if (out_wavetable_interp[0] !== value[15][15:0]) $fatal(1,"Encoder wavetable_interp vector %0d expected %0d got %0d",index,value[15],out_wavetable_interp[0]);
+            if (out_init_phase[0] !== value[16][15:0]) $fatal(1,"Encoder init_phase vector %0d expected %0d got %0d",index,value[16],out_init_phase[0]);
+            if (out_attack_ticks[0] !== value[17][19:0]) $fatal(1,"Encoder attack_ticks vector %0d expected %0d got %0d",index,value[17],out_attack_ticks[0]);
+            if (out_decay_ticks[0] !== value[18][19:0]) $fatal(1,"Encoder decay_ticks vector %0d expected %0d got %0d",index,value[18],out_decay_ticks[0]);
+            if (out_sustain_level[0] !== value[19][15:0]) $fatal(1,"Encoder sustain_level vector %0d expected %0d got %0d",index,value[19],out_sustain_level[0]);
+            if (out_release_ticks[0] !== value[20][19:0]) $fatal(1,"Encoder release_ticks vector %0d expected %0d got %0d",index,value[20],out_release_ticks[0]);
+            if (out_master_volume !== value[21][15:0]) $fatal(1,"Encoder master_volume vector %0d expected %0d got %0d",index,value[21],out_master_volume);
+            if (out_reverb_mix !== value[22][15:0]) $fatal(1,"Encoder reverb_mix vector %0d expected %0d got %0d",index,value[22],out_reverb_mix);
+            if (out_delay_mix !== value[23][15:0]) $fatal(1,"Encoder delay_mix vector %0d expected %0d got %0d",index,value[23],out_delay_mix);
+            if (out_distortion_mix !== value[24][15:0]) $fatal(1,"Encoder distortion_mix vector %0d expected %0d got %0d",index,value[24],out_distortion_mix);
+            if (out_chorus_mix !== value[25][15:0]) $fatal(1,"Encoder chorus_mix vector %0d expected %0d got %0d",index,value[25],out_chorus_mix);
+        end
+    endtask
+    initial
+    begin
+        #1;
+        file_path=$sformatf("%s/encoder_%0d.txt",assets,SMP_TICK_FREQ);
+        file_handle=$fopen(file_path,"r");
+        if (!file_handle) $fatal(1,"Missing encoder vectors");
+        reset_dut;
+        for (index=0;index<5002;index=index+1)
+        begin
+            scan_count=$fscanf(file_handle,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",value[0],value[1],value[2],value[3],value[4],value[5],value[6],value[7],value[8],value[9],value[10],value[11],value[12],value[13],value[14],value[15],value[16],value[17],value[18],value[19],value[20],value[21],value[22],value[23],value[24],value[25]);
+            if (scan_count != 26) $fatal(1,"Bad encoder vector");
+            @(negedge clk_sys);
+            wavetable_0[0]=value[0];
+            wavetable_1[0]=value[1];
+            interp_percent[0]=value[2];
+            phase_degrees[0]=value[3];
+            attack_ms[0]=value[4];
+            decay_ms[0]=value[5];
+            sustain_percent[0]=value[6];
+            release_ms[0]=value[7];
+            master_percent=value[8];
+            reverb_mix_percent=value[9];
+            delay_mix_percent=value[10];
+            distortion_mix_percent=value[11];
+            chorus_mix_percent=value[12];
+            in_valid=1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid=1'b0;
+            wavetable_0[0]='0;
+            wavetable_1[0]='0;
+            interp_percent[0]='0;
+            phase_degrees[0]='0;
+            attack_ms[0]='0;
+            decay_ms[0]='0;
+            sustain_percent[0]='0;
+            release_ms[0]='0;
+            master_percent='0;
+            reverb_mix_percent='0;
+            delay_mix_percent='0;
+            distortion_mix_percent='0;
+            chorus_mix_percent='0;
+            while (!out_valid) @(negedge clk_sys);
+            for (cycle=0;cycle<1+index%7;cycle=cycle+1)
+            begin
+                check_output;
+                @(negedge clk_sys);
+            end
+            out_ready=1'b1;
+            @(negedge clk_sys);
+            out_ready=1'b0;
+            if (out_valid) $fatal(1,"Duplicate encoder output");
+        end
+        @(negedge clk_sys);
+        in_valid=1'b1;
+        do @(posedge clk_sys); while (!in_ready);
+        @(negedge clk_sys);in_valid=1'b0;
+        while (!out_valid) @(negedge clk_sys);
+        reset_dut;
+        if (out_valid) $fatal(1,"Reset left encoder output valid");
+        // 分别在查表前和合并前复位，确认新增流水级不会复活已取消事务。
+        for (index=0;index<2;index=index+1)
+        begin
+            @(negedge clk_sys);
+            in_valid=1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid=1'b0;
+            repeat (index) @(negedge clk_sys);
+            reset_dut;
+            repeat (4)
+            begin
+                @(negedge clk_sys);
+                if (out_valid) $fatal(1,"Cancelled conversion reappeared");
+            end
+        end
+        $display("UI_PARAMETER_ENCODER_PASS hz=%0d snapshots=5002",SMP_TICK_FREQ);
+        $finish;
+    end
+endmodule
