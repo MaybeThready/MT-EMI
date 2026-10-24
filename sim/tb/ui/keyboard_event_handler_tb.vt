@@ -1,0 +1,121 @@
+/**
+ * 键盘分配自检：独立时间序号模型，612 帧，少/多声部、尾音优先、旧键隔离、
+ * 无 busy 确认的本地预留、延迟 busy、持续按住、同帧先松后按、背压及复位取消。
+ * 压力包装另检查同帧保存；无效外部变化不得污染冻结结果。
+ */
+`timescale 1ns/1ps
+module keyboard_event_handler_tb;
+    parameter KEY_NUM = 24;
+    parameter MAX_POLYPHONY = 32;
+    localparam KEY_ID_WIDTH = (KEY_NUM > 1) ? $clog2(KEY_NUM) : 1;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg [KEY_NUM-1:0] key_states = '0;
+    reg [KEY_NUM-1:0] previous_states = '0;
+    reg [KEY_NUM-1:0] press_event = '0;
+    reg [KEY_NUM-1:0] release_event = '0;
+    reg [15:0] key_velocity [KEY_NUM-1:0];
+    wire [15:0] frame_velocity [KEY_NUM-1:0];
+    reg [MAX_POLYPHONY-1:0] note_busy = '0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    wire out_valid;
+    reg out_ready = 1'b0;
+    wire [MAX_POLYPHONY-1:0] note_on, note_off, occupied, held;
+    wire [KEY_ID_WIDTH-1:0] key_id [MAX_POLYPHONY-1:0];
+    reg [MAX_POLYPHONY-1:0] expected_on, expected_off, expected_occupied, expected_held;
+    reg [KEY_ID_WIDTH-1:0] expected_id [MAX_POLYPHONY-1:0];
+    integer source, scan_count, frame, voice, key_index, cycles, stall;
+    reg [4095:0] assets;
+    reg [4095:0] filename;
+    keyboard_event_handler #(.KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY)) keyboard_event_handler_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .key_states(key_states), .key_velocity(key_velocity), .frame_velocity(frame_velocity),
+        .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
+        .note_on(note_on), .note_off(note_off), .key_id(key_id), .occupied(occupied), .held(held),
+        .out_valid(out_valid), .out_ready(out_ready)
+    );
+    task check_result;
+        begin
+            if (!out_valid || note_on !== expected_on || note_off !== expected_off ||
+                occupied !== expected_occupied || held !== expected_held)
+                $fatal(1, "帧 %0d 位图错误 on=%h/%h off=%h/%h occ=%h/%h held=%h/%h", frame,
+                    note_on, expected_on, note_off, expected_off, occupied, expected_occupied, held, expected_held);
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                if (key_id[voice] !== expected_id[voice]) $fatal(1, "帧 %0d 声部 %0d 归属错误", frame, voice);
+            for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
+                if (frame_velocity[key_index] !== ((frame * 177 + key_index * 2039) & 65535))
+                    $fatal(1, "同帧压力丢失");
+        end
+    endtask
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "缺少向量路径");
+        $sformat(filename, "%0s/allocator_%0d_%0d.txt", assets, KEY_NUM, MAX_POLYPHONY);
+        source = $fopen(filename, "r");
+        if (!source) $fatal(1, "无法读取参考向量");
+        repeat (3) @(negedge clk_sys);
+        rst_n = 1'b1;
+        for (frame = 0; frame < 612; frame = frame + 1)
+        begin
+            @(negedge clk_sys);
+            scan_count = $fscanf(source, "%h %h %h %h %h %h", key_states, note_busy,
+                expected_on, expected_off, expected_occupied, expected_held);
+            if (scan_count != 6) $fatal(1, "参考帧不完整");
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                scan_count = $fscanf(source, "%h", expected_id[voice]);
+            press_event = key_states & ~previous_states;
+            release_event = ~key_states & previous_states;
+            previous_states = key_states;
+            for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
+                key_velocity[key_index] = (frame * 177 + key_index * 2039) & 65535;
+            repeat (4) @(negedge clk_sys);
+            in_valid = 1'b1;
+            while (!in_ready) @(negedge clk_sys);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            key_states = ~key_states;
+            for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
+                key_velocity[key_index] = 16'hffff;
+            cycles = 0;
+            while (!out_valid)
+            begin
+                @(negedge clk_sys);
+                cycles = cycles + 1;
+                // IF-KEYBOARD-05：每个新按键增加一次末候选排空，原参考结果不变。
+                if (cycles > MAX_POLYPHONY + KEY_NUM * (MAX_POLYPHONY + 3) + 12)
+                    $fatal(1, "事件处理超出周期预算");
+            end
+            for (stall = 0; stall < (frame % 17) + 1; stall = stall + 1)
+            begin
+                check_result;
+                if (in_ready) $fatal(1, "事务未交付就重新接收");
+                @(negedge clk_sys);
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+            if (out_valid) $fatal(1, "重复交付");
+        end
+        $fclose(source);
+        // 制造未交付结果后异步复位，取消载荷并恢复首次按键语义。
+        in_valid = 1'b1;
+        key_states = '1;
+        press_event = '1;
+        release_event = '0;
+        while (!in_ready) @(negedge clk_sys);
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        while (!out_valid) @(negedge clk_sys);
+        #2 rst_n = 1'b0;
+        #1;
+        if (out_valid || in_ready || note_on || note_off || occupied) $fatal(1, "复位没有取消事务");
+        $display("keyboard_event_handler_PASS keys=%0d voices=%0d frames=612", KEY_NUM, MAX_POLYPHONY);
+        $finish;
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "看门狗超时");
+    end
+endmodule

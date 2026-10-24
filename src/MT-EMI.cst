@@ -1,0 +1,12 @@
+// 按用户提供的 Tang Mega 138K Pro 全引脚 CST 选取，不分配扩展排针。
+// P16 是板载 50 MHz 输入，非专用 GCLK；以实际布局布线报告核对路由。
+IO_LOC "clk_core" P16;
+IO_PORT "clk_core" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+// U4 为核心板低有效按键／复位输入，Bank 电源为 1.5 V。
+IO_LOC "rst_n" U4;
+IO_PORT "rst_n" IO_TYPE=LVCMOS15 PULL_MODE=NONE DRIVE=OFF BANK_VCCIO=1.5;
+// 只用板载 led[1] 与 led[4]；避开配置和调试专用脚。
+IO_LOC "status_led[0]" J14;
+IO_LOC "status_led[1]" N21;
+IO_PORT "status_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "status_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;

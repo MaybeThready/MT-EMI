@@ -1,0 +1,143 @@
+/** 测试保存快照、存储请求背压、读取原子装载、结果背压、错误和中途复位。 */
+`timescale 1ns/1ps
+module ui_preset_controller_tb;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg command_valid = 1'b0;
+    wire command_ready;
+    reg command_write = 1'b0;
+    reg [3:0] command_slot = 4'd3;
+    reg [191:0] current_parameters;
+    wire storage_out_valid, storage_out_write, storage_in_ready;
+    reg storage_out_ready = 1'b0;
+    wire [3:0] storage_out_slot;
+    wire [511:0] storage_out_data;
+    reg storage_in_valid = 1'b0;
+    reg [2:0] storage_in_status = 3'd0;
+    reg [511:0] storage_in_data = 512'd0;
+    wire apply_valid, result_valid;
+    reg apply_ready = 1'b0;
+    reg result_ready = 1'b0;
+    wire [191:0] apply_parameters;
+    wire [3:0] result_status;
+    reg [511:0] saved_record;
+    reg [191:0] original_parameters;
+    integer n;
+    ui_preset_controller ui_preset_controller_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .command_valid(command_valid), .command_ready(command_ready),
+        .command_write(command_write), .command_slot(command_slot), .current_parameters(current_parameters),
+        .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
+        .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot),
+        .storage_out_data(storage_out_data), .storage_in_valid(storage_in_valid),
+        .storage_in_ready(storage_in_ready), .storage_in_status(storage_in_status),
+        .storage_in_data(storage_in_data), .apply_valid(apply_valid), .apply_ready(apply_ready),
+        .apply_parameters(apply_parameters), .result_valid(result_valid), .result_ready(result_ready),
+        .result_status(result_status)
+    );
+    task reset_dut;
+        begin
+            @(negedge clk_sys); rst_n=1'b0;
+            command_valid=1'b0; storage_out_ready=1'b0; storage_in_valid=1'b0;
+            result_ready=1'b0; apply_ready=1'b0;
+            #1;
+            if (storage_out_valid || storage_in_ready || apply_valid || result_valid)
+                $fatal(1,"复位未取消事务");
+            repeat (3) @(negedge clk_sys);
+            rst_n=1'b1;
+        end
+    endtask
+    task command;
+        input write_operation;
+        begin
+            @(negedge clk_sys);
+            command_write=write_operation; command_valid=1'b1;
+            current_parameters=original_parameters;
+            @(posedge clk_sys); while (!command_ready) @(posedge clk_sys);
+            @(negedge clk_sys); command_valid=1'b0;
+            current_parameters=192'd0;
+        end
+    endtask
+    task accept_request;
+        begin
+            while (!storage_out_valid) @(negedge clk_sys);
+            repeat (13)
+            begin
+                @(negedge clk_sys);
+                if (!storage_out_valid || storage_out_slot !== 4'd3) $fatal(1,"请求未保持");
+                if (command_write && storage_out_data !== saved_record) $fatal(1,"保存快照不稳定");
+            end
+            storage_out_ready=1'b1;
+            @(negedge clk_sys); storage_out_ready=1'b0;
+        end
+    endtask
+    task response;
+        input [2:0] status;
+        begin
+            repeat (20) @(negedge clk_sys);
+            storage_in_status=status;
+            storage_in_data=saved_record;
+            storage_in_valid=1'b1;
+            @(posedge clk_sys); while (!storage_in_ready) @(posedge clk_sys);
+            @(negedge clk_sys); storage_in_valid=1'b0;
+        end
+    endtask
+    task result;
+        input [3:0] expected_status;
+        begin
+            while (!result_valid) @(negedge clk_sys);
+            repeat (11)
+            begin
+                @(negedge clk_sys);
+                if (!result_valid || result_status !== expected_status || apply_valid)
+                    $fatal(1,"结果或错误装载异常");
+            end
+            result_ready=1'b1;
+            @(negedge clk_sys); result_ready=1'b0;
+        end
+    endtask
+    initial
+    begin
+        original_parameters={16'd40,16'd30,16'd20,16'd10,16'd5000,16'd100,16'd2000,16'd1,16'd359,16'd100,16'd3,16'd0};
+        reset_dut;
+        command(1'b1);
+        while (!storage_out_valid) @(negedge clk_sys);
+        saved_record=storage_out_data;
+        if (saved_record[255:64] !== original_parameters) $fatal(1,"未锁存保存参数");
+        accept_request; response(3'd0); result(4'd0);
+        command(1'b0); accept_request; response(3'd0);
+        while (!apply_valid) @(negedge clk_sys);
+        repeat (29)
+        begin
+            @(negedge clk_sys);
+            if (!apply_valid || apply_parameters !== original_parameters || result_valid || command_ready)
+                $fatal(1,"装载握手未保持或提前成功");
+        end
+        apply_ready=1'b1;
+        @(negedge clk_sys); apply_ready=1'b0;
+        result(4'd0);
+        command(1'b0); accept_request; response(3'd1); result(4'd1);
+        command(1'b1);
+        while (!storage_out_valid) @(negedge clk_sys);
+        saved_record=storage_out_data;
+        accept_request; response(3'd2); result(4'd2);
+        // 在 CRC、等待请求、等待响应、等待装载和等待结果五处复位。
+        command(1'b1); repeat (10) @(negedge clk_sys); reset_dut;
+        command(1'b0); while (!storage_out_valid) @(negedge clk_sys); reset_dut;
+        command(1'b0); accept_request; reset_dut;
+        command(1'b0); accept_request; response(3'd0);
+        while (!apply_valid) @(negedge clk_sys); reset_dut;
+        command(1'b0); accept_request; response(3'd1);
+        while (!result_valid) @(negedge clk_sys); reset_dut;
+        repeat (600) @(negedge clk_sys);
+        if (!command_ready || apply_valid || result_valid) $fatal(1,"复位后出现旧事务");
+        $display("UI_PRESET_CONTROLLER_PASS snapshot request_apply_result_stalls errors reset_stages=5");
+        $finish;
+    end
+    initial
+    begin
+        #1000000;
+        $fatal(1,"事务测试超时");
+    end
+endmodule
