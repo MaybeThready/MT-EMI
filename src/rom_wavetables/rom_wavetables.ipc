@@ -9,7 +9,7 @@ version=1.0
 [Config]
 DEPTH=16384
 LANG=0
-MEM_FILE=../../assets/wavetables.mi
+MEM_FILE=../../assets/audio/wavetables.mi
 READ=0
 RESET_MODE=false
 WIDTH=16

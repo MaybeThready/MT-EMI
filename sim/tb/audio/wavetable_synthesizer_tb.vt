@@ -1,0 +1,339 @@
+/**
+ * 波表合成器测试平台
+ * 观察单音、双音和 32 路混音的完整周期，并检查数值与 valid/ready 握手
+ */
+
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module wavetable_synthesizer_tb();
+    localparam OSC_NUM = 32;
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+    localparam PHASE_STEP = 32;  // 128 个 48 kHz 采样点构成一个周期：375 Hz
+
+    reg clk_sys;
+    reg rst_n;
+    wire smp_tick_up;
+
+    sys_ticker st_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .i2s_tick_up(),
+        .i2s_tick_down(),
+        .smp_tick_up(smp_tick_up),
+        .smp_tick_down(),
+        .scan_tick_up(),
+        .scan_tick_down()
+    );
+
+    reg [11:0] phase [OSC_NUM-1:0];
+    reg [15:0] volume [OSC_NUM-1:0];
+    reg [3:0] wavetable_0, wavetable_1;
+    reg [15:0] wavetable_interp;
+    reg out_ready, in_valid;
+    wire signed [20:0] audio_out;
+    wire out_valid, in_ready;
+
+    wavetable_synthesizer #(
+        .OSC_NUM(OSC_NUM)
+    ) ws_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .smp_tick_up(smp_tick_up),
+        .phase(phase),
+        .volume(volume),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .wavetable_interp(wavetable_interp),
+        .audio_out(audio_out),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready)
+    );
+
+    // Gowin ROM 原语通过全局 GSR 获取复位状态。
+    GSR GSR (
+        .GSRI(rst_n)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    reg [15:0] reference_rom [0:16383];
+    reg [8*128-1:0] header_line;
+    integer rom_file, read_count, rom_index;
+
+    initial
+    begin
+        rom_file = $fopen("../assets/audio/wavetables.mi", "r");
+        if (rom_file == 0)
+        begin
+            $display("FAIL: cannot open ../assets/audio/wavetables.mi");
+            $stop;
+        end
+        repeat (3) read_count = $fgets(header_line, rom_file);
+        for (rom_index = 0; rom_index < 16384; rom_index = rom_index + 1)
+        begin
+            read_count = $fscanf(rom_file, "%h", reference_rom[rom_index]);
+            if (read_count != 1)
+            begin
+                $display("FAIL: incomplete MI file at address %0d", rom_index);
+                $stop;
+            end
+        end
+        $fclose(rom_file);
+    end
+
+    function signed [15:0] calc_sample;
+        input [3:0] wave_0, wave_1;
+        input [15:0] coeff;
+        input [11:0] wave_phase;
+        reg signed [16:0] point_0, point_1, delta, point_sum;
+        reg signed [63:0] product;
+        begin
+            point_0 = $signed({reference_rom[{wave_0[1:0], wave_phase}][15],
+                               reference_rom[{wave_0[1:0], wave_phase}]});
+            point_1 = $signed({reference_rom[{wave_1[1:0], wave_phase}][15],
+                               reference_rom[{wave_1[1:0], wave_phase}]});
+            product = (point_1 - point_0) * $signed({1'b0, coeff});
+            delta = (product + (product < 0 ? 64'sd16383 : 64'sd16384)) >>> 15;
+            point_sum = point_0 + delta;
+            calc_sample = point_sum[15:0];
+        end
+    endfunction
+
+    integer scenario_id;
+    integer sample_index, sample_count, transfer_count, stall_count, error_count;
+    integer expected_sum;
+    reg signed [20:0] observed_audio, expected_audio;
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            transfer_count <= 0;
+        else if (out_valid && out_ready)
+            transfer_count <= transfer_count + 1;
+    end
+
+    task prepare_sample;
+        input integer index;
+        integer j;
+        reg [11:0] base_phase;
+        begin
+            base_phase = index * PHASE_STEP;
+            wavetable_0 = 4'd0;
+            wavetable_1 = scenario_id == 4 ? 4'd1 : 4'd0;
+            wavetable_interp = scenario_id == 4 ? 16'h4000 : 16'h0000;
+            for (j = 0; j < OSC_NUM; j = j + 1)
+            begin
+                phase[j] = base_phase;
+                volume[j] = 16'h0000;
+            end
+            case (scenario_id)
+                1: volume[0] = 16'hffff;  // 单音
+                2:
+                begin
+                    volume[0] = 16'hffff;
+                    volume[1] = 16'hffff;  // 同相双音
+                end
+                3:
+                begin
+                    for (j = 0; j < OSC_NUM; j = j + 1)
+                        volume[j] = 16'hffff;  // 满幅 32 路，检查 21 位输出
+                end
+                4:
+                begin
+                    volume[0] = 16'hffff;
+                    volume[1] = 16'h8000;
+                    phase[1] = base_phase + 12'd1024;  // 错相、不同音量、波形混合
+                end
+            endcase
+        end
+    endtask
+
+    task send_sample;
+        input integer index, input_delay, output_stall, busy_valid_cycles;
+        integer j, wait_cycles, old_transfer_count;
+        reg signed [15:0] point;
+        reg signed [63:0] product;
+        reg signed [20:0] held_audio;
+        begin
+            prepare_sample(index);
+            expected_sum = 0;
+            for (j = 0; j < OSC_NUM; j = j + 1)
+            begin
+                point = calc_sample(wavetable_0, wavetable_1,
+                                    wavetable_interp, phase[j]);
+                product = point * $signed({1'b0, volume[j]});
+                expected_sum = expected_sum +
+                               ((product + (product < 0 ? 64'sd32767 : 64'sd32768)) >>> 16);
+            end
+            old_transfer_count = transfer_count;
+            out_ready = output_stall == 0;
+
+            @(posedge smp_tick_up);
+            @(negedge smp_tick_up);
+            wait_cycles = 0;
+            while (in_ready !== 1'b1 && wait_cycles < 8)
+            begin
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (in_ready !== 1'b1)
+            begin
+                $display("FAIL input ready timeout: scenario=%0d sample=%0d", scenario_id, index);
+                $stop;
+            end
+
+            repeat (input_delay) @(negedge clk_sys);
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (in_ready !== 1'b0)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input handshake: scenario=%0d sample=%0d", scenario_id, index);
+            end
+
+            // 握手后改变全部输入，验证内部锁存；忙碌期间的 valid 不可被接收。
+            @(negedge clk_sys);
+            for (j = 0; j < OSC_NUM; j = j + 1)
+            begin
+                phase[j] = ~phase[j];
+                volume[j] = 16'h0000;
+            end
+            wavetable_0 = 4'd3;
+            wavetable_1 = 4'd2;
+            wavetable_interp = 16'h8000;
+            in_valid = busy_valid_cycles != 0;
+            repeat (busy_valid_cycles)
+            begin
+                if (in_ready !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL busy ready: scenario=%0d sample=%0d", scenario_id, index);
+                end
+                @(negedge clk_sys);
+            end
+            in_valid = 1'b0;
+
+            wait_cycles = 0;
+            while (out_valid !== 1'b1 && wait_cycles < 800)
+            begin
+                if (in_ready !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL premature ready: scenario=%0d sample=%0d", scenario_id, index);
+                end
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (out_valid !== 1'b1)
+            begin
+                $display("FAIL output timeout: scenario=%0d sample=%0d", scenario_id, index);
+                $stop;
+            end
+
+            if (audio_out !== expected_sum)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL audio: scenario=%0d sample=%0d expected=%0d actual=%0d",
+                         scenario_id, index, expected_sum, audio_out);
+            end
+            observed_audio = audio_out;  // 保持每个有效输出，便于查看完整波形。
+            expected_audio = expected_sum;
+            held_audio = audio_out;
+            repeat (output_stall)
+            begin
+                @(negedge clk_sys);
+                stall_count = stall_count + 1;
+                if (out_valid !== 1'b1 || in_ready !== 1'b0 || audio_out !== held_audio)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL output stall: scenario=%0d sample=%0d", scenario_id, index);
+                end
+            end
+            out_ready = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (out_valid !== 1'b0 || transfer_count !== old_transfer_count + 1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output handshake: scenario=%0d sample=%0d", scenario_id, index);
+            end
+            sample_count = sample_count + 1;
+        end
+    endtask
+
+    task run_period;
+        input integer new_scenario;
+        integer j;
+        begin
+            scenario_id = new_scenario;
+            for (j = 0; j < 128; j = j + 1)
+            begin
+                sample_index = j;
+                send_sample(j, j == 0 ? 3 : 0, j == 32 ? 5 : 0,
+                            j == 64 ? 4 : 0);
+            end
+            $display("Scenario %0d: one 375 Hz period complete", scenario_id);
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        in_valid = 1'b0;
+        out_ready = 1'b1;
+        wavetable_0 = 0;
+        wavetable_1 = 0;
+        wavetable_interp = 0;
+        scenario_id = 0;
+        sample_index = 0;
+        sample_count = 0;
+        stall_count = 0;
+        error_count = 0;
+        observed_audio = 0;
+        expected_audio = 0;
+        #20_000;
+        if (in_ready !== 1'b0 || out_valid !== 1'b0 || audio_out !== 21'sd0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL reset");
+        end
+        rst_n = 1'b1;
+
+        run_period(1);  // 单音正弦
+        run_period(2);  // 双音同相
+        run_period(3);  // 32 路同相，观察正负满幅与输出位宽
+        run_period(4);  // 双音错相、不同音量、正弦与三角波混合
+        scenario_id = 5;
+        sample_index = 0;
+        send_sample(0, 2, 4, 3);  // 全部音量为零
+
+        if (transfer_count != sample_count || stall_count == 0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL totals: samples=%0d transfers=%0d stalls=%0d",
+                     sample_count, transfer_count, stall_count);
+        end
+        $display("WAVETABLE_SYNTHESIZER_TB: %0d samples, %0d transfers, %0d stalls, %0d errors",
+                 sample_count, transfer_count, stall_count, error_count);
+        $stop;  // 留在 ModelSim GUI 中观察四段完整波形。
+    end
+
+    initial
+    begin
+        #(64'd20_000_000_000);
+        $display("FAIL: testbench timeout");
+        $stop;
+    end
+endmodule

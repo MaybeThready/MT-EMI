@@ -9,7 +9,7 @@ PHASE_COUNT = 1 << PHASE_BITS
 WAVE_NAMES = ("sine", "triangle", "sawtooth", "square")
 ROM_DEPTH = len(WAVE_NAMES) * PHASE_COUNT
 ROM_WIDTH = 16
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "assets"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "audio/assets"
 
 
 def waveform(wave_id: int, phase: int) -> float:
