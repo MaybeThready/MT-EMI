@@ -1,0 +1,294 @@
+/**
+ * 波表线性插值测试平台
+ * 检查四种波形、混合插值、边界值及 valid/ready 握手，并保留完整周期波形
+ */
+
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module wavetable_interpolation_tb();
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+
+    reg clk_sys;
+    reg rst_n;
+    reg [3:0] wavetable_0, wavetable_1;
+    reg [15:0] wavetable_interp;
+    reg [11:0] phase;
+    wire signed [15:0] sample_point;
+    reg out_ready, in_valid;
+    wire out_valid, in_ready;
+
+    wavetable_interpolation wi_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .wavetable_interp(wavetable_interp),
+        .phase(phase),
+        .sample_point(sample_point),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready)
+    );
+
+    // Gowin ROM 原语的仿真模型通过此全局实例获取复位状态。
+    GSR GSR (
+        .GSRI(rst_n)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    reg [15:0] reference_rom [0:16383];
+    reg [8*128-1:0] header_line;
+    integer rom_file, read_count, rom_index;
+
+    initial
+    begin
+        rom_file = $fopen("../assets/wavetables.mi", "r");
+        if (rom_file == 0)
+        begin
+            $display("FAIL: cannot open ../assets/wavetables.mi; run the .do script from sim/");
+            $stop;
+        end
+        else
+        begin
+            repeat (3) read_count = $fgets(header_line, rom_file);
+            for (rom_index = 0; rom_index < 16384; rom_index = rom_index + 1)
+            begin
+                read_count = $fscanf(rom_file, "%h", reference_rom[rom_index]);
+                if (read_count != 1)
+                begin
+                    $display("FAIL: incomplete MI file at address %0d", rom_index);
+                    $stop;
+                end
+            end
+            $fclose(rom_file);
+        end
+    end
+
+    function signed [15:0] calc_expected;
+        input [3:0] wave_0, wave_1;
+        input [15:0] coeff;
+        input [11:0] wave_phase;
+        reg signed [15:0] raw_0, raw_1;
+        reg signed [16:0] point_0, point_1, delta, point_sum;
+        reg signed [63:0] product;
+        begin
+            raw_0 = $signed(reference_rom[{wave_0[1:0], wave_phase}]);
+            raw_1 = $signed(reference_rom[{wave_1[1:0], wave_phase}]);
+            point_0 = $signed({raw_0[15], raw_0});
+            point_1 = $signed({raw_1[15], raw_1});
+            product = (point_1 - point_0) * $signed({1'b0, coeff});
+            // signed_fp_norm 对负数的精确半值向远离零的方向舍入。
+            delta = (product + (product < 0 ? 64'sd16383 : 64'sd16384)) >>> 15;
+            point_sum = point_0 + delta;
+            calc_expected = point_sum[15:0];
+        end
+    endfunction
+
+    integer scenario_id;
+    integer sample_count, transfer_count, stall_count, error_count;
+    integer phase_index;
+    reg [11:0] observed_phase;
+    reg [3:0] observed_wave_0, observed_wave_1;
+    reg [15:0] observed_coeff;
+    reg signed [15:0] expected_point;
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            transfer_count <= 0;
+        else if (out_valid && out_ready)
+            transfer_count <= transfer_count + 1;
+    end
+
+    task send_sample;
+        input [3:0] wave_0, wave_1;
+        input [15:0] coeff;
+        input [11:0] wave_phase;
+        input integer input_delay, output_stall, busy_valid_cycles;
+        integer i, wait_cycles, previous_transfers;
+        reg signed [15:0] held_point;
+        reg signed [15:0] expected_value;
+        begin
+            expected_value = calc_expected(wave_0, wave_1, coeff, wave_phase);
+            @(negedge clk_sys);
+            wavetable_0 = wave_0;
+            wavetable_1 = wave_1;
+            wavetable_interp = coeff;
+            phase = wave_phase;
+            out_ready = (output_stall == 0);
+            previous_transfers = transfer_count;
+
+            for (i = 0; i < input_delay; i = i + 1)
+            begin
+                if (in_ready !== 1'b1 || out_valid !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL input wait: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+                @(negedge clk_sys);
+            end
+
+            if (in_ready !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input ready: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (in_ready !== 1'b0)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+
+            // 握手后改变输入；忙碌期间即使 in_valid 再次拉高也不能覆盖本次数据。
+            @(negedge clk_sys);
+            wavetable_0 = 4'd3;
+            wavetable_1 = 4'd0;
+            wavetable_interp = 16'h8000;
+            phase = ~wave_phase;
+            in_valid = (busy_valid_cycles != 0);
+            for (i = 0; i < busy_valid_cycles; i = i + 1)
+            begin
+                if (in_ready !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL busy ready: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+                @(negedge clk_sys);
+            end
+            in_valid = 1'b0;
+
+            wait_cycles = 0;
+            while (out_valid !== 1'b1 && wait_cycles < 16)
+            begin
+                if (in_ready !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL premature ready: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (out_valid !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output timeout: scenario=%0d sample=%0d", scenario_id, sample_count);
+                $stop;
+            end
+
+            observed_phase = wave_phase;
+            observed_wave_0 = wave_0;
+            observed_wave_1 = wave_1;
+            observed_coeff = coeff;
+            expected_point = expected_value;
+            if (sample_point !== expected_value || in_ready !== 1'b0)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL sample: scenario=%0d phase=%03h waves=%0d/%0d coeff=%04h expected=%04h actual=%04h",
+                         scenario_id, wave_phase, wave_0, wave_1, coeff,
+                         expected_value, sample_point);
+            end
+
+            held_point = sample_point;
+            for (i = 0; i < output_stall; i = i + 1)
+            begin
+                @(negedge clk_sys);
+                stall_count = stall_count + 1;
+                if (out_valid !== 1'b1 || in_ready !== 1'b0 || sample_point !== held_point)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL output stall: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+            end
+            out_ready = 1'b1;
+
+            @(posedge clk_sys);
+            #1;
+            if (out_valid !== 1'b0 || in_ready !== 1'b1 ||
+                transfer_count !== previous_transfers + 1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            sample_count = sample_count + 1;
+        end
+    endtask
+
+    task run_period;
+        input integer new_scenario;
+        input [3:0] wave_0, wave_1;
+        input [15:0] coeff;
+        begin
+            scenario_id = new_scenario;
+            for (phase_index = 0; phase_index < 4096; phase_index = phase_index + 1)
+                send_sample(wave_0, wave_1, coeff, phase_index[11:0], 0, 0, 0);
+            $display("Scenario %0d: full waveform period complete", scenario_id);
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        wavetable_0 = 4'd0;
+        wavetable_1 = 4'd0;
+        wavetable_interp = 16'd0;
+        phase = 12'd0;
+        out_ready = 1'b1;
+        in_valid = 1'b0;
+        scenario_id = 0;
+        sample_count = 0;
+        stall_count = 0;
+        error_count = 0;
+        observed_phase = 12'd0;
+        observed_wave_0 = 4'd0;
+        observed_wave_1 = 4'd0;
+        observed_coeff = 16'd0;
+        expected_point = 16'sd0;
+        #20_000;
+        if (sample_point !== 16'sd0 || out_valid !== 1'b0 || in_ready !== 1'b1)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL reset");
+        end
+        rst_n = 1'b1;
+
+        // 端点、负峰/正峰、同波形、输入延迟及输出背压。
+        send_sample(4'd0, 4'd1, 16'h0000, 12'h400, 3, 4, 2);
+        send_sample(4'd0, 4'd1, 16'h8000, 12'hc00, 0, 3, 1);
+        send_sample(4'd2, 4'd3, 16'h4000, 12'h000, 2, 5, 2);
+        send_sample(4'd3, 4'd2, 16'h4000, 12'h800, 0, 0, 0);
+        send_sample(4'd1, 4'd1, 16'h2000, 12'hfff, 0, 2, 0);
+        send_sample(4'd0, 4'd2, 16'h6000, 12'h555, 1, 0, 0);
+
+        // 每段各 4096 点，ModelSim 中按 scenario_id 缩放后可观察完整波形。
+        run_period(1, 4'd0, 4'd0, 16'h0000);  // 正弦波
+        run_period(2, 4'd1, 4'd1, 16'h0000);  // 三角波
+        run_period(3, 4'd2, 4'd2, 16'h0000);  // 锯齿波
+        run_period(4, 4'd3, 4'd3, 16'h0000);  // 方波
+        run_period(5, 4'd0, 4'd1, 16'h4000);  // 正弦/三角各 50%
+        run_period(6, 4'd2, 4'd3, 16'h2000);  // 锯齿 75% / 方波 25%
+
+        if (transfer_count != sample_count || stall_count == 0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL transfer totals: samples=%0d transfers=%0d stalls=%0d",
+                     sample_count, transfer_count, stall_count);
+        end
+        $display("WAVETABLE_INTERPOLATION_TB: %0d samples, %0d transfers, %0d stalls, %0d errors",
+                 sample_count, transfer_count, stall_count, error_count);
+        $stop;  // 留在 ModelSim GUI 中观察完整周期及握手波形。
+    end
+endmodule

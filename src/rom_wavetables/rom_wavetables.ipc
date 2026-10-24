@@ -1,0 +1,15 @@
+[General]
+ipc_version=4
+file=rom_wavetables
+module=rom_wavetables
+target_device=gw5ast138c-003
+type=rom
+version=1.0
+
+[Config]
+DEPTH=16384
+LANG=0
+MEM_FILE=../../assets/wavetables.mi
+READ=0
+RESET_MODE=false
+WIDTH=16

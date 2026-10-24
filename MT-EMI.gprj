@@ -19,6 +19,7 @@
         <File path="src/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll_mod.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
+        <File path="src/rom_wavetables/rom_wavetables.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
