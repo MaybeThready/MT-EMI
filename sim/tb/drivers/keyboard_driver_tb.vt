@@ -1,0 +1,724 @@
+/**
+ * 双板24键驱动测试平台
+ * 验证键位映射、消抖、背压握手、扫描中断和复位恢复
+ * 预期键位及消抖结果正确，背压时输出稳定，全部通过后打印PASS
+ */
+
+`timescale 1ns/1ps
+
+module keyboard_driver_tb();
+    localparam integer FAST = 0;
+    localparam integer DEFAULT = 1;
+    localparam integer ZERO = 2;
+    localparam integer FAST_SCAN_CYCLES = 256;
+    localparam integer DEFAULT_SCAN_CYCLES = 8192;
+    localparam integer DEFAULT_DEBOUNCE_CYCLES = 98304;
+    localparam real CLK_HALF_NS = 1.0e9 / (2.0 * 98_304_000.0);
+    localparam [2:0] S_IDLE = 3'd0;
+    localparam [2:0] S_SAMPLE_BIT = 3'd3;
+    localparam [2:0] S_SHIFT_HIGH = 3'd4;
+    localparam [2:0] S_FILTER_FRAME = 3'd6;
+    localparam [2:0] S_FRAME_DONE = 3'd7;
+
+    reg clk_sys;
+    reg [2:0] rst_n;
+    reg [2:0] out_ready;
+    reg [23:0] physical_keys [0:2];
+    reg [3:0] unused_a [0:2];
+    reg [3:0] unused_b [0:2];
+    reg fast_tick_enable;
+    reg fast_scan_tick;
+    integer fast_tick_count;
+    wire [2:0] scan_tick_up;
+    wire [2:0] data_a;
+    wire [2:0] data_b;
+    wire [2:0] load_n;
+    wire [2:0] key_clk;
+    wire [2:0] out_valid;
+    wire [23:0] key_states [0:2];
+    wire [15:0] velocity_fast [23:0];
+    wire [15:0] velocity_default [23:0];
+    wire [15:0] velocity_zero [23:0];
+    wire [383:0] velocity_payload [0:2];
+
+    // 少量内部观测只用于检查边界时刻，不驱动或强制任何DUT内部信号。
+    wire [2:0] state [0:2];
+    wire [23:0] filtered_state [0:2];
+    wire [23:0] candidate_valid [0:2];
+    wire [23:0] raw_keys [0:2];
+    wire [2:0] frame_pending;
+    reg [23:0] received_states [0:2];
+    integer received_count [0:2];
+    integer completed_frames [0:2];
+    integer cycle_count;
+    integer last_default_tick;
+    integer default_tick_count;
+    integer default_ready_tick_count;
+    reg default_alternate_ready;
+    reg fast_done;
+    reg default_done;
+    reg zero_done;
+    reg regression_passed;
+    integer fast_phase; // 0初始化，1位序，2抖动，3背压，4同拍竞争，5断tick，6复位，7完成
+    integer default_phase; // 0初始化，1按下阈值，2释放阈值，3隔tick接收，4完成
+    integer init_index;
+    genvar board;
+    genvar key;
+
+    assign scan_tick_up[FAST] = fast_scan_tick;
+    assign scan_tick_up[ZERO] = fast_scan_tick;
+    assign state[FAST] = keyboard_driver_u1.stc;
+    assign state[DEFAULT] = keyboard_driver_u2.stc;
+    assign state[ZERO] = keyboard_driver_u3.stc;
+    assign filtered_state[FAST] = keyboard_driver_u1.filtered_state;
+    assign filtered_state[DEFAULT] = keyboard_driver_u2.filtered_state;
+    assign filtered_state[ZERO] = keyboard_driver_u3.filtered_state;
+    assign candidate_valid[FAST] = keyboard_driver_u1.candidate_valid;
+    assign candidate_valid[DEFAULT] = keyboard_driver_u2.candidate_valid;
+    assign candidate_valid[ZERO] = keyboard_driver_u3.candidate_valid;
+    assign raw_keys[FAST] = keyboard_driver_u1.raw_keys;
+    assign raw_keys[DEFAULT] = keyboard_driver_u2.raw_keys;
+    assign raw_keys[ZERO] = keyboard_driver_u3.raw_keys;
+    assign frame_pending = {keyboard_driver_u3.frame_pending,
+                            keyboard_driver_u2.frame_pending,
+                            keyboard_driver_u1.frame_pending};
+
+    keyboard_driver #(
+        .SYS_CLK_HZ(98_304_000),
+        .SCAN_HZ(384_000),
+        .DEBOUNCE_TICKS(768),
+        .RELEASE_TICKS(512),
+        .SHIFT_HALF_CYCLES(4),
+        .LOAD_CYCLES(4)
+    ) keyboard_driver_u1 (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n[FAST]),
+        .scan_tick_up(scan_tick_up[FAST]),
+        .data_a(data_a[FAST]),
+        .data_b(data_b[FAST]),
+        .out_ready(out_ready[FAST]),
+        .load_n(load_n[FAST]),
+        .key_clk(key_clk[FAST]),
+        .key_states(key_states[FAST]),
+        .key_velocity(velocity_fast),
+        .out_valid(out_valid[FAST])
+    );
+
+    keyboard_driver keyboard_driver_u2 (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n[DEFAULT]),
+        .scan_tick_up(scan_tick_up[DEFAULT]),
+        .data_a(data_a[DEFAULT]),
+        .data_b(data_b[DEFAULT]),
+        .out_ready(out_ready[DEFAULT]),
+        .load_n(load_n[DEFAULT]),
+        .key_clk(key_clk[DEFAULT]),
+        .key_states(key_states[DEFAULT]),
+        .key_velocity(velocity_default),
+        .out_valid(out_valid[DEFAULT])
+    );
+
+    keyboard_driver #(
+        .SYS_CLK_HZ(98_304_000),
+        .SCAN_HZ(384_000),
+        .DEBOUNCE_TICKS(0),
+        .RELEASE_TICKS(0),
+        .SHIFT_HALF_CYCLES(4),
+        .LOAD_CYCLES(4),
+        .DEFAULT_VELOCITY(16'h8000) // UQ0.16，0.5
+    ) keyboard_driver_u3 (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n[ZERO]),
+        .scan_tick_up(scan_tick_up[ZERO]),
+        .data_a(data_a[ZERO]),
+        .data_b(data_b[ZERO]),
+        .out_ready(out_ready[ZERO]),
+        .load_n(load_n[ZERO]),
+        .key_clk(key_clk[ZERO]),
+        .key_states(key_states[ZERO]),
+        .key_velocity(velocity_zero),
+        .out_valid(out_valid[ZERO])
+    );
+
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n[DEFAULT]),
+        .i2s_tick_up(),
+        .i2s_tick_down(),
+        .smp_tick_up(),
+        .smp_tick_down(),
+        .scan_tick_up(scan_tick_up[DEFAULT]),
+        .scan_tick_down()
+    );
+
+    generate
+        for (key = 0; key < 24; key = key + 1)
+        begin : g_velocity_pack
+            assign velocity_payload[FAST][key*16 +: 16] = velocity_fast[key];
+            assign velocity_payload[DEFAULT][key*16 +: 16] = velocity_default[key];
+            assign velocity_payload[ZERO][key*16 +: 16] = velocity_zero[key];
+        end
+    endgenerate
+
+    // 时钟按98.304MHz计算；离散仿真显示存在1ps时间精度量化。
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever #(CLK_HALF_NS) clk_sys = ~clk_sys;
+    end
+
+    // 加速tick在下降沿更新，供下一个系统上升沿采样，避免TB与DUT竞争。
+    always @(negedge clk_sys or negedge rst_n[FAST])
+    begin
+        if (!rst_n[FAST])
+        begin
+            fast_tick_count <= 0;
+            fast_scan_tick <= 1'b0;
+        end
+        else if (!fast_tick_enable)
+        begin
+            fast_tick_count <= 0;
+            fast_scan_tick <= 1'b0;
+        end
+        else if (fast_tick_count == FAST_SCAN_CYCLES - 1)
+        begin
+            fast_tick_count <= 0;
+            fast_scan_tick <= 1'b1;
+        end
+        else
+        begin
+            fast_tick_count <= fast_tick_count + 1;
+            fast_scan_tick <= 1'b0;
+        end
+    end
+
+    // 默认实例可切换为每隔一个扫描tick仅准备接收一拍。
+    always @(negedge clk_sys or negedge rst_n[DEFAULT])
+    begin
+        if (!rst_n[DEFAULT])
+        begin
+            out_ready[DEFAULT] <= 1'b1;
+            default_ready_tick_count <= 0;
+        end
+        else if (default_alternate_ready)
+        begin
+            out_ready[DEFAULT] <= 1'b0;
+            if (scan_tick_up[DEFAULT])
+            begin
+                default_ready_tick_count <= default_ready_tick_count + 1;
+                out_ready[DEFAULT] <= !default_ready_tick_count[0];
+            end
+        end
+        else
+            out_ready[DEFAULT] <= 1'b1;
+    end
+
+    always @(posedge clk_sys)
+    begin
+        cycle_count <= cycle_count + 1;
+        if (rst_n[DEFAULT] && scan_tick_up[DEFAULT])
+        begin
+            if (default_tick_count > 0 &&
+                cycle_count - last_default_tick != DEFAULT_SCAN_CYCLES)
+                $fatal(1, "Default tick interval is not 8192 system cycles");
+            last_default_tick <= cycle_count;
+            default_tick_count <= default_tick_count + 1;
+        end
+    end
+
+    generate
+        for (board = 0; board < 3; board = board + 1)
+        begin : g_board_model
+            reg [15:0] serial_a;
+            reg [15:0] serial_b;
+            reg [23:0] loaded_keys;
+            integer shift_edges;
+            integer sample_count;
+            reg stalled_last;
+            reg [23:0] states_last;
+            reg [383:0] velocity_last;
+
+            assign data_a[board] = serial_a[15];
+            assign data_b[board] = serial_b[15];
+
+            // 每次装载固定一帧，之后每个移位上升沿移到下一串行位。
+            always @(negedge load_n[board] or posedge key_clk[board] or negedge rst_n[board])
+            begin
+                if (!rst_n[board])
+                begin
+                    serial_a = 16'd0;
+                    serial_b = 16'd0;
+                    loaded_keys = 24'd0;
+                    shift_edges = 0;
+                end
+                else if (!load_n[board])
+                begin
+                    serial_a = {unused_a[board], physical_keys[board][11:0]};
+                    serial_b = {unused_b[board], physical_keys[board][23:12]};
+                    loaded_keys = physical_keys[board];
+                    shift_edges = 0;
+                end
+                else
+                begin
+                    serial_a = {serial_a[14:0], 1'b0};
+                    serial_b = {serial_b[14:0], 1'b0};
+                    shift_edges = shift_edges + 1;
+                    if (shift_edges > 15)
+                        $fatal(1, "DUT %0d generated more than 15 shifts", board);
+                end
+            end
+
+            // 握手在上升沿读取更新前的数据；上拍stall时本拍数据必须仍稳定。
+            always @(posedge clk_sys or negedge rst_n[board])
+            begin
+                if (!rst_n[board])
+                begin
+                    received_states[board] <= 24'd0;
+                    received_count[board] <= 0;
+                    completed_frames[board] <= 0;
+                    sample_count <= 0;
+                    stalled_last <= 1'b0;
+                    states_last <= 24'd0;
+                    velocity_last <= '0;
+                end
+                else
+                begin
+                    if ((^{load_n[board], key_clk[board], out_valid[board]}) === 1'bx)
+                        $fatal(1, "DUT %0d has an unknown control output", board);
+                    if (stalled_last && (out_valid[board] !== 1'b1 ||
+                        key_states[board] !== states_last ||
+                        velocity_payload[board] !== velocity_last))
+                        $fatal(1, "DUT %0d changed a stalled output frame", board);
+                    if ((^key_states[board]) === 1'bx)
+                        $fatal(1, "DUT %0d has unknown key states", board);
+                    if (board == ZERO)
+                    begin
+                        if (velocity_payload[board] !== {24{16'h8000}})
+                            $fatal(1, "Zero-debounce velocity is not UQ0.16 0.5");
+                    end
+                    else if (velocity_payload[board] !== {24{16'hFFFF}})
+                        $fatal(1, "DUT %0d has an incorrect fixed velocity", board);
+
+                    stalled_last <= out_valid[board] && !out_ready[board];
+                    states_last <= key_states[board];
+                    velocity_last <= velocity_payload[board];
+                    if (out_valid[board] && out_ready[board])
+                    begin
+                        received_states[board] <= key_states[board];
+                        received_count[board] <= received_count[board] + 1;
+                    end
+                    if (state[board] == S_IDLE && scan_tick_up[board])
+                        sample_count <= 0;
+                    if (state[board] == S_SAMPLE_BIT)
+                        sample_count <= sample_count + 1;
+                    if (state[board] == S_FRAME_DONE)
+                    begin
+                        if (sample_count != 16 || shift_edges != 15)
+                            $fatal(1, "DUT %0d: samples=%0d shifts=%0d, expected 16/15",
+                                   board, sample_count, shift_edges);
+                        if (raw_keys[board] !== loaded_keys)
+                            $fatal(1, "DUT %0d serial mapping: expected %h, got %h",
+                                   board, loaded_keys, raw_keys[board]);
+                        completed_frames[board] <= completed_frames[board] + 1;
+                    end
+                end
+            end
+        end
+    endgenerate
+
+    // 所有激励在下降沿安排；这些task只服务于仿真，不是可综合硬件。
+    task automatic wait_cycles;
+        input integer count;
+        integer n;
+        begin
+            for (n = 0; n < count; n = n + 1)
+                @(negedge clk_sys);
+        end
+    endtask
+
+    task automatic wait_frames;
+        input integer dut_id;
+        input integer count;
+        integer target;
+        begin
+            target = completed_frames[dut_id] + count;
+            while (completed_frames[dut_id] < target)
+                @(negedge clk_sys);
+        end
+    endtask
+
+    task automatic wait_state;
+        input integer dut_id;
+        input [2:0] wanted;
+        begin
+            @(negedge clk_sys);
+            while (state[dut_id] !== wanted)
+                @(negedge clk_sys);
+        end
+    endtask
+
+    task automatic check_filtered;
+        input integer dut_id;
+        input [23:0] expected;
+        input [255:0] label_text;
+        begin
+            if (filtered_state[dut_id] !== expected)
+                $fatal(1, "%0s: DUT %0d expected filtered %h, got %h",
+                       label_text, dut_id, expected, filtered_state[dut_id]);
+        end
+    endtask
+
+    task automatic check_received;
+        input integer dut_id;
+        input [23:0] expected;
+        input [255:0] label_text;
+        begin
+            wait_cycles(3);
+            if (received_count[dut_id] == 0 || received_states[dut_id] !== expected)
+                $fatal(1, "%0s: DUT %0d expected received %h, got %h",
+                       label_text, dut_id, expected, received_states[dut_id]);
+        end
+    endtask
+
+    // 隔tick只接收一拍时，先接收旧槽并换入最新帧，再等下一次握手接收它。
+    // 两次等待分别限制在两个扫描周期内，明确验证单输出槽的合法传输延迟。
+    task automatic check_alternating_transfer;
+        input [23:0] old_states;
+        input [23:0] new_states;
+        integer count_before;
+        integer waited_cycles;
+        begin
+            count_before = received_count[DEFAULT];
+            if (out_valid[DEFAULT] !== 1'b1 || key_states[DEFAULT] !== old_states)
+                $fatal(1, "Alternating-ready old slot: expected=%h actual=%h valid=%b",
+                       old_states, key_states[DEFAULT], out_valid[DEFAULT]);
+            waited_cycles = 0;
+            while (received_count[DEFAULT] == count_before &&
+                   waited_cycles < 2 * DEFAULT_SCAN_CYCLES)
+            begin
+                @(negedge clk_sys);
+                waited_cycles = waited_cycles + 1;
+            end
+            if (received_count[DEFAULT] != count_before + 1 ||
+                received_states[DEFAULT] !== old_states ||
+                key_states[DEFAULT] !== new_states || out_valid[DEFAULT] !== 1'b1)
+                $fatal(1, "Alternating-ready replacement: count=%0d->%0d recv=%h slot=%h expected=%h/%h wait=%0d ready_ticks=%0d",
+                       count_before, received_count[DEFAULT], received_states[DEFAULT],
+                       key_states[DEFAULT], old_states, new_states, waited_cycles,
+                       default_ready_tick_count);
+
+            waited_cycles = 0;
+            while (received_count[DEFAULT] == count_before + 1 &&
+                   waited_cycles < 2 * DEFAULT_SCAN_CYCLES)
+            begin
+                @(negedge clk_sys);
+                waited_cycles = waited_cycles + 1;
+            end
+            if (received_count[DEFAULT] != count_before + 2 ||
+                received_states[DEFAULT] !== new_states)
+                $fatal(1, "Alternating-ready latest transfer: count=%0d->%0d recv=%h expected=%h wait=%0d ready_ticks=%0d",
+                       count_before, received_count[DEFAULT], received_states[DEFAULT],
+                       new_states, waited_cycles, default_ready_tick_count);
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 3'b000;
+        out_ready[FAST] = 1'b1;
+        out_ready[ZERO] = 1'b1;
+        fast_tick_enable = 1'b1;
+        fast_scan_tick = 1'b0;
+        fast_tick_count = 0;
+        cycle_count = 0;
+        last_default_tick = 0;
+        default_tick_count = 0;
+        default_ready_tick_count = 0;
+        default_alternate_ready = 1'b0;
+        fast_done = 1'b0;
+        default_done = 1'b0;
+        zero_done = 1'b0;
+        regression_passed = 1'b0;
+        fast_phase = 0;
+        default_phase = 0;
+        for (init_index = 0; init_index < 3; init_index = init_index + 1)
+        begin
+            physical_keys[init_index] = 24'd0;
+            unused_a[init_index] = 4'hA;
+            unused_b[init_index] = 4'h5;
+        end
+        wait_cycles(2);
+        rst_n = 3'b000;
+        wait_cycles(6);
+        rst_n = 3'b111;
+    end
+
+    initial
+    begin : fast_tests
+        integer key_index;
+        integer n;
+        integer count_before;
+        reg [23:0] one_key;
+        wait (rst_n[FAST] === 1'b0);
+        wait (rst_n[FAST] === 1'b1);
+        wait_frames(FAST, 2);
+        check_received(FAST, 24'd0, "Initial empty frame");
+        $display("[FAST] Initial frame and fixed velocity passed");
+
+        fast_phase = 1;
+        unused_a[FAST] = 4'hF;
+        unused_b[FAST] = 4'hF;
+        wait_frames(FAST, 5);
+        check_received(FAST, 24'd0, "Ignore all four leading bits");
+        for (key_index = 0; key_index < 24; key_index = key_index + 1)
+        begin
+            one_key = 24'h000001 << key_index;
+            physical_keys[FAST] = one_key;
+            wait_frames(FAST, 3);
+            check_filtered(FAST, 24'd0, "No early press confirmation");
+            wait_frames(FAST, 1);
+            check_filtered(FAST, one_key, "Single-key press mapping");
+            check_received(FAST, one_key, "Single-key press transfer");
+            physical_keys[FAST] = 24'd0;
+            wait_frames(FAST, 2);
+            check_filtered(FAST, one_key, "No early release confirmation");
+            wait_frames(FAST, 1);
+            check_received(FAST, 24'd0, "Single-key release transfer");
+        end
+        $display("[FAST] All 24 key positions, press/release thresholds passed");
+
+        fast_phase = 2;
+        // 短于按下阈值的脉冲和回弹不能被确认为按下。
+        for (n = 0; n < 3; n = n + 1)
+        begin
+            physical_keys[FAST] = 24'h000003;
+            wait_frames(FAST, 1);
+            check_filtered(FAST, 24'd0, "Short press bounce");
+            physical_keys[FAST] = 24'd0;
+            wait_frames(FAST, 1);
+            check_filtered(FAST, 24'd0, "Press bounce returned low");
+        end
+
+        // K1持续按住，K2来回抖动；K1必须独立完成确认。
+        for (n = 0; n < 4; n = n + 1)
+        begin
+            physical_keys[FAST] = n[0] ? 24'h000001 : 24'h000003;
+            wait_frames(FAST, 1);
+            check_filtered(FAST, (n == 3) ? 24'h000001 : 24'd0,
+                           "Independent multikey debounce");
+        end
+        physical_keys[FAST] = 24'h000003;
+        wait_frames(FAST, 4);
+        check_received(FAST, 24'h000003, "Second key eventually stable");
+        physical_keys[FAST] = 24'h000002;
+        wait_frames(FAST, 1);
+        check_filtered(FAST, 24'h000003, "Short release bounce");
+        physical_keys[FAST] = 24'h000003;
+        wait_frames(FAST, 1);
+        check_filtered(FAST, 24'h000003, "Release bounce returned high");
+        physical_keys[FAST] = 24'h000002;
+        wait_frames(FAST, 3);
+        check_received(FAST, 24'h000002, "Independent release");
+        physical_keys[FAST] = 24'd0;
+        wait_frames(FAST, 3);
+        check_received(FAST, 24'd0, "Multikey cleanup");
+        $display("[FAST] Short pulses and independent multikey bounce passed");
+
+        fast_phase = 3;
+        // 输出槽冻结为0，内部先确认A再确认B，恢复接收时发送0和最新B。
+        out_ready[FAST] = 1'b0;
+        wait_frames(FAST, 1);
+        physical_keys[FAST] = 24'h005A5A;
+        wait_frames(FAST, 4);
+        check_filtered(FAST, 24'h005A5A, "Scan continues under backpressure");
+        physical_keys[FAST] = 24'hA500A5;
+        wait_frames(FAST, 4);
+        check_filtered(FAST, 24'hA500A5, "Latest state under backpressure");
+        if (out_valid[FAST] !== 1'b1 || key_states[FAST] !== 24'd0 ||
+            frame_pending[FAST] !== 1'b1)
+            $fatal(1, "Backpressure did not preserve the old frame and pending update");
+        count_before = received_count[FAST];
+        out_ready[FAST] = 1'b1;
+        wait_cycles(1);
+        if (received_count[FAST] != count_before + 1 ||
+            received_states[FAST] !== 24'd0 || out_valid[FAST] !== 1'b1 ||
+            key_states[FAST] !== 24'hA500A5)
+            $fatal(1, "Old frame/latest frame replacement failed");
+        wait_cycles(1);
+        if (received_count[FAST] != count_before + 2 ||
+            received_states[FAST] !== 24'hA500A5)
+            $fatal(1, "Back-to-back latest-state transfer failed");
+        $display("[FAST] Long backpressure, latest snapshot and consecutive transfers passed");
+
+        fast_phase = 4;
+        // FILTER沿同时消耗pending：先发旧过滤值，下一拍再发布新过滤值。
+        out_ready[FAST] = 1'b0;
+        wait_frames(FAST, 1);
+        physical_keys[FAST] = 24'hA5FFA5;
+        wait_frames(FAST, 3);
+        wait_state(FAST, S_FILTER_FRAME);
+        if (!frame_pending[FAST] || !out_valid[FAST])
+            $fatal(1, "FILTER collision test did not establish a pending frame");
+        out_ready[FAST] = 1'b1;
+        wait_cycles(1);
+        check_filtered(FAST, 24'hA5FFA5, "FILTER collision confirms new state");
+        if (key_states[FAST] !== 24'hA500A5)
+            $fatal(1, "FILTER collision published an incomplete frame");
+        wait_cycles(1);
+        if (out_valid[FAST] !== 1'b1 || key_states[FAST] !== 24'hA5FFA5)
+            $fatal(1, "New state lost after FILTER collision");
+        check_received(FAST, 24'hA5FFA5, "FILTER collision transfer");
+
+        // FRAME_DONE沿同时接收旧帧与装入新帧，不得产生valid空洞。
+        out_ready[FAST] = 1'b0;
+        wait_frames(FAST, 1);
+        physical_keys[FAST] = 24'hFFFFFF;
+        wait_frames(FAST, 3);
+        wait_state(FAST, S_FRAME_DONE);
+        check_filtered(FAST, 24'hFFFFFF, "FRAME_DONE collision prepared");
+        count_before = received_count[FAST];
+        out_ready[FAST] = 1'b1;
+        wait_cycles(1);
+        if (received_count[FAST] != count_before + 1 ||
+            received_states[FAST] !== 24'hA5FFA5 || out_valid[FAST] !== 1'b1 ||
+            key_states[FAST] !== 24'hFFFFFF)
+            $fatal(1, "FRAME_DONE simultaneous receive/publish failed");
+        check_received(FAST, 24'hFFFFFF, "FRAME_DONE collision transfer");
+        $display("[FAST] FILTER/FRAME_DONE simultaneous handshake boundaries passed");
+
+        fast_phase = 5;
+        physical_keys[FAST] = 24'd0;
+        wait_frames(FAST, 3);
+        check_received(FAST, 24'd0, "Before interrupted scan history");
+        physical_keys[FAST] = 24'h000080;
+        wait_frames(FAST, 1);
+        if (!candidate_valid[FAST][7])
+            $fatal(1, "Tick interruption test did not establish a candidate");
+        fast_tick_enable = 1'b0;
+        wait_cycles(FAST_SCAN_CYCLES * 5);
+        if (candidate_valid[FAST] !== 24'd0)
+            $fatal(1, "Missing scan ticks did not clear candidate history");
+        check_filtered(FAST, 24'd0, "Interrupted candidate must not confirm");
+        fast_tick_enable = 1'b1;
+        wait_frames(FAST, 3);
+        check_filtered(FAST, 24'd0, "Restart must rebuild full debounce history");
+        wait_frames(FAST, 1);
+        check_received(FAST, 24'h000080, "Debounce after tick recovery");
+        $display("[FAST] Tick interruption and history rebuild passed");
+
+        fast_phase = 6;
+        // 在移位过程中异步复位，验证输出安全值及重新扫描。
+        physical_keys[FAST] = 24'h800001;
+        wait_state(FAST, S_SHIFT_HIGH);
+        rst_n[FAST] = 1'b0;
+        #1;
+        if (load_n[FAST] !== 1'b1 || key_clk[FAST] !== 1'b0 ||
+            out_valid[FAST] !== 1'b0 || key_states[FAST] !== 24'd0 ||
+            candidate_valid[FAST] !== 24'd0)
+            $fatal(1, "Asynchronous reset during scan failed");
+        wait_cycles(6);
+        rst_n[FAST] = 1'b1;
+        wait_frames(FAST, 4);
+        check_received(FAST, 24'h800001, "Scan recovery after reset");
+        $display("[FAST] Reset during scan and recovery passed");
+        fast_phase = 7;
+        fast_done = 1'b1;
+    end
+
+    initial
+    begin : zero_tests
+        wait (rst_n[ZERO] === 1'b0);
+        wait (rst_n[ZERO] === 1'b1);
+        wait_frames(ZERO, 1);
+        check_received(ZERO, 24'd0, "Zero-debounce initial frame");
+        physical_keys[ZERO] = 24'h800801;
+        wait_frames(ZERO, 1);
+        check_received(ZERO, 24'h800801, "Zero-debounce first press frame");
+        physical_keys[ZERO] = 24'd0;
+        wait_frames(ZERO, 1);
+        check_received(ZERO, 24'd0, "Zero-debounce first release frame");
+        $display("[ZERO] Immediate press/release and UQ0.16 0.5 velocity passed");
+        zero_done = 1'b1;
+    end
+
+    initial
+    begin : default_tests
+        integer first_candidate_cycle;
+        integer first_candidate_frame;
+        integer n;
+        wait (rst_n[DEFAULT] === 1'b0);
+        wait (rst_n[DEFAULT] === 1'b1);
+        wait_frames(DEFAULT, 2);
+        check_received(DEFAULT, 24'd0, "Default initial frame");
+        default_phase = 1;
+        physical_keys[DEFAULT] = 24'h000001;
+        wait_frames(DEFAULT, 1);
+        first_candidate_cycle = cycle_count;
+        first_candidate_frame = completed_frames[DEFAULT];
+        if (!candidate_valid[DEFAULT][0])
+            $fatal(1, "Default debounce did not establish its first candidate");
+        check_filtered(DEFAULT, 24'd0, "Default first press sample");
+        for (n = 0; n < 11; n = n + 1)
+        begin
+            wait_frames(DEFAULT, 1);
+            check_filtered(DEFAULT, 24'd0, "Default press must not confirm early");
+        end
+        wait_frames(DEFAULT, 1);
+        if (cycle_count - first_candidate_cycle != DEFAULT_DEBOUNCE_CYCLES ||
+            completed_frames[DEFAULT] - first_candidate_frame != 12)
+            $fatal(1, "Default debounce is not 98304 cycles / 12 scan intervals");
+        check_filtered(DEFAULT, 24'h000001, "Default 13th press sample confirms");
+        check_received(DEFAULT, 24'h000001, "Default press transfer");
+
+        default_phase = 2;
+        physical_keys[DEFAULT] = 24'd0;
+        wait_frames(DEFAULT, 1);
+        first_candidate_cycle = cycle_count;
+        for (n = 0; n < 11; n = n + 1)
+        begin
+            wait_frames(DEFAULT, 1);
+            check_filtered(DEFAULT, 24'h000001, "Default release must not confirm early");
+        end
+        wait_frames(DEFAULT, 1);
+        if (cycle_count - first_candidate_cycle != DEFAULT_DEBOUNCE_CYCLES)
+            $fatal(1, "Default release debounce is not 98304 cycles");
+        check_received(DEFAULT, 24'd0, "Default 13th release sample confirms");
+        $display("[DEFAULT] Real sys_ticker, 8192-cycle scans and 1ms debounce passed");
+
+        default_phase = 3;
+        // 原背压故障回归：每隔一个tick接收，长按与松开仍须完成确认。
+        default_alternate_ready = 1'b1;
+        physical_keys[DEFAULT] = 24'h800001;
+        wait_frames(DEFAULT, 13);
+        check_filtered(DEFAULT, 24'h800001, "Alternating-ready long press");
+        check_alternating_transfer(24'd0, 24'h800001);
+        // 握手发生于扫描起点；等这一帧完成后再修改并行输入。
+        wait_frames(DEFAULT, 1);
+        physical_keys[DEFAULT] = 24'd0;
+        wait_frames(DEFAULT, 13);
+        check_filtered(DEFAULT, 24'd0, "Alternating-ready long release");
+        check_alternating_transfer(24'h800001, 24'd0);
+        default_alternate_ready = 1'b0;
+        $display("[DEFAULT] One ready pulse every other scan tick passed");
+        default_phase = 4;
+        default_done = 1'b1;
+    end
+
+    initial
+    begin
+        wait (fast_done && default_done && zero_done);
+        wait_cycles(4);
+        if (default_tick_count < 50 || received_count[FAST] == 0 ||
+            received_count[DEFAULT] == 0 || received_count[ZERO] == 0)
+            $fatal(1, "Regression coverage did not complete");
+        regression_passed = 1'b1;
+        $display("PASS: keyboard_driver_tb completed all checks at cycle %0d", cycle_count);
+        $finish;
+    end
+
+    initial
+    begin
+        wait_cycles(1_000_000);
+        $fatal(1, "TIMEOUT: keyboard_driver_tb did not complete within 1000000 cycles");
+    end
+endmodule
