@@ -1,6 +1,6 @@
 /**
- * 旋钮参数模块 v2：修改音色参数，处理粗细调、限幅和恢复默认值。
- * v2 版本修改：导出保存参数，校验通过后整组装载音色，保留总音量。
+ * 旋钮参数模块 v5：修改音色参数，处理粗细调、限幅和恢复默认值。
+ * v5 版本修改：音色先暂存并准备分组装载标记，下一拍握手时整组生效。
  * knob_delta: 每路 -1/0/+1 步；mode/fine_adjust: 本次使用的模式及微调开关。
  * 参数按百分比、角度、毫秒保存；按下旋钮恢复默认，优先于同次转动。
  * frame_done_valid: 本次旋钮已处理完成，即使没有修改参数也返回确认。
@@ -42,7 +42,8 @@ module knob_parameter_controller
     output [6:0] chorus_mix_percent,
     output parameter_valid,
     input parameter_ready,
-    // 新增：已校验的整组音色；优先于下一次旋钮事件，总音量保持不变。
+    // 已校验的整组音色；优先于下一次旋钮事件，总音量保持不变。
+    // NOTE: 空闲时先准备一拍再给 ready；valid 和参数须保持到握手，握手沿整组生效。
     input preset_load_valid,
     output preset_load_ready,
     input [191:0] preset_load_parameters,
@@ -85,6 +86,14 @@ module knob_parameter_controller
     reg signed [WAVE_PROGRESS_WIDTH:0] wave_sum;
     reg snapshot_valid_r;
     reg snapshot_dirty_r;
+    // 仅本地装载标记驱动整组快照；不能用上一拍 ready 代替当前握手。
+    reg snapshot_load_pending_r /* synthesis syn_preserve = 1 */;
+    // 数据逐拍暂存；只有准备完成后的握手沿才更新可见参数。
+    reg [191:0] preset_parameters_sampled_r;
+    // 三组同拍准备、同拍装载，分别驱动波形／相位、ADSR、效果比例。
+    reg preset_wave_load_pending_r /* synthesis syn_preserve = 1 */;
+    reg preset_envelope_load_pending_r /* synthesis syn_preserve = 1 */;
+    reg preset_effect_load_pending_r /* synthesis syn_preserve = 1 */;
     wire bank_changed;
     // 先限幅到字段合法范围，再明确截取结果位宽。
     wire [31:0] master_percent_adjusted;
@@ -191,11 +200,16 @@ module knob_parameter_controller
 
     assign configuration_error = (WAVE_SELECT_STEPS < 1) || (WAVE_SELECT_STEPS > 32767);
     wire preset_load_request;
-    assign in_ready = rst_n && !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME)
-        && !preset_load_request;
+    wire event_accept_enable;
+    wire preset_accept_enable;
+    // 内部状态和数据已有异步复位；带复位保护的 ready 只用于外部握手。
+    assign preset_accept_enable = !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME)
+        && !preset_wave_load_pending_r;
+    assign event_accept_enable = preset_accept_enable && !preset_load_request;
+    assign in_ready = rst_n && event_accept_enable;
     // 未使用音色功能时，preset_load_valid 必须接 0，不允许悬空。
     assign preset_load_request = preset_load_valid;
-    assign preset_load_ready = rst_n && !configuration_error && (current_state == STATE_WAIT_EVENT_FRAME);
+    assign preset_load_ready = rst_n && preset_wave_load_pending_r;
     assign frame_done_valid = rst_n && (current_state == STATE_WAIT_COMPLETION_ACCEPT);
     assign parameter_valid = rst_n && snapshot_valid_r;
     assign wave_progress = wave_progress_r;
@@ -223,7 +237,7 @@ module knob_parameter_controller
         next_state = current_state;
         case (current_state)
             STATE_WAIT_EVENT_FRAME:
-                if (in_valid && in_ready) next_state = STATE_CALCULATE_FRAME;
+                if (in_valid && event_accept_enable) next_state = STATE_CALCULATE_FRAME;
             STATE_CALCULATE_FRAME: next_state = STATE_MARK_PARAMETERS_DIRTY;
             STATE_MARK_PARAMETERS_DIRTY: next_state = STATE_WAIT_COMPLETION_ACCEPT;
             STATE_WAIT_COMPLETION_ACCEPT:
@@ -351,65 +365,110 @@ module knob_parameter_controller
         end
     end
 
+    // 输入在背压期间必须保持：E0 准备并暂存，E1 ready=1 时握手并装载。
+    // 上游无需等待 ready 才产生 valid；复位取消准备，E1 之前不改变当前参数。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            preset_parameters_sampled_r <= 192'd0;
+            preset_wave_load_pending_r <= 1'b0;
+            preset_envelope_load_pending_r <= 1'b0;
+            preset_effect_load_pending_r <= 1'b0;
+        end
+        else
+        begin
+            // 这里不使用握手作为宽总线使能，避免把原长路径搬到暂存寄存器。
+            preset_parameters_sampled_r <= preset_load_parameters;
+            preset_wave_load_pending_r <= preset_load_request && preset_accept_enable;
+            preset_envelope_load_pending_r <= preset_load_request && preset_accept_enable;
+            preset_effect_load_pending_r <= preset_load_request && preset_accept_enable;
+        end
+    end
+
+    // 快照空闲或刚被接收时，先预约装载；预约期间 valid 为零，避免重复交付。
+    // ready 只影响这两个控制位，不再直接控制整组参数寄存器。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            snapshot_valid_r <= 1'b0;
+            snapshot_load_pending_r <= 1'b0;
+        end
+        else if (snapshot_load_pending_r)
+        begin
+            snapshot_load_pending_r <= 1'b0;
+            snapshot_valid_r <= 1'b1;
+        end
+        else if (!snapshot_valid_r || parameter_ready)
+        begin
+            snapshot_valid_r <= 1'b0;
+            snapshot_load_pending_r <= snapshot_dirty_r;
+        end
+    end
+
+    // 预约的下一拍捕获当时的参数；同拍发生的新编辑由 dirty 保留到下一组。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            wavetable_0_snapshot_r <= 4'd0;
+            wavetable_1_snapshot_r <= 4'd1;
+            interp_percent_snapshot_r <= 7'd0;
+            phase_degrees_snapshot_r <= 9'd0;
+            attack_ms_snapshot_r <= 11'd5;
+            decay_ms_snapshot_r <= 11'd150;
+            sustain_percent_snapshot_r <= 7'd70;
+            release_ms_snapshot_r <= 13'd200;
+            master_percent_snapshot_r <= 7'd30;
+            reverb_mix_percent_snapshot_r <= 7'd0;
+            delay_mix_percent_snapshot_r <= 7'd0;
+            distortion_mix_percent_snapshot_r <= 7'd0;
+            chorus_mix_percent_snapshot_r <= 7'd0;
+        end
+        else if (snapshot_load_pending_r)
+        begin
+            wavetable_0_snapshot_r <= wavetable_0_r;
+            wavetable_1_snapshot_r <= wavetable_1_r;
+            interp_percent_snapshot_r <= interp_percent_r;
+            phase_degrees_snapshot_r <= phase_degrees_r;
+            attack_ms_snapshot_r <= attack_ms_r;
+            decay_ms_snapshot_r <= decay_ms_r;
+            sustain_percent_snapshot_r <= sustain_percent_r;
+            release_ms_snapshot_r <= release_ms_r;
+            master_percent_snapshot_r <= master_percent_r;
+            reverb_mix_percent_snapshot_r <= reverb_mix_percent_r;
+            delay_mix_percent_snapshot_r <= delay_mix_percent_r;
+            distortion_mix_percent_snapshot_r <= distortion_mix_percent_r;
+            chorus_mix_percent_snapshot_r <= chorus_mix_percent_r;
+        end
+    end
+
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
         begin
             wave_progress_r <= '0;
-            snapshot_valid_r <= 1'b0;
             snapshot_dirty_r <= 1'b1;
             wavetable_0_r <= 4'd0;
-            wavetable_0_snapshot_r <= 4'd0;
             wavetable_1_r <= 4'd1;
-            wavetable_1_snapshot_r <= 4'd1;
             interp_percent_r <= 7'd0;
-            interp_percent_snapshot_r <= 7'd0;
             phase_degrees_r <= 9'd0;
-            phase_degrees_snapshot_r <= 9'd0;
             attack_ms_r <= 11'd5;
-            attack_ms_snapshot_r <= 11'd5;
             decay_ms_r <= 11'd150;
-            decay_ms_snapshot_r <= 11'd150;
             sustain_percent_r <= 7'd70;
-            sustain_percent_snapshot_r <= 7'd70;
             release_ms_r <= 13'd200;
-            release_ms_snapshot_r <= 13'd200;
             master_percent_r <= 7'd30;
-            master_percent_snapshot_r <= 7'd30;
             reverb_mix_percent_r <= 7'd0;
-            reverb_mix_percent_snapshot_r <= 7'd0;
             delay_mix_percent_r <= 7'd0;
-            delay_mix_percent_snapshot_r <= 7'd0;
             distortion_mix_percent_r <= 7'd0;
-            distortion_mix_percent_snapshot_r <= 7'd0;
             chorus_mix_percent_r <= 7'd0;
-            chorus_mix_percent_snapshot_r <= 7'd0;
         end
         else
         begin
-            // 发布时钟沿前的完整参数；同拍编辑会再次置位
-            // 下方的更新标记，防止新编辑被旧快照覆盖而丢失。
-            if (!snapshot_valid_r || parameter_ready)
-            begin
-                snapshot_valid_r <= snapshot_dirty_r;
-                if (snapshot_dirty_r)
-                begin
-                    snapshot_dirty_r <= 1'b0;
-                    wavetable_0_snapshot_r <= wavetable_0_r;
-                    wavetable_1_snapshot_r <= wavetable_1_r;
-                    interp_percent_snapshot_r <= interp_percent_r;
-                    phase_degrees_snapshot_r <= phase_degrees_r;
-                    attack_ms_snapshot_r <= attack_ms_r;
-                    decay_ms_snapshot_r <= decay_ms_r;
-                    sustain_percent_snapshot_r <= sustain_percent_r;
-                    release_ms_snapshot_r <= release_ms_r;
-                    master_percent_snapshot_r <= master_percent_r;
-                    reverb_mix_percent_snapshot_r <= reverb_mix_percent_r;
-                    delay_mix_percent_snapshot_r <= delay_mix_percent_r;
-                    distortion_mix_percent_snapshot_r <= distortion_mix_percent_r;
-                    chorus_mix_percent_snapshot_r <= chorus_mix_percent_r;
-                end
-            end
+            // 装载时才清除更新标记；下方同拍编辑／音色装载重新置位，不能丢失。
+            if (snapshot_load_pending_r)
+                snapshot_dirty_r <= 1'b0;
             if (current_state == STATE_CALCULATE_FRAME)
             begin
                 wave_progress_r <= wave_progress_next;
@@ -427,22 +486,29 @@ module knob_parameter_controller
                 distortion_mix_percent_r <= distortion_mix_percent_next;
                 chorus_mix_percent_r <= chorus_mix_percent_next;
             end
-            if (preset_load_request && preset_load_ready)
+            // 上游 valid 在 ready 到来前保持，因此本地标记与本拍握手一致。
+            if (preset_wave_load_pending_r)
             begin
-                wavetable_0_r <= preset_load_parameters[3:0];
-                wavetable_1_r <= preset_load_parameters[19:16];
-                interp_percent_r <= preset_load_parameters[38:32];
-                phase_degrees_r <= preset_load_parameters[56:48];
-                attack_ms_r <= preset_load_parameters[74:64];
-                decay_ms_r <= preset_load_parameters[90:80];
-                sustain_percent_r <= preset_load_parameters[102:96];
-                release_ms_r <= preset_load_parameters[124:112];
-                reverb_mix_percent_r <= preset_load_parameters[134:128];
-                delay_mix_percent_r <= preset_load_parameters[150:144];
-                distortion_mix_percent_r <= preset_load_parameters[166:160];
-                chorus_mix_percent_r <= preset_load_parameters[182:176];
+                wavetable_0_r <= preset_parameters_sampled_r[3:0];
+                wavetable_1_r <= preset_parameters_sampled_r[19:16];
+                interp_percent_r <= preset_parameters_sampled_r[38:32];
+                phase_degrees_r <= preset_parameters_sampled_r[56:48];
                 wave_progress_r <= '0;
                 snapshot_dirty_r <= 1'b1;
+            end
+            if (preset_envelope_load_pending_r)
+            begin
+                attack_ms_r <= preset_parameters_sampled_r[74:64];
+                decay_ms_r <= preset_parameters_sampled_r[90:80];
+                sustain_percent_r <= preset_parameters_sampled_r[102:96];
+                release_ms_r <= preset_parameters_sampled_r[124:112];
+            end
+            if (preset_effect_load_pending_r)
+            begin
+                reverb_mix_percent_r <= preset_parameters_sampled_r[134:128];
+                delay_mix_percent_r <= preset_parameters_sampled_r[150:144];
+                distortion_mix_percent_r <= preset_parameters_sampled_r[166:160];
+                chorus_mix_percent_r <= preset_parameters_sampled_r[182:176];
             end
             if ((current_state == STATE_MARK_PARAMETERS_DIRTY) && bank_changed)
                 snapshot_dirty_r <= 1'b1;
@@ -473,7 +539,7 @@ module knob_parameter_controller
             distortion_mix_percent_previous <= 7'd0;
             chorus_mix_percent_previous <= 7'd0;
         end
-        else if (in_valid && in_ready)
+        else if (in_valid && event_accept_enable)
         begin
             for (capture_index=0;capture_index<8;capture_index=capture_index+1) knob_delta_captured[capture_index] <= knob_delta[capture_index];
             knob_pressed_event_captured <= knob_pressed_event;

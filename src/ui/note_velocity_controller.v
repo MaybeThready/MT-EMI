@@ -1,5 +1,6 @@
 /**
- * note_velocity_controller 模块 v2
+ * note_velocity_controller 模块 v3
+ * v3版本修改：原始输入逐拍暂存，每 8 声部独立寄存装载控制，保持原交付拍数。
  * v2版本修改：压力选取与最低值判断分拍，缩短计算路径。
  * 将琴键压力换算成声部力度，按住时平滑变化，松开后保持最后力度。
  * key_id/key_velocity: 对应键号与压力；须和 occupied、held、note_on 属于同次输入。
@@ -36,6 +37,9 @@ module note_velocity_controller
     localparam STATE_CALCULATE_STEP_CANDIDATES = 3'd2;
     localparam STATE_APPLY_SMOOTHING = 3'd3;
     localparam STATE_WAIT_RESULT_ACCEPT = 3'd4;
+    // 每组最多 8 声部；非整组配置只生成剩余声部，不增加公开参数。
+    localparam LOAD_GROUP_SIZE = 8;
+    localparam LOAD_GROUP_COUNT = (MAX_POLYPHONY + LOAD_GROUP_SIZE - 1) / LOAD_GROUP_SIZE;
     localparam signed [16:0] POSITIVE_SLEW_STEP = $signed({1'b0, SLEW_STEP});
     localparam signed [16:0] NEGATIVE_SLEW_STEP = -POSITIVE_SLEW_STEP;
     wire [2:0] current_state;
@@ -50,9 +54,14 @@ module note_velocity_controller
     reg [MAX_POLYPHONY-1:0] occupied_r;
     reg [MAX_POLYPHONY-1:0] held_r;
     reg [MAX_POLYPHONY-1:0] note_on_r;
+    reg [MAX_POLYPHONY-1:0] sampled_occupied_r;
+    reg [MAX_POLYPHONY-1:0] sampled_held_r;
+    reg [MAX_POLYPHONY-1:0] sampled_note_on_r;
     integer voice;
+    integer sampled_voice;
     integer candidate_voice;
     genvar voice_index;
+    genvar group_index;
 
     generate
         for (voice_index = 0; voice_index < MAX_POLYPHONY; voice_index = voice_index + 1)
@@ -60,6 +69,50 @@ module note_velocity_controller
             assign selected_pressure[voice_index] = (key_id[voice_index] < KEY_NUM) ?
                 key_velocity[key_id[voice_index]] : 16'd0;
             assign note_velocity[voice_index] = velocity_r[voice_index];
+        end
+
+        for (group_index = 0; group_index < LOAD_GROUP_COUNT; group_index = group_index + 1)
+        begin : pressure_load_groups
+            localparam FIRST_VOICE = group_index * LOAD_GROUP_SIZE;
+            localparam LAST_VOICE = ((FIRST_VOICE + LOAD_GROUP_SIZE) < MAX_POLYPHONY) ?
+                (FIRST_VOICE + LOAD_GROUP_SIZE) : MAX_POLYPHONY;
+            // 保留各组的本地寄存器，避免综合合并成一个高扇出装载信号。
+            reg load_accepted_r /* synthesis syn_preserve = 1 */;
+            integer group_voice;
+
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n)
+                    load_accepted_r <= 1'b0;
+                else
+                    load_accepted_r <= in_valid && (current_state == STATE_WAIT_SAMPLE);
+            end
+
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n)
+                begin
+                    for (group_voice = FIRST_VOICE; group_voice < LAST_VOICE; group_voice = group_voice + 1)
+                    begin
+                        occupied_r[group_voice] <= 1'b0;
+                        held_r[group_voice] <= 1'b0;
+                        note_on_r[group_voice] <= 1'b0;
+                        target_r[group_voice] <= 16'd0;
+                    end
+                end
+                else if (load_accepted_r)
+                begin
+                    // E1 读取 E0 的暂存值；外部输入在握手后变化也不会混入本次结果。
+                    for (group_voice = FIRST_VOICE; group_voice < LAST_VOICE; group_voice = group_voice + 1)
+                    begin
+                        occupied_r[group_voice] <= sampled_occupied_r[group_voice];
+                        held_r[group_voice] <= sampled_held_r[group_voice];
+                        note_on_r[group_voice] <= sampled_note_on_r[group_voice];
+                        target_r[group_voice] <= (pressure_r[group_voice] < MIN_VELOCITY) ?
+                            MIN_VELOCITY : pressure_r[group_voice];
+                    end
+                end
+            end
         end
     endgenerate
     assign in_ready = rst_n && (current_state == STATE_WAIT_SAMPLE);
@@ -79,36 +132,36 @@ module note_velocity_controller
             default: next_state = STATE_WAIT_SAMPLE;
         endcase
     end
+    // 原始输入每拍暂存，不再由一个组合条件驱动全部输入寄存器的 CE。
+    // 只有有效握手产生的分组标记才能将这批暂存数据送入后续计算。
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
         begin
-            occupied_r <= '0;
-            held_r <= '0;
-            note_on_r <= '0;
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+            sampled_occupied_r <= '0;
+            sampled_held_r <= '0;
+            sampled_note_on_r <= '0;
+            for (sampled_voice = 0; sampled_voice < MAX_POLYPHONY; sampled_voice = sampled_voice + 1)
+                pressure_r[sampled_voice] <= 16'd0;
+        end
+        else
+        begin
+            sampled_held_r <= held;
+            sampled_note_on_r <= note_on;
+            for (sampled_voice = 0; sampled_voice < MAX_POLYPHONY; sampled_voice = sampled_voice + 1)
             begin
+                sampled_occupied_r[sampled_voice] <= occupied[sampled_voice] && (key_id[sampled_voice] < KEY_NUM);
+                pressure_r[sampled_voice] <= selected_pressure[sampled_voice];
+            end
+        end
+    end
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
                 velocity_r[voice] <= 16'd0;
-                pressure_r[voice] <= 16'd0;
-                target_r[voice] <= 16'd0;
-            end
-        end
-        else if (in_valid && (current_state == STATE_WAIT_SAMPLE))
-        begin
-            held_r <= held;
-            note_on_r <= note_on;
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-            begin
-                occupied_r[voice] <= occupied[voice] && (key_id[voice] < KEY_NUM);
-                pressure_r[voice] <= selected_pressure[voice];
-            end
-        end
-        else if (current_state == STATE_CLAMP_TARGET_PRESSURE)
-        begin
-            // 压力多路选择和最低 5% 比较分拍；使用已接收的压力，不读取变化中的输入。
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-                target_r[voice] <= (pressure_r[voice] < MIN_VELOCITY) ?
-                    MIN_VELOCITY : pressure_r[voice];
         end
         else if (current_state == STATE_APPLY_SMOOTHING)
         begin

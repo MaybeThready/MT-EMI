@@ -1,5 +1,6 @@
 /**
- * ui_preset_controller 模块
+ * ui_preset_controller 模块 v2
+ * v2 版本修改：装载 valid 由复位后无效的状态产生，去掉重复复位门控。
  * 执行一次音色保存或读取，复用记录校验模块；最多有一笔未完成事务。
  * command_write=1 保存当前参数，=0 读取；命令握手时锁存槽号及参数。
  * storage_in_status: 0 成功、1 空槽、其余为失败。
@@ -60,7 +61,8 @@ module ui_preset_controller
     assign storage_out_slot = slot_r;
     assign storage_out_data = record_r;
     assign storage_in_ready = rst_n && (current_state == STATE_WAIT_STORAGE_RESPONSE);
-    assign apply_valid = rst_n && (current_state == STATE_APPLY_LOADED_PARAMETERS);
+    // 状态机异步复位到等待命令，装载状态本身已排除复位。
+    assign apply_valid = (current_state == STATE_APPLY_LOADED_PARAMETERS);
     assign apply_parameters = parameters_r;
     assign result_valid = rst_n && (current_state == STATE_REPORT_RESULT);
     assign result_status = status_r;

@@ -5,6 +5,13 @@
     <Version>5</Version>
     <Device name="GW5AST-138C" pn="GW5AST-LV138FPG676AC1/I0">gw5ast138c-003</Device>
     <FileList>
+        <File path="src/adsr_division/adsr_division.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/envelope.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/envelope_group.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/phase_accumulator.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/phase_accumulator_group.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/wavetable_interpolation.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/wavetable_synthesizer.v" type="file.verilog" enable="1"/>
         <File path="src/common/clock_divider.v" type="file.verilog" enable="1"/>
         <File path="src/common/fsm.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/signed_fp_norm.v" type="file.verilog" enable="1"/>
@@ -14,6 +21,7 @@
         <File path="src/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll_mod.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
+        <File path="src/rom_wavetables/rom_wavetables.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
@@ -37,5 +45,7 @@
         <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
         <File path="src/ui/preset_record_codec.v" type="file.verilog" enable="1"/>
         <File path="src/ui/ui_preset_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_pitch_bend.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/pitch_bend_controller.v" type="file.verilog" enable="1"/>
     </FileList>
 </Project>

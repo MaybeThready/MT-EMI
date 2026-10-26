@@ -10,3 +10,6 @@ IO_LOC "status_led[0]" J14;
 IO_LOC "status_led[1]" N21;
 IO_PORT "status_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "status_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// UI 弯音当前物理基准：保持 P16 和 PLL 频率，仅固定 PLL 位置。
+INS_LOC "sys_clocker_u/gowin_pll_u/u_pll/PLL_inst" PLL_R[0];

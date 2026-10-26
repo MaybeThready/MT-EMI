@@ -1,6 +1,6 @@
 /**
  * 旋钮事件自检：首帧基线、双向步进、持续按住、松开再按、同帧按转、
- * 多路数组、空帧、tick 无关性、背压稳定、连续 valid、复位取消在途帧。
+ * 多路数组、空帧、tick 无关性、背压稳定、连续 valid、复位取消在途帧及复位期间高 valid。
  * 独立计分板仅观察公共接口，不读取 DUT 状态机或内部历史。
  * 对每个输入握手建立预期事务，对所有有效输出检查载荷与最小延迟，
  * 对输出握手计数。随机激励保持被背压的有效输入不变。
@@ -181,12 +181,13 @@ module knob_event_handler_tb;
         begin
             @(negedge clk_sys);
             rst_n = 1'b0;
-            in_valid = 1'b0;
+            in_valid = 1'b1;
             out_ready = 1'b0;
             #2;
             if (in_ready !== 1'b0 || out_valid !== 1'b0)
                 $fatal(1, "Asynchronous reset did not suppress handshake");
             repeat (2) @(negedge clk_sys);
+            in_valid = 1'b0;
             rst_n = 1'b1;
         end
     endtask

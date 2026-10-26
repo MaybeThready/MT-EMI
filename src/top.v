@@ -1,5 +1,6 @@
 /**
- * 正式工程的 UI 诊断顶层：复用正式 PLL、复位与节拍，直接例化 24 键／32 声部 UI。
+ * 正式工程的 UI 诊断顶层 v2：复用正式 PLL、复位与节拍，直接例化 24 键／32 声部 UI。
+ * v2版本修改：弯音随输入帧交替覆盖中心、两端及随机位置，背压时保持整帧。
  * 内部模拟扫描输入和音频忙闲反馈；全量输出经 1796 位串行采集与 CRC 接到板载 LED。
  * 此连接用于综合、布局布线和时序检查，不代表真实驱动／音频已接通，不输出声音。
  * WAVE_SELECT_STEPS=4 仅为测试配置；业务接口及参数默认值不变。
@@ -33,6 +34,8 @@ module top
     wire sample_overrun;
     reg [31:0] random_state_r;
     reg [27:0] source_frame_r;
+    reg [15:0] source_bend_r;
+    reg [1:0] bend_test_index_r;
     reg source_valid_r;
     wire source_ready;
     reg [12:0] tick_counter_r;
@@ -66,7 +69,7 @@ module top
             assign key_velocity[key_index] = source_frame_r[15:0] ^ (16'd2039 * key_index);
         end
     endgenerate
-    assign bend_value[0] = 16'h8000;
+    assign bend_value[0] = source_bend_r;
     wire [3:0] wavetable_0 [0:0];
     wire [3:0] wavetable_1 [0:0];
     wire [15:0] wavetable_interp [0:0];
@@ -100,6 +103,8 @@ module top
         begin
             random_state_r <= 32'h3A51_C7E9;
             source_frame_r <= 28'd0;
+            source_bend_r <= 16'h8000;
+            bend_test_index_r <= 2'd0;
             source_valid_r <= 1'b0;
             tick_counter_r <= 13'd0;
             simulated_busy_r <= 32'd0;
@@ -123,6 +128,14 @@ module top
             if (scan_tick_up && (!source_valid_r || source_ready))
             begin
                 source_frame_r <= random_state_r[27:0];
+                // 与键盘帧一起锁存，不能直接接到每拍变化的随机数。
+                case (bend_test_index_r)
+                    2'd0: source_bend_r <= 16'h8000;
+                    2'd1: source_bend_r <= 16'h0000;
+                    2'd2: source_bend_r <= 16'hffff;
+                    default: source_bend_r <= random_state_r[31:16];
+                endcase
+                bend_test_index_r <= bend_test_index_r + 2'd1;
                 source_valid_r <= 1'b1;
             end
         end

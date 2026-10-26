@@ -1,6 +1,6 @@
 /**
  * 独立参考 CRC 按字节计算，验证 16 槽封装／读取、位翻转、版本、槽号、
- * 参数边界、未定义高级字段、输出背压稳定和运算中复位取消。
+ * 参数边界、未定义高级字段、输出背压稳定、运算中及待交付结果的异步复位取消。
  */
 `timescale 1ns/1ps
 module preset_record_codec_tb;
@@ -164,6 +164,26 @@ module preset_record_codec_tb;
         rst_n = 1'b1;
         repeat (510) @(negedge clk_sys);
         if (out_valid || !in_ready) $fatal(1, "复位未取消旧事务");
+        // 结果已有效但下游未接收时，在两个时钟沿之间复位。
+        record_in = golden;
+        @(negedge clk_sys);
+        in_valid = 1'b1;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        wait (out_valid);
+        @(posedge clk_sys);
+        #1;
+        rst_n = 1'b0;
+        in_valid = 1'b1;
+        #1;
+        if (out_valid !== 1'b0 || in_ready !== 1'b0)
+            $fatal(1, "结果未被异步复位取消");
+        repeat (3) @(negedge clk_sys);
+        in_valid = 1'b0;
+        rst_n = 1'b1;
+        repeat (510) @(negedge clk_sys);
+        if (out_valid || !in_ready) $fatal(1, "复位期间错误接收了请求");
+        run_request(1'b1, 3'd0);
         $display("PRESET_RECORD_CODEC_PASS slots=16 bit_errors=512 field_boundaries=12 format_range_extension_reset=PASS");
         $finish;
     end
