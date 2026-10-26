@@ -33,6 +33,7 @@ module i2s_driver
     output i2s_bclk,
     output i2s_lrck,
     output i2s_dout,
+    output sd_mode_n,
     output in_ready
 );
     localparam [1:0]
@@ -161,4 +162,6 @@ module i2s_driver
             end
         end
     end
+
+    assign sd_mode_r = 1'b1;
 endmodule
