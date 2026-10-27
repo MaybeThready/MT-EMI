@@ -1,0 +1,17 @@
+[General]
+ipc_version=4
+file=audio_mix_buffer
+module=audio_mix_buffer
+target_device=gw5ast138c-003
+type=sdp
+version=1.0
+
+[Config]
+BYTE_SIZE=0
+DEPTH_A=81920
+DEPTH_B=81920
+LANG=0
+READ=0
+RESET_MODE=true
+WIDTH_A=24
+WIDTH_B=24
