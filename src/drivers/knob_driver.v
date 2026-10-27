@@ -6,6 +6,8 @@
 /**
  * clk_sys / rst_n: 系统时钟 / 低有效异步复位；scan_tick_up 与该时钟同步。
  * serial_data / load_n / shift_clk: 分别接 PCB J1.7 / J1.3 / J1.5；PCB 以 3.3V 供电。
+ * 24 位串行顺序为 A8..A1、B8..B1、SW8..SW1，各组最低位对应 K1。
+ * scan_tick_up 每 SYS_CLK_HZ/SCAN_HZ 个系统周期出现一次，复位后首次时间不限。
  * knob_states[i]: 本次握手交付一步转动，连续两次握手为 1 表示两步，不是保持态。
  * knob_dirs[i]: 对应步的方向，1 增加、0 减少；states=0 时方向没有业务意义。
  * knob_pressed[i]: 已消抖的保持态，1 按下；bit0..7 对应 PCB K1..K8。
@@ -16,6 +18,8 @@
  * KNOB_NUM: 使用 K1 起连续的 1..8 个旋钮，物理链始终采集全部 24 位。
  * SYS_CLK_HZ / SCAN_HZ: 实际系统频率 / 扫描频率，须为正整数且整除。
  * DEBOUNCE_TICKS / RELEASE_TICKS: 按下/释放稳定时间，单位 clk_sys 周期，向上取整到扫描间隔。
+ * LOAD_CYCLES / SHIFT_HALF_CYCLES: 装载保持/移位半周期，单位 clk_sys 周期；默认均为 16。
+ * 装载至少 1 周期、移位半周期至少 2 周期，实际取值还须满足 74HC165 的传播与建立时间。
  * TRANSITIONS_PER_STEP: 1/2/4 个有效 AB 跃迁对应一步，默认 4；与 UI 的 WAVE_SELECT_STEPS 不同。
  * 默认正向 {A,B}: 00->01->11->10->00；实物方向相反时设置 DIRECTION_INVERT 对应位。
  * PRESSED_ACTIVE_LOW: PCB 默认 1，即 SW 原始低电平表示按下。

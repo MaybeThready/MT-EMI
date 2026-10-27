@@ -36,6 +36,7 @@ module knob_driver_tb();
     wire signed [1:0] ui_delta [7:0];
     wire [7:0] ui_pressed_event;
     reg regression_passed;
+    reg regression_failed;
     reg fast_done;
     reg default_done;
     wire variant_one_done;
@@ -119,9 +120,11 @@ module knob_driver_tb();
     task automatic fail;
         input [8*160-1:0] reason;
         begin
+            regression_failed = 1'b1;
+            regression_passed = 1'b0;
             $display("FAIL: %0s (phase=%0d events=%0d time=%0t)",
                      reason, main_phase, checked_events, $time);
-            $stop;
+            $fatal(1, "knob_driver_tb failed");
         end
     endtask
 
@@ -313,6 +316,9 @@ module knob_driver_tb();
     reg [7:0] ui_previous_pressed;
     reg [7:0] ui_expected_positive;
     reg [7:0] ui_expected_negative;
+    reg ui_was_stalled;
+    reg [7:0] held_ui_pressed_event;
+    reg signed [1:0] held_ui_delta [7:0];
     integer ui_lane;
     always @(posedge clk_sys or negedge rst_n[FAST])
     begin
@@ -322,10 +328,29 @@ module knob_driver_tb();
             ui_read = 0;
             ui_history_valid = 1'b0;
             ui_previous_pressed = 8'd0;
+            ui_was_stalled = 1'b0;
+            held_ui_pressed_event = 8'd0;
+            for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                held_ui_delta[ui_lane] = 2'sd0;
             expected_read = expected_write;
         end
         else
         begin
+            if (ui_was_stalled)
+            begin
+                if (!ui_out_valid || ui_pressed_event !== held_ui_pressed_event)
+                    fail("UI valid or pressed events changed under output backpressure");
+                for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                begin
+                    if (ui_delta[ui_lane] !== held_ui_delta[ui_lane])
+                        fail("UI delta changed under output backpressure");
+                end
+            end
+            ui_was_stalled = ui_out_valid && !ui_out_ready;
+            held_ui_pressed_event = ui_pressed_event;
+            for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                held_ui_delta[ui_lane] = ui_delta[ui_lane];
+
             if (out_valid[FAST] && out_ready[FAST])
             begin
                 expected_ui[ui_write] = {
@@ -453,6 +478,7 @@ module knob_driver_tb();
         full_fifo_replacements = 0;
         cycle_count = 0;
         regression_passed = 1'b0;
+        regression_failed = 1'b0;
         fast_done = 1'b0;
         default_done = 1'b0;
         repeat (8) @(negedge clk_sys);
@@ -461,7 +487,7 @@ module knob_driver_tb();
         main_scans(2);
 
         main_phase = 1;
-        // 初始按住K3，短释放毛刺不应改变状态。
+        // 初始按住K3，释放未达到消抖阈值前状态应保持。
         physical_pressed[FAST] = 8'd0;
         main_scans(3);
         if (last_pressed[FAST] !== 8'h04) fail("release debounce accepted a short pulse");
@@ -519,6 +545,17 @@ module knob_driver_tb();
         end
 
         main_phase = 5;
+        // 真正阻塞UI输出，让消费者自身的ready回压驱动；恢复后不能丢步或重播。
+        main_scans(1);
+        @(negedge clk_sys); ui_out_ready = 1'b0;
+        rotate_main(4, 1'b1, 1'b1);
+        rotate_main(4, 1'b0, 1'b1);
+        if (!ui_out_valid)
+            fail("UI did not retain a pending output while its receiver stalled");
+        @(negedge clk_sys); ui_out_ready = 1'b1;
+        wait_events;
+        main_scans(2);
+
         // 正向、反向及按下/松开必须完整排队，不能用净步数或最新状态抵消。
         main_scans(1);
         @(negedge clk_sys); manual_ready = 1'b0;
@@ -637,12 +674,17 @@ module knob_driver_tb();
     begin
         wait (fast_done && default_done && variant_one_done && variant_two_done);
         repeat (32) @(negedge clk_sys);
-        if (expected_read != expected_write || ui_read != ui_write)
-            fail("outstanding driver or UI reference frames remain");
-        regression_passed = 1'b1;
-        $display("PASS: knob_driver_tb checked %0d event frames, %0d UI handshakes, %0d serial scans and %0d full-FIFO replacements",
-                 checked_events, checked_ui_frames, checked_serial_frames, full_fifo_replacements);
-        $stop;
+        if (regression_failed || expected_read != expected_write || ui_read != ui_write)
+        begin
+            fail("previous failure or outstanding driver/UI reference frames remain");
+        end
+        else
+        begin
+            regression_passed = 1'b1;
+            $display("PASS: knob_driver_tb checked %0d event frames, %0d UI handshakes, %0d serial scans and %0d full-FIFO replacements",
+                     checked_events, checked_ui_frames, checked_serial_frames, full_fifo_replacements);
+            $stop;
+        end
     end
 
     initial
@@ -731,7 +773,7 @@ module knob_driver_variant_tb
             if (overflow || scan_error)
             begin
                 $display("FAIL: variant %0d reported a queue/scan fault", TRANSITIONS);
-                $stop;
+                knob_driver_tb.fail("knob_driver_variant_tb failed");
             end
             if (valid)
             begin
@@ -740,7 +782,7 @@ module knob_driver_variant_tb
                 begin
                     if (states !== 1'b0 || pressed !== 1'b0)
                     begin
-                        $display("FAIL: variant baseline is not idle"); $stop;
+                        $display("FAIL: variant baseline is not idle"); knob_driver_tb.fail("knob_driver_variant_tb failed");
                     end
                     baseline_seen = 1'b1;
                 end
@@ -748,7 +790,7 @@ module knob_driver_variant_tb
                 begin
                     if (dirs !== !INVERT_DIRECTION)
                     begin
-                        $display("FAIL: variant direction parameter did not apply"); $stop;
+                        $display("FAIL: variant direction parameter did not apply"); knob_driver_tb.fail("knob_driver_variant_tb failed");
                     end
                     step_count = step_count + 1;
                 end
@@ -778,17 +820,17 @@ module knob_driver_variant_tb
         if (step_count != 4 / TRANSITIONS)
         begin
             $display("FAIL: variant %0d counted %0d steps for four legal transitions", TRANSITIONS, step_count);
-            $stop;
+            knob_driver_tb.fail("knob_driver_variant_tb failed");
         end
         physical[0] = 1'b1; sample;
         if (pressed !== 1'b1)
         begin
-            $display("FAIL: high-active zero-debounce button did not assert"); $stop;
+            $display("FAIL: high-active zero-debounce button did not assert"); knob_driver_tb.fail("knob_driver_variant_tb failed");
         end
         physical[0] = 1'b0; sample;
         if (pressed !== 1'b0)
         begin
-            $display("FAIL: high-active zero-debounce button did not release"); $stop;
+            $display("FAIL: high-active zero-debounce button did not release"); knob_driver_tb.fail("knob_driver_variant_tb failed");
         end
         done_r = 1'b1;
     end
