@@ -163,5 +163,5 @@ module i2s_driver
         end
     end
 
-    assign sd_mode_r = 1'b1;
+    assign sd_mode_n = 1'b1;
 endmodule

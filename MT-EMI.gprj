@@ -15,6 +15,8 @@
         <File path="src/audio/wavetable_synthesizer.v" type="file.verilog" enable="1"/>
         <File path="src/common/clock_divider.v" type="file.verilog" enable="1"/>
         <File path="src/common/fsm.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/i2s_driver.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/keyboard_driver.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/signed_fp_norm.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/signed_fp_op.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/unsigned_fp_norm.v" type="file.verilog" enable="1"/>
@@ -27,6 +29,10 @@
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_dynamic_music.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_i2s.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_keyboard_interaction.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_static_music.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
         <File path="src/ui/button_event_handler.v" type="file.verilog" enable="1"/>
         <File path="src/ui/keyboard_event_handler.v" type="file.verilog" enable="1"/>
