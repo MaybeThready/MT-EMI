@@ -6,7 +6,7 @@ vlog -sv -work $SIM_LIB ../src/fixed_points/signed_fp_norm.v
 vlog -sv -work $SIM_LIB ../src/fixed_points/signed_fp_op.v
 vlog -sv -work $SIM_LIB ../src/audio_mix_buffer/audio_mix_buffer.v
 vlog -sv -work $SIM_LIB ../src/mixer/reverb.v
-vlog -sv -work $SIM_LIB tb/audio/reverb_tb.vt
+vlog -sv -work $SIM_LIB tb/mixer/reverb_tb.vt
 
 vsim -t 1ps -voptargs=+acc -L gw5a $SIM_LIB.reverb_tb
 log sim:/reverb_tb/observed_audio
