@@ -1,0 +1,284 @@
+/**
+ * 公开 user_interface 的 24 键／32 声部系统自检。
+ * 每 2048 个系统周期一个采样使能，扫描使能每 8192 周期一次。
+ * 使用独立 Python 事务模型的预期值，比较全部 1796 位公开输出；
+ * 不读写 DUT 内部状态。覆盖和弦、压力、粗细调、默认值、模式、尾音、
+ * 有界背压、跨 tick 超期、同沿交付和异步复位取消。
+ * NOTE: 使用实际 PLL 的近似周期 10.178572 ns，不在此例化 PLL；
+ * busy 为测试模型，不替代真实包络。产品波形阈值未定，测试固定为 4。
+ */
+`timescale 1ns/1ps
+module user_interface_system_tb;
+    parameter SEED = 1018;
+    localparam SAMPLE_CYCLES = 2048;
+    reg clk_sys = 1'b0;
+    always #5.089286 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg scan_tick_up = 1'b0;
+    reg smp_tick_up = 1'b0;
+    reg [23:0] key_states = 24'd0;
+    reg [15:0] key_velocity [23:0];
+    reg [3:0] button_states = 4'd0;
+    reg [7:0] knob_states = 8'd0;
+    reg [7:0] knob_dirs = 8'd0;
+    reg [7:0] knob_pressed = 8'd0;
+    wire [15:0] bend_value [0:0];
+    assign bend_value[0] = 16'h8000;
+    reg [31:0] note_busy = 32'd0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    reg out_ready = 1'b0;
+    wire out_valid;
+    wire [31:0] note_on, note_off;
+    wire [31:0] note_freq [31:0];
+    wire [15:0] note_velocity [31:0];
+    wire [3:0] wavetable_0 [0:0];
+    wire [3:0] wavetable_1 [0:0];
+    wire [15:0] wavetable_interp [0:0];
+    wire [15:0] init_phase [0:0];
+    wire [19:0] attack_ticks [0:0];
+    wire [19:0] decay_ticks [0:0];
+    wire [15:0] sustain_level [0:0];
+    wire [19:0] release_ticks [0:0];
+    wire [15:0] master_volume, reverb_mix, delay_mix, distortion_mix, chorus_mix;
+    wire configuration_error, sample_overrun;
+    wire [1795:0] actual_payload;
+    reg [1795:0] expected_payload;
+    reg [1795:0] row_payload;
+    reg expected_pending = 1'b0;
+    reg expected_overrun = 1'b0;
+    reg [1795:0] previous_payload;
+    reg previously_stalled = 1'b0;
+    integer row_data [0:36];
+    integer slot_index, phase, field_index, voice_index;
+    integer global_cycle = 0;
+    integer expected_due_cycle = 0;
+    integer expected_input_count, expected_sample_count, expected_cancel_count, expected_skips;
+    integer input_count = 0;
+    integer sample_count = 0;
+    integer cancelled_count = 0;
+    integer skipped_ticks = 0;
+    integer stalled_cycles = 0;
+    integer simultaneous_accept_tick = 0;
+    integer source, csv_file, count, row_count;
+    integer previous_tick_cycle = -1;
+    integer input_sent;
+    reg clear_input_next = 1'b0;
+    reg [4095:0] assets, results, filename;
+    genvar voice;
+
+    user_interface #(
+        .KEY_NUM(24), .MAX_POLYPHONY(32), .WAVE_SELECT_STEPS(4), .SMP_TICK_FREQ(48000)
+    ) user_interface_u (
+        // 存储未接入的旧测试：新增输入明确接零，输出留空。
+        .storage_out_valid(),
+        .storage_out_ready(1'b0),
+        .storage_out_write(),
+        .storage_out_slot(),
+        .storage_out_data(),
+        .storage_in_valid(1'b0),
+        .storage_in_ready(),
+        .storage_in_status(3'd0),
+        .storage_in_data(512'd0),
+        .menu_page(),
+        .menu_selection(),
+        .menu_slot(),
+        .menu_save(),
+        .menu_result_status(),
+        .storage_catalog_valid(1'b0),
+        .storage_slot_present(16'd0),
+        .menu_slot_known(),
+        .menu_slot_present(),
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
+        .key_states(key_states), .key_velocity(key_velocity), .button_states(button_states),
+        .knob_states(knob_states), .knob_dirs(knob_dirs), .knob_pressed(knob_pressed),
+        .bend_value(bend_value), .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
+        .out_valid(out_valid), .out_ready(out_ready), .note_on(note_on), .note_off(note_off),
+        .note_freq(note_freq), .note_velocity(note_velocity), .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp), .init_phase(init_phase),
+        .attack_ticks(attack_ticks), .decay_ticks(decay_ticks), .sustain_level(sustain_level),
+        .release_ticks(release_ticks), .master_volume(master_volume), .reverb_mix(reverb_mix),
+        .delay_mix(delay_mix), .distortion_mix(distortion_mix), .chorus_mix(chorus_mix),
+        .configuration_error(configuration_error), .sample_overrun(sample_overrun)
+    );
+    assign actual_payload[195:0] = {wavetable_0[0], wavetable_1[0], wavetable_interp[0], init_phase[0],
+        attack_ticks[0], decay_ticks[0], sustain_level[0], release_ticks[0],
+        master_volume, reverb_mix, delay_mix, distortion_mix, chorus_mix};
+    assign actual_payload[227:196] = note_on;
+    assign actual_payload[259:228] = note_off;
+    generate
+        for (voice = 0; voice < 32; voice = voice + 1)
+        begin : pack_voice_outputs
+            assign actual_payload[260 + 48 * voice +: 32] = note_freq[voice];
+            assign actual_payload[292 + 48 * voice +: 16] = note_velocity[voice];
+        end
+    endgenerate
+
+    // 只根据公开握手和独立向量检查结果；逐周期验证 valid 和全部冻结字段。
+    task check_public_outputs;
+        begin
+            if (!rst_n)
+            begin
+                if (out_valid || sample_overrun || note_on || note_off)
+                    $fatal(1, "复位未取消公开输出 slot=%0d", slot_index);
+            end
+            else
+            begin
+                if (configuration_error) $fatal(1, "非法配置或批次错误 slot=%0d", slot_index);
+                if (sample_overrun !== expected_overrun)
+                    $fatal(1, "超期诊断不匹配 slot=%0d phase=%0d", slot_index, phase);
+                if (previously_stalled && (!out_valid || actual_payload !== previous_payload))
+                    $fatal(1, "等待 ready 时载荷改变 slot=%0d phase=%0d", slot_index, phase);
+                if (out_valid !== (expected_pending && global_cycle >= expected_due_cycle))
+                    $fatal(1, "输出时刻错误 slot=%0d phase=%0d valid=%b pending=%b due=%0d cycle=%0d",
+                        slot_index, phase, out_valid, expected_pending, expected_due_cycle, global_cycle);
+                if (out_valid)
+                begin
+                    if (actual_payload !== expected_payload)
+                    begin
+                        if (actual_payload[259:196] !== expected_payload[259:196])
+                            $display("事件 actual=%h/%h expected=%h/%h", note_on, note_off,
+                                expected_payload[227:196], expected_payload[259:228]);
+                        if (actual_payload[195:0] !== expected_payload[195:0])
+                            $display("控制 actual=%h expected=%h", actual_payload[195:0], expected_payload[195:0]);
+                        for (voice_index = 0; voice_index < 32; voice_index = voice_index + 1)
+                            if (actual_payload[260 + 48 * voice_index +: 48] !== expected_payload[260 + 48 * voice_index +: 48])
+                                $display("声部 %0d actual=%h expected=%h", voice_index,
+                                    actual_payload[260 + 48 * voice_index +: 48], expected_payload[260 + 48 * voice_index +: 48]);
+                        $fatal(1, "独立参考模型不匹配 seed=%0d slot=%0d phase=%0d", SEED, slot_index, phase);
+                    end
+                    if (out_ready)
+                    begin
+                        sample_count = sample_count + 1;
+                        if (smp_tick_up) simultaneous_accept_tick = simultaneous_accept_tick + 1;
+                        $fdisplay(csv_file, "%0d,%0d,%0d,%h,%h,%0d,%0d,%0d,%0d,%0d,%0d,%0d",
+                            sample_count, slot_index, global_cycle, note_on, note_off, attack_ticks[0],
+                            decay_ticks[0], sustain_level[0], release_ticks[0], init_phase[0], wavetable_0[0], wavetable_1[0]);
+                        expected_pending = 1'b0;
+                    end
+                    else stalled_cycles = stalled_cycles + 1;
+                end
+                previously_stalled = out_valid && !out_ready;
+                previous_payload = actual_payload;
+                if (in_valid && in_ready)
+                begin
+                    input_count = input_count + 1;
+                    input_sent = input_sent + 1;
+                    clear_input_next = 1'b1;
+                end
+                if (smp_tick_up)
+                begin
+                    if (previous_tick_cycle >= 0 && global_cycle - previous_tick_cycle != SAMPLE_CYCLES)
+                        $fatal(1, "采样节拍不是 2048 周期");
+                    previous_tick_cycle = global_cycle;
+                    if (expected_pending)
+                    begin
+                        skipped_ticks = skipped_ticks + 1;
+                        expected_overrun = 1'b1;
+                        if (row_data[35] != 0) $fatal(1, "向量错误：忙时不应新建采样");
+                    end
+                    else
+                    begin
+                        if (row_data[35] != 1) $fatal(1, "向量错误：空闲时遗漏采样");
+                        expected_payload = row_payload;
+                        expected_pending = 1'b1;
+                        // IF-KEYBOARD-06/07：装载、压力下限、结果确认分拍，最早在 tick 后第七沿交付。
+                        expected_due_cycle = global_cycle + 7;
+                    end
+                    if (expected_overrun != row_data[36]) $fatal(1, "参考超期状态错误");
+                end
+            end
+        end
+    endtask
+
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets) || !$value$plusargs("RESULTS=%s", results))
+            $fatal(1, "缺少系统测试文件路径");
+        $sformat(filename, "%0s/system_%0d.txt", assets, SEED);
+        source = $fopen(filename, "r");
+        if (!source) $fatal(1, "缺少系统参考向量");
+        $sformat(filename, "%0s/system_%0d.csv", results, SEED);
+        csv_file = $fopen(filename, "w");
+        if (!csv_file) $fatal(1, "无法建立输出记录");
+        $fdisplay(csv_file, "sample,slot,cycle,note_on,note_off,attack,decay,sustain,release,phase,wave0,wave1");
+        count = $fscanf(source, "%d %d %d %d %d", row_count, expected_input_count, expected_sample_count, expected_cancel_count, expected_skips);
+        if (count != 5) $fatal(1, "向量头不完整");
+        for (field_index = 0; field_index < 24; field_index = field_index + 1) key_velocity[field_index] = 16'd0;
+        for (slot_index = 0; slot_index < row_count; slot_index = slot_index + 1)
+        begin
+            for (field_index = 0; field_index < 37; field_index = field_index + 1)
+            begin
+                count = $fscanf(source, "%h", row_data[field_index]);
+                if (count != 1) $fatal(1, "向量字段缺失 slot=%0d field=%0d", slot_index, field_index);
+            end
+            count = $fscanf(source, "%h", row_payload);
+            if (count != 1 || row_data[0] != slot_index) $fatal(1, "向量顺序错误");
+            input_sent = 0;
+            for (phase = 0; phase < SAMPLE_CYCLES; phase = phase + 1)
+            begin
+                @(negedge clk_sys);
+                if (clear_input_next)
+                begin
+                    in_valid = 1'b0;
+                    clear_input_next = 1'b0;
+                    // 握手后故意改变无效输入，验证已捕获帧不被污染。
+                    key_states = ~key_states;
+                    button_states = ~button_states;
+                    knob_states = ~knob_states;
+                    knob_pressed = ~knob_pressed;
+                    for (field_index = 0; field_index < 24; field_index = field_index + 1)
+                        key_velocity[field_index] = ~key_velocity[field_index];
+                end
+                if (phase == 0)
+                begin
+                    note_busy = row_data[9];
+                    if (row_data[1])
+                    begin
+                        rst_n = 1'b0;
+                        in_valid = 1'b0;
+                        if (expected_pending) cancelled_count = cancelled_count + 1;
+                        expected_pending = 1'b0;
+                        expected_overrun = 1'b0;
+                        previously_stalled = 1'b0;
+                        previous_tick_cycle = -1;
+                    end
+                end
+                if (row_data[1] && phase == 8) rst_n = 1'b1;
+                out_ready = rst_n && (phase >= row_data[3]);
+                smp_tick_up = rst_n && row_data[34] && (phase == SAMPLE_CYCLES - 1);
+                scan_tick_up = rst_n && ((global_cycle % 8192) == 8191);
+                if (phase == row_data[2])
+                begin
+                    key_states = row_data[4][23:0];
+                    button_states = row_data[5][3:0];
+                    knob_states = row_data[6][7:0];
+                    knob_dirs = row_data[7][7:0];
+                    knob_pressed = row_data[8][7:0];
+                    for (field_index = 0; field_index < 24; field_index = field_index + 1)
+                        key_velocity[field_index] = row_data[10 + field_index][15:0];
+                    in_valid = 1'b1;
+                end
+                @(posedge clk_sys);
+                check_public_outputs;
+                global_cycle = global_cycle + 1;
+            end
+            if (input_sent != ((row_data[2] < SAMPLE_CYCLES) ? 1 : 0))
+                $fatal(1, "输入丢失／重复或未及时接收 slot=%0d", slot_index);
+        end
+        if (expected_pending || out_valid || input_count != expected_input_count || sample_count != expected_sample_count ||
+            cancelled_count != expected_cancel_count || skipped_ticks != expected_skips || simultaneous_accept_tick == 0)
+            $fatal(1, "系统计数／覆盖错误 inputs=%0d samples=%0d cancel=%0d skips=%0d same_tick=%0d",
+                input_count, sample_count, cancelled_count, skipped_ticks, simultaneous_accept_tick);
+        $fclose(source);
+        $fclose(csv_file);
+        $display("USER_INTERFACE_SYSTEM_PASS seed=%0d keys=24 voices=32 slots=%0d inputs=%0d samples=%0d cancelled=%0d skipped=%0d stalled_cycles=%0d same_tick=%0d",
+            SEED, row_count, input_count, sample_count, cancelled_count, skipped_ticks, stalled_cycles, simultaneous_accept_tick);
+        $finish;
+    end
+    initial
+    begin
+        #200000000;
+        $fatal(1, "系统自检看门狗超时");
+    end
+endmodule

@@ -1,0 +1,103 @@
+`timescale 1ns/1ps
+/** button_event_handler 自检：复位、握手背压及数据语义。
+ * 参考向量使用整数物理单位独立计算。
+ */
+module button_event_handler_tb;
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    integer index;
+    integer cycle;
+    integer count;
+    integer file_handle;
+    integer scan_count;
+    string assets;
+    string file_path;
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "Missing ASSETS");
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Watchdog timeout");
+    end
+    reg [3:0] button_states = 4'd0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    reg out_ready = 1'b0;
+    wire out_valid;
+    wire [3:0] button_pressed_event;
+    wire [3:0] button_released_event;
+    wire [3:0] button_held;
+    reg [3:0] previous;
+    reg baseline;
+    reg [11:0] expected;
+    integer seed = 20261017;
+    button_event_handler button_event_handler_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .button_states(button_states),
+        .in_valid(in_valid),
+        .in_ready(in_ready),
+        .out_ready(out_ready),
+        .out_valid(out_valid),
+        .button_pressed_event(button_pressed_event),
+        .button_released_event(button_released_event),
+        .button_held(button_held)
+    );
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            #1;
+        end
+    endtask
+
+    initial
+    begin
+        previous = 4'd0;
+        baseline = 1'b0;
+        reset_dut;
+        for (index = 0; index < 1000; index = index + 1)
+        begin
+            @(negedge clk_sys);
+            button_states = (index < 32) ? index : $random(seed);
+            expected = {baseline ? button_states & ~previous : 4'd0,
+                        baseline ? ~button_states & previous : 4'd0, button_states};
+            in_valid = 1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            previous = button_states;
+            baseline = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            for (cycle = 0; cycle < 1 + index % 9; cycle = cycle + 1)
+            begin
+                // 未握手接收的输入扰动不得影响帧历史。
+                button_states = $random(seed);
+                if (!out_valid || in_ready ||
+                    {button_pressed_event,button_released_event,button_held} !== expected)
+                    $fatal(1, "Button output/history mismatch frame %0d", index);
+                @(negedge clk_sys);
+            end
+            if (index == 499)
+            begin
+                reset_dut;
+                baseline = 1'b0;
+                if (out_valid) $fatal(1, "Reset did not cancel pending event");
+            end
+            else
+            begin
+                out_ready = 1'b1;
+                @(negedge clk_sys);
+                out_ready = 1'b0;
+                if (out_valid) $fatal(1, "Duplicate button transaction");
+            end
+        end
+        $display("BUTTON_EVENT_HANDLER_PASS frames=1000 reset_cancelled=1");
+        $finish;
+    end
+endmodule

@@ -1,0 +1,365 @@
+/**
+ * 单路 ADSR 包络测试平台
+ * 观察完整包络、提前松键、重新触发及 valid/ready 握手
+ */
+
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module envelope_tb();
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+    localparam [19:0] ATTACK_TICKS = 20'd13;
+    localparam [19:0] DECAY_TICKS = 20'd17;
+    localparam [19:0] RELEASE_TICKS = 20'd19;
+    localparam [15:0] SUSTAIN_LEVEL = 16'hb333;
+    localparam [15:0] MAX_VOLUME = 16'hffff;
+    localparam [31:0] K_A = (64'd65535 << 16) / ATTACK_TICKS;
+    localparam [31:0] K_D = (64'd65535 - SUSTAIN_LEVEL) * 64'd65536 / DECAY_TICKS;
+
+    localparam DONE = 3'd0, ATTACK = 3'd1, DECAY = 3'd2,
+               SUSTAIN = 3'd3, RELEASE = 3'd4;
+
+    reg clk_sys;
+    reg rst_n;
+    wire smp_tick_up;
+
+    sys_ticker st_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .i2s_tick_up(),
+        .i2s_tick_down(),
+        .smp_tick_up(smp_tick_up),
+        .smp_tick_down(),
+        .scan_tick_up(),
+        .scan_tick_down()
+    );
+
+    reg note_on;
+    reg note_off;
+    reg [31:0] k_r;
+    reg in_valid;
+    wire in_ready;
+    reg out_ready;
+    wire out_valid;
+    wire [15:0] volume;
+    wire note_busy;
+
+    envelope env_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .smp_tick_up(smp_tick_up),
+        .attack_ticks(ATTACK_TICKS),
+        .decay_ticks(DECAY_TICKS),
+        .sustain_level(SUSTAIN_LEVEL),
+        .release_ticks(RELEASE_TICKS),
+        .k_a(K_A),
+        .k_d(K_D),
+        .k_r(k_r),
+        .note_on(note_on),
+        .note_off(note_off),
+        .volume(volume),
+        .note_busy(note_busy),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    reg [2:0] expected_state;
+    reg [15:0] expected_volume;
+    reg [15:0] release_start;
+    integer stage_tick;
+    integer sample_count;
+    integer transfer_count;
+    integer stall_count;
+    integer error_count;
+    integer scenario_id;  // 1: 完整 ADSR，2: Attack 松键，3: Decay 松键，4: Release 重触发
+    integer sample_index;
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            transfer_count <= 0;
+        else if (out_valid && out_ready)
+            transfer_count <= transfer_count + 1;
+    end
+
+    // 系数为 UQ0.32，阶段计数为整数，结果四舍五入到 UQ0.16。
+    function [15:0] calc_delta;
+        input [31:0] slope;
+        input integer tick_count;
+        reg [63:0] product;
+        reg [63:0] rounded;
+        begin
+            product = slope * tick_count;
+            rounded = (product + 64'd32768) >> 16;
+            calc_delta = rounded > 64'd65535 ? 16'hffff : rounded[15:0];
+        end
+    endfunction
+
+    // 参考值按公式计算，不读取 DUT 的内部状态。
+    task advance_reference;
+        input new_note_on;
+        input new_note_off;
+        input [31:0] release_slope;
+        reg [15:0] delta;
+        begin
+            if (new_note_on)
+            begin
+                expected_state = ATTACK;
+                expected_volume = 16'd0;
+                stage_tick = 0;
+            end
+            else if (new_note_off)
+            begin
+                expected_state = RELEASE;
+                release_start = expected_volume;
+                stage_tick = 0;
+            end
+            else
+            begin
+                case (expected_state)
+                    ATTACK:
+                    begin
+                        if (stage_tick == ATTACK_TICKS)
+                        begin
+                            expected_state = DECAY;
+                            stage_tick = 0;
+                            expected_volume = MAX_VOLUME;
+                        end
+                        else
+                        begin
+                            stage_tick = stage_tick + 1;
+                            expected_volume = calc_delta(K_A, stage_tick);
+                        end
+                    end
+
+                    DECAY:
+                    begin
+                        if (stage_tick == DECAY_TICKS)
+                        begin
+                            expected_state = SUSTAIN;
+                            expected_volume = SUSTAIN_LEVEL;
+                        end
+                        else
+                        begin
+                            stage_tick = stage_tick + 1;
+                            delta = calc_delta(K_D, stage_tick);
+                            expected_volume = MAX_VOLUME - delta;
+                        end
+                    end
+
+                    SUSTAIN: expected_volume = SUSTAIN_LEVEL;
+
+                    RELEASE:
+                    begin
+                        if (stage_tick == RELEASE_TICKS)
+                        begin
+                            expected_state = DONE;
+                            expected_volume = 16'd0;
+                        end
+                        else
+                        begin
+                            stage_tick = stage_tick + 1;
+                            delta = calc_delta(release_slope, stage_tick);
+                            expected_volume = release_start - delta;
+                        end
+                    end
+
+                    DONE: expected_volume = 16'd0;
+                endcase
+            end
+        end
+    endtask
+
+    // 每次采样只传输一次；可故意延迟输入和阻塞输出。
+    task send_sample;
+        input new_note_on;
+        input new_note_off;
+        input integer input_delay;
+        input integer output_stall;
+        integer i;
+        integer wait_cycles;
+        integer old_transfer_count;
+        reg [15:0] held_volume;
+        reg held_busy;
+        begin
+            @(posedge smp_tick_up);
+            @(negedge smp_tick_up);
+            @(negedge clk_sys);
+
+            note_on = new_note_on;
+            note_off = new_note_off;
+            if (new_note_off)
+                k_r = (64'd0 + expected_volume) * 64'd65536 / RELEASE_TICKS;
+            out_ready = (output_stall == 0);
+            old_transfer_count = transfer_count;
+
+            for (i = 0; i < input_delay; i = i + 1)
+            begin
+                if (in_ready !== 1'b1 || out_valid !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL input wait: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+                @(negedge clk_sys);
+            end
+
+            if (in_ready !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input ready: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+
+            advance_reference(new_note_on, new_note_off, k_r);
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (in_ready !== 1'b0)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            note_on = 1'b0;
+            note_off = 1'b0;
+
+            wait_cycles = 0;
+            while (out_valid !== 1'b1 && wait_cycles < 12)
+            begin
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (out_valid !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output timeout: scenario=%0d sample=%0d", scenario_id, sample_count);
+                $stop;
+            end
+
+            if (volume !== expected_volume || note_busy !== (expected_state != DONE))
+            begin
+                error_count = error_count + 1;
+                $display("FAIL ADSR: scenario=%0d sample=%0d state=%0d expected=%04h actual=%04h busy=%b",
+                         scenario_id, sample_count, expected_state,
+                         expected_volume, volume, note_busy);
+            end
+
+            if (output_stall != 0)
+            begin
+                stall_count = stall_count + 1;
+                held_volume = volume;
+                held_busy = note_busy;
+                for (i = 0; i < output_stall; i = i + 1)
+                begin
+                    @(negedge clk_sys);
+                    if (out_valid !== 1'b1 || in_ready !== 1'b0 ||
+                        volume !== held_volume || note_busy !== held_busy)
+                    begin
+                        error_count = error_count + 1;
+                        $display("FAIL output stall: scenario=%0d sample=%0d", scenario_id, sample_count);
+                    end
+                end
+                out_ready = 1'b1;
+            end
+
+            @(posedge clk_sys);
+            #1;
+            if (out_valid !== 1'b0 || transfer_count !== old_transfer_count + 1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            sample_count = sample_count + 1;
+            @(negedge clk_sys);
+        end
+    endtask
+
+    initial
+    begin
+        expected_state = DONE;
+        expected_volume = 16'd0;
+        release_start = 16'd0;
+        stage_tick = 0;
+        sample_count = 0;
+        stall_count = 0;
+        error_count = 0;
+        scenario_id = 0;
+        note_on = 1'b0;
+        note_off = 1'b0;
+        k_r = 32'd0;
+        in_valid = 1'b0;
+        out_ready = 1'b1;
+        rst_n = 1'b0;
+        #20_000;
+        if (volume !== 16'd0 || note_busy !== 1'b0 ||
+            out_valid !== 1'b0 || in_ready !== 1'b0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL reset");
+        end
+        rst_n = 1'b1;
+
+        // 完整 Attack、Decay、Sustain、Release，并观察静音保持。
+        scenario_id = 1;
+        send_sample(1'b1, 1'b0, 3, 4);
+        repeat (ATTACK_TICKS + DECAY_TICKS + 12)
+            send_sample(1'b0, 1'b0, 0, 0);
+        send_sample(1'b0, 1'b1, 2, 4);
+        repeat (RELEASE_TICKS + 3)
+            send_sample(1'b0, 1'b0, 0, 0);
+        $display("Scenario 1: complete ADSR, sustain and silence");
+
+        // Attack 尚未结束就松键：第一点应与松键前音量连续。
+        scenario_id = 2;
+        send_sample(1'b1, 1'b0, 0, 0);
+        repeat (6) send_sample(1'b0, 1'b0, 0, 0);
+        send_sample(1'b0, 1'b1, 3, 4);
+        repeat (RELEASE_TICKS + 2)
+            send_sample(1'b0, 1'b0, 0, 0);
+        $display("Scenario 2: note_off during Attack");
+
+        // Decay 中途松键：上游按当时音量重新计算 k_r。
+        scenario_id = 3;
+        send_sample(1'b1, 1'b0, 0, 0);
+        repeat (ATTACK_TICKS + 1 + 5)
+            send_sample(1'b0, 1'b0, 0, 0);
+        send_sample(1'b0, 1'b1, 0, 4);
+        repeat (RELEASE_TICKS + 2)
+            send_sample(1'b0, 1'b0, 0, 0);
+        $display("Scenario 3: note_off during Decay");
+
+        // Release 中重新触发：音量回到零，再从 Attack 上升。
+        scenario_id = 4;
+        send_sample(1'b1, 1'b0, 0, 0);
+        repeat (ATTACK_TICKS + DECAY_TICKS + 3)
+            send_sample(1'b0, 1'b0, 0, 0);
+        send_sample(1'b0, 1'b1, 0, 0);
+        repeat (5) send_sample(1'b0, 1'b0, 0, 0);
+        send_sample(1'b1, 1'b0, 2, 4);
+        repeat (ATTACK_TICKS + 3)
+            send_sample(1'b0, 1'b0, 0, 0);
+        $display("Scenario 4: retrigger during Release");
+
+        if (transfer_count != sample_count || stall_count == 0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL transfer total: samples=%0d transfers=%0d stalls=%0d",
+                     sample_count, transfer_count, stall_count);
+        end
+        $display("ENVELOPE_TB: %0d samples, %0d transfers, %0d stalls, %0d errors",
+                 sample_count, transfer_count, stall_count, error_count);
+        $stop;  // 留在 ModelSim GUI 中观察包络波形。
+    end
+endmodule

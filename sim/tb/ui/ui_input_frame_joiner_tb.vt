@@ -1,0 +1,309 @@
+`timescale 1ns/1ps
+/** ui_input_frame_joiner 自检：复位、握手背压及数据语义。
+ * 参考向量使用整数物理单位独立计算。
+ */
+module ui_input_frame_joiner_tb;
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    integer index;
+    integer cycle;
+    integer count;
+    integer file_handle;
+    integer scan_count;
+    string assets;
+    string file_path;
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "Missing ASSETS");
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Watchdog timeout");
+    end
+    localparam BATCH_ID_WIDTH=4;
+    reg [3:0] button_states = '0;
+    reg [BATCH_ID_WIDTH-1:0] button_batch_id = '0;
+    reg button_batch_last = '0;
+    reg button_in_valid = '0;
+    wire button_in_ready;
+    reg [7:0] knob_states = '0;
+    reg [7:0] knob_dirs = '0;
+    reg [7:0] knob_pressed = '0;
+    reg [BATCH_ID_WIDTH-1:0] knob_batch_id = '0;
+    reg knob_batch_last = '0;
+    reg knob_in_valid = '0;
+    wire knob_in_ready;
+    wire [3:0] handler_button_states;
+    wire button_out_valid;
+    reg button_out_ready = '0;
+    reg [1:0] context_mode = '0;
+    reg context_fine_adjust = '0;
+    reg context_edit_enable = '0;
+    reg context_edit_target = '0;
+    reg context_clear_wave_progress = '0;
+    reg context_valid = '0;
+    wire context_ready;
+    wire [7:0] handler_knob_states;
+    wire [7:0] handler_knob_dirs;
+    wire [7:0] handler_knob_pressed;
+    wire knob_out_valid;
+    reg knob_out_ready = '0;
+    wire [1:0] mode;
+    wire fine_adjust;
+    wire edit_enable;
+    wire edit_target;
+    wire clear_wave_progress;
+    reg frame_done_valid = '0;
+    wire frame_done_ready;
+    wire protocol_error;
+    ui_input_frame_joiner #(
+        .BATCH_ID_WIDTH(BATCH_ID_WIDTH)
+    ) ui_input_frame_joiner_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .button_states(button_states),
+        .button_batch_id(button_batch_id),
+        .button_batch_last(button_batch_last),
+        .button_in_valid(button_in_valid),
+        .button_in_ready(button_in_ready),
+        .knob_states(knob_states),
+        .knob_dirs(knob_dirs),
+        .knob_pressed(knob_pressed),
+        .knob_batch_id(knob_batch_id),
+        .knob_batch_last(knob_batch_last),
+        .knob_in_valid(knob_in_valid),
+        .knob_in_ready(knob_in_ready),
+        .handler_button_states(handler_button_states),
+        .button_out_valid(button_out_valid),
+        .button_out_ready(button_out_ready),
+        .context_mode(context_mode),
+        .context_fine_adjust(context_fine_adjust),
+        .context_edit_enable(context_edit_enable),
+        .context_edit_target(context_edit_target),
+        .context_clear_wave_progress(context_clear_wave_progress),
+        .context_valid(context_valid),
+        .context_ready(context_ready),
+        .handler_knob_states(handler_knob_states),
+        .handler_knob_dirs(handler_knob_dirs),
+        .handler_knob_pressed(handler_knob_pressed),
+        .knob_out_valid(knob_out_valid),
+        .knob_out_ready(knob_out_ready),
+        .mode(mode),
+        .fine_adjust(fine_adjust),
+        .edit_enable(edit_enable),
+        .edit_target(edit_target),
+        .clear_wave_progress(clear_wave_progress),
+        .frame_done_valid(frame_done_valid),
+        .frame_done_ready(frame_done_ready),
+        .protocol_error(protocol_error)
+    );
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            #1;
+        end
+    endtask
+
+    integer batch_send_button;
+    integer batch_send_knob;
+    integer frame_send;
+    integer expected_batch=0;
+    integer expected_frame=0;
+    integer button_count=0;
+    integer knob_count=0;
+    integer done_count=0;
+    integer context_delay=0;
+    integer done_delay=0;
+    integer clock_count=0;
+    reg model_enable=1'b1;
+    reg button_sent_for_batch=1'b0;
+    reg context_sent_for_batch=1'b0;
+    reg frame_in_flight=1'b0;
+    reg button_finished=1'b0;
+    reg knob_finished=1'b0;
+
+    task send_button;
+        input [3:0] id;
+        input last;
+        begin
+            @(negedge clk_sys);
+            button_states=id;
+            button_batch_id=id;
+            button_batch_last=last;
+            button_in_valid=1'b1;
+            do @(posedge clk_sys); while (!button_in_ready);
+            @(negedge clk_sys);
+            button_in_valid=1'b0;
+        end
+    endtask
+    task send_knob;
+        input [3:0] id;
+        input [7:0] frame;
+        input last;
+        begin
+            @(negedge clk_sys);
+            knob_states=frame;
+            knob_dirs=~frame;
+            knob_pressed={4'd0,id};
+            knob_batch_id=id;
+            knob_batch_last=last;
+            knob_in_valid=1'b1;
+            do @(posedge clk_sys); while (!knob_in_ready);
+            @(negedge clk_sys);
+            knob_in_valid=1'b0;
+        end
+    endtask
+
+    // 接收模型特意先等待 valid 再产生 ready，用于验证
+    // 发送端不得等待 ready 才产生 valid 的规则。
+    always @(negedge clk_sys)
+    begin
+        if (rst_n && model_enable)
+        begin
+            clock_count=clock_count+1;
+            button_out_ready=button_out_valid && (clock_count%5==0);
+            knob_out_ready=knob_out_valid && (clock_count%7==0);
+            if (context_delay>0)
+            begin
+                context_delay=context_delay-1;
+                if (context_delay==0) context_valid=1'b1;
+            end
+            if (done_delay>0)
+            begin
+                done_delay=done_delay-1;
+                if (done_delay==0) frame_done_valid=1'b1;
+            end
+        end
+    end
+    always @(posedge clk_sys)
+    begin
+        if (rst_n && model_enable)
+        begin
+            if (protocol_error) $fatal(1,"Legal joiner stream rejected");
+            if (button_out_valid && button_out_ready)
+            begin
+                if (button_sent_for_batch || frame_in_flight || handler_button_states !== (expected_batch%16))
+                    $fatal(1,"Button ordering/duplication batch %0d",expected_batch);
+                button_count=button_count+1;
+                button_sent_for_batch=1'b1;
+                context_mode <= expected_batch%2;
+                context_fine_adjust <= expected_batch%2;
+                context_edit_enable <= 1'b1;
+                context_edit_target <= 1'b0;
+                context_clear_wave_progress <= 1'b1;
+                context_delay=3;
+            end
+            if (context_valid && context_ready)
+            begin
+                if (!button_sent_for_batch || context_sent_for_batch) $fatal(1,"Context ordering");
+                context_sent_for_batch=1'b1;
+                context_valid <= 1'b0;
+            end
+            if (knob_out_valid && knob_out_ready)
+            begin
+                if (!context_sent_for_batch || frame_in_flight ||
+                    handler_knob_states !== expected_frame[7:0] ||
+                    handler_knob_dirs !== ~expected_frame[7:0] ||
+                    handler_knob_pressed !== (expected_batch%16) ||
+                    mode !== (expected_batch%2) || fine_adjust !== (expected_batch%2) ||
+                    !edit_enable || edit_target || clear_wave_progress !== (expected_frame==0))
+                    $fatal(1,"Joiner frame/context mismatch batch %0d frame %0d",expected_batch,expected_frame);
+                frame_in_flight=1'b1;
+                knob_count=knob_count+1;
+                done_delay=5;
+            end
+            if (frame_in_flight && clear_wave_progress !== (expected_frame==0))
+                $fatal(1,"First-frame command changed before commit");
+            if (frame_done_valid && frame_done_ready)
+            begin
+                if (!frame_in_flight) $fatal(1,"Unexpected completion");
+                frame_done_valid <= 1'b0;
+                frame_in_flight=1'b0;
+                done_count=done_count+1;
+                if (expected_frame == expected_batch%3)
+                begin
+                    expected_batch=expected_batch+1;
+                    expected_frame=0;
+                    button_sent_for_batch=1'b0;
+                    context_sent_for_batch=1'b0;
+                end
+                else expected_frame=expected_frame+1;
+            end
+        end
+    end
+    initial
+    begin
+        reset_dut;
+        fork
+            begin
+                for (batch_send_button=0;batch_send_button<100;batch_send_button=batch_send_button+1)
+                begin
+                    repeat (batch_send_button%11) @(negedge clk_sys);
+                    send_button(batch_send_button%16,1'b1);
+                end
+                button_finished=1'b1;
+            end
+            begin
+                for (batch_send_knob=0;batch_send_knob<100;batch_send_knob=batch_send_knob+1)
+                begin
+                    repeat ((batch_send_knob*7)%13) @(negedge clk_sys);
+                    for (frame_send=0;frame_send<=batch_send_knob%3;frame_send=frame_send+1)
+                        send_knob(batch_send_knob%16,frame_send,frame_send==batch_send_knob%3);
+                end
+                knob_finished=1'b1;
+            end
+        join
+        wait (expected_batch==100);
+        @(negedge clk_sys);
+        if (button_count!=100 || knob_count!=199 || done_count!=199) $fatal(1,"Joiner counts");
+        model_enable=1'b0;
+        button_out_ready=1'b0;knob_out_ready=1'b0;context_valid=1'b0;frame_done_valid=1'b0;
+        // 检测跳过批次、非法 last，以及上一批结束前出现新编号。
+        for (index=0;index<3;index=index+1)
+        begin
+            reset_dut;
+            if (index==0) send_button(4'd1,1'b1);
+            else if (index==1) send_button(4'd0,1'b0);
+            else
+            begin
+                send_button(4'd0,1'b1);
+                send_knob(4'd0,8'd0,1'b0);
+                button_out_ready=1'b1;
+                wait(context_ready);
+                @(negedge clk_sys);context_valid=1'b1;
+                @(negedge clk_sys);context_valid=1'b0;
+                knob_out_ready=1'b1;
+                wait(frame_done_ready);
+                @(negedge clk_sys);frame_done_valid=1'b1;
+                @(negedge clk_sys);frame_done_valid=1'b0;
+                repeat (20) @(negedge clk_sys);
+                if (protocol_error) $fatal(1,"Invented missing-last timeout");
+                send_knob(4'd1,8'd0,1'b1);
+            end
+            // 错帧先入缓冲，下一沿检查并停机；优化不能改变报错时刻。
+            if (protocol_error) $fatal(1, "错误标志在检查前提前置位");
+            @(negedge clk_sys);
+            if (!protocol_error) $fatal(1, "错误标志未在检查沿置位 case %0d", index);
+            repeat (4) @(negedge clk_sys);
+            if (!protocol_error || button_in_ready || knob_in_ready || button_out_valid || knob_out_valid)
+                $fatal(1,"Protocol error not latched case %0d",index);
+            repeat (4) @(negedge clk_sys);
+            if (!protocol_error) $fatal(1,"Error cleared without reset");
+        end
+        reset_dut;
+        if (protocol_error || !button_in_ready || !knob_in_ready) $fatal(1,"Recovery reset failed");
+        // 复位取消缓冲中未配对的帧，不得凭空产生输出。
+        send_knob(4'd0,8'd5,1'b1);
+        reset_dut;
+        repeat (3) @(negedge clk_sys);
+        if (button_out_valid || knob_out_valid || protocol_error) $fatal(1,"Cross-reset pairing");
+        $display("UI_INPUT_FRAME_JOINER_PASS batches=100 frames=199 error_cases=3");
+        $finish;
+    end
+endmodule

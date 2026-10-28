@@ -1,0 +1,262 @@
+/**
+ * 单声道 I2S 驱动测试平台
+ * 验证左声道数据、右声道静音、握手、串行时序及复位恢复
+ * 全部通过后打印 PASS
+ */
+
+`timescale 1ns/1ps
+
+module i2s_driver_tb();
+    localparam real CLK_HALF_NS = 1.0e9 / (2.0 * 98_304_000.0);
+    localparam integer BCLK_HALF_CYCLES = 32;
+    localparam integer FRAME_CYCLES = 2048;
+
+    reg clk_sys;
+    reg rst_n;
+    reg signed [15:0] audio_data;
+    reg in_valid;
+    wire in_ready;
+    wire i2s_tick_up;
+    wire i2s_tick_down;
+    wire smp_tick_up;
+    wire i2s_bclk;
+    wire i2s_lrck;
+    wire i2s_dout;
+
+    reg [15:0] received_left;
+    reg [15:0] received_right;
+    reg regression_passed;
+    integer checked_frames;
+    integer accepted_samples;
+    integer test_phase; // 0复位，1静音，2采样，3无效输入，4复位恢复，5完成
+
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .i2s_tick_up(i2s_tick_up),
+        .i2s_tick_down(i2s_tick_down),
+        .smp_tick_up(smp_tick_up),
+        .smp_tick_down(),
+        .scan_tick_up(),
+        .scan_tick_down()
+    );
+
+    i2s_driver i2s_driver_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .i2s_tick_up(i2s_tick_up),
+        .i2s_tick_down(i2s_tick_down),
+        .smp_tick_up(smp_tick_up),
+        .audio_data(audio_data),
+        .in_valid(in_valid),
+        .i2s_bclk(i2s_bclk),
+        .i2s_lrck(i2s_lrck),
+        .i2s_dout(i2s_dout),
+        .in_ready(in_ready)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever #(CLK_HALF_NS) clk_sys = ~clk_sys;
+    end
+
+    // 用输入 tick 检查输出时钟和握手窗口，不依赖驱动的内部状态。
+    integer cycle_count;
+    integer last_frame_cycle;
+    integer last_bclk_cycle;
+    integer last_lrck_cycle;
+    reg frame_started;
+    reg sample_pending;
+    reg expected_ready;
+    reg saved_up, saved_down;
+    reg previous_bclk, previous_lrck, previous_dout;
+
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            cycle_count = 0;
+            last_frame_cycle = 0;
+            last_bclk_cycle = 0;
+            last_lrck_cycle = 0;
+            frame_started = 1'b0;
+            sample_pending = 1'b0;
+        end
+        else
+        begin
+            cycle_count = cycle_count + 1;
+            saved_up = i2s_tick_up;
+            saved_down = i2s_tick_down;
+            previous_bclk = i2s_bclk;
+            previous_lrck = i2s_lrck;
+            previous_dout = i2s_dout;
+
+            if (smp_tick_up)
+            begin
+                if (!i2s_tick_down || (last_frame_cycle != 0 &&
+                    cycle_count - last_frame_cycle != FRAME_CYCLES))
+                    $fatal(1, "FAIL: frame period or tick phase");
+                last_frame_cycle = cycle_count;
+                frame_started = 1'b1;
+                sample_pending = 1'b1;
+            end
+
+            expected_ready = sample_pending && i2s_tick_up;
+            if (in_ready !== expected_ready)
+                $fatal(1, "FAIL: input ready window");
+            if (expected_ready)
+            begin
+                if (cycle_count - last_frame_cycle != BCLK_HALF_CYCLES)
+                    $fatal(1, "FAIL: input capture offset");
+                sample_pending = 1'b0;
+                if (in_valid)
+                    accepted_samples = accepted_samples + 1;
+            end
+
+            #1; // 等待驱动的非阻塞赋值更新输出。
+            if ((^{i2s_bclk, i2s_lrck, i2s_dout}) === 1'bx)
+                $fatal(1, "FAIL: unknown I2S output");
+            if ((i2s_lrck !== previous_lrck || i2s_dout !== previous_dout) && !saved_down)
+                $fatal(1, "FAIL: LRCK or data changed outside falling tick");
+            if (!frame_started && i2s_bclk !== 1'b0)
+                $fatal(1, "FAIL: BCLK started before first frame");
+            if (frame_started && i2s_bclk !==
+                (saved_up ? 1'b1 : saved_down ? 1'b0 : previous_bclk))
+                $fatal(1, "FAIL: BCLK does not follow ticks");
+
+            if (i2s_bclk !== previous_bclk)
+            begin
+                if (last_bclk_cycle != 0 && cycle_count - last_bclk_cycle != BCLK_HALF_CYCLES)
+                    $fatal(1, "FAIL: BCLK half-period");
+                last_bclk_cycle = cycle_count;
+            end
+            if (i2s_lrck !== previous_lrck)
+            begin
+                if (last_lrck_cycle != 0 && cycle_count - last_lrck_cycle != FRAME_CYCLES / 2)
+                    $fatal(1, "FAIL: LRCK half-period");
+                last_lrck_cycle = cycle_count;
+            end
+        end
+    end
+
+    // 模拟 DAC：从 BCLK 上升沿还原 16 位数据，最后一位时 LRCK 已切到下一声道。
+    task automatic read_channel;
+        input channel;
+        input [15:0] expected_word;
+        output [15:0] received_word;
+        integer bit_index;
+        begin
+            received_word = 16'd0;
+            for (bit_index = 15; bit_index >= 0; bit_index = bit_index - 1)
+            begin
+                @(posedge i2s_bclk);
+                #1;
+                if (i2s_lrck !== ((bit_index == 0) ? !channel : channel))
+                    $fatal(1, "FAIL: I2S delay, channel=%b bit=%0d", channel, bit_index);
+                received_word = {received_word[14:0], i2s_dout};
+            end
+            if (received_word !== expected_word)
+                $fatal(1, "FAIL: channel=%b expected=%h received=%h",
+                       channel, expected_word, received_word);
+        end
+    endtask
+
+    task automatic wait_frame;
+        begin
+            @(negedge clk_sys);
+            while (!smp_tick_up) @(negedge clk_sys);
+        end
+    endtask
+
+    // 一次检查完整左右声道。握手后立即改变输入，验证内部采样已锁存。
+    task automatic check_frame;
+        input [15:0] sample_data;
+        input sample_valid;
+        begin
+            wait_frame;
+            audio_data = sample_data;
+            in_valid = sample_valid;
+            @(posedge clk_sys);
+            while (!in_ready) @(posedge clk_sys);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            audio_data = ~sample_data;
+
+            read_channel(1'b0, sample_valid ? sample_data : 16'd0, received_left);
+            read_channel(1'b1, 16'd0, received_right);
+            checked_frames = checked_frames + 1;
+            $display("Frame %0d: left=%h right=%h", checked_frames, received_left, received_right);
+        end
+    endtask
+
+    task automatic reset_driver;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            audio_data = 16'd0;
+            #1;
+            if (i2s_bclk !== 1'b0 || i2s_lrck !== 1'b1 ||
+                i2s_dout !== 1'b0 || in_ready !== 1'b0)
+                $fatal(1, "FAIL: asynchronous reset outputs");
+            repeat (4) @(negedge clk_sys);
+            rst_n = 1'b1;
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        audio_data = 16'd0;
+        in_valid = 1'b0;
+        received_left = 16'd0;
+        received_right = 16'd0;
+        regression_passed = 1'b0;
+        checked_frames = 0;
+        accepted_samples = 0;
+        test_phase = 0;
+        reset_driver;
+
+        test_phase = 1;
+        check_frame(16'h0000, 1'b0);
+        test_phase = 2;
+        check_frame(16'h4000, 1'b1); // SQ1.15，0.5
+        check_frame(16'hC000, 1'b1); // SQ1.15，-0.5
+        check_frame(16'h7FFF, 1'b1); // SQ1.15，约0.999969
+        check_frame(16'h8000, 1'b1); // SQ1.15，-1.0
+        check_frame(16'h0001, 1'b1); // 检查最低位保留
+        check_frame(16'hA5C3, 1'b1); // 检查串行位序
+        check_frame(16'hFFFF, 1'b1);
+        check_frame(16'h0000, 1'b1);
+        test_phase = 3;
+        check_frame(16'hFFFF, 1'b0); // 无效的非零输入应输出静音
+
+        test_phase = 4;
+        wait_frame;
+        audio_data = 16'h8001;
+        in_valid = 1'b1;
+        @(posedge clk_sys);
+        while (!in_ready) @(posedge clk_sys);
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        repeat (100) @(negedge clk_sys); // 在左声道发送途中复位
+        reset_driver;
+        check_frame(16'h8001, 1'b1);
+        check_frame(16'h0000, 1'b0);
+
+        if (checked_frames != 12 || accepted_samples != 10)
+            $fatal(1, "FAIL: missing test frames or input transfers");
+        test_phase = 5;
+        regression_passed = 1'b1;
+        $display("PASS: i2s_driver_tb checked %0d frames, %0d accepted samples",
+                 checked_frames, accepted_samples);
+        $finish;
+    end
+
+    initial
+    begin
+        repeat (200000) @(posedge clk_sys);
+        $fatal(1, "FAIL: simulation timeout");
+    end
+endmodule

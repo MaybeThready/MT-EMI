@@ -1,6 +1,6 @@
 # MT-EMI
 
-2026.10.11 最后一次修订
+2026.10.22 最后一次修订
 
 ## 1. 项目概述
 
@@ -21,15 +21,11 @@ MT-EMI
 ├─ README.md
 ├─ scripts  // 脚本文件夹，存放辅助脚本，比如生成 ROM 查找表的 Python 脚本
 ├─ sim  // 仿真文件夹，存放仿真相关文件
-│  ├─ MT-EMI.cr.mti
-│  ├─ MT-EMI.mpf
-│  ├─ tb  // Testbench 文件夹，存放测试平台代码
-│  │  └─ clock
-│  │     └─ clock_tb.vt
-│  └─ vsim.wlf
+│  ├─ do  // 按 TB 组织的 ModelSim 仿真入口、公共编译依赖和波形配置
+│  └─ tb  // Testbench 文件夹，按 audio、system 分类
 └─ src  // RTL 源码文件夹，存放 Verilog 源码
-   ├─ clock
-   │  └─ clock.v
+   ├─ audio
+   ├─ adsr_division
    ├─ common
    │  ├─ clock_divider.v
    │  └─ fsm.v
@@ -48,6 +44,7 @@ MT-EMI
    ├─ signal_detection
    │  ├─ signal_edge_detector.v
    │  └─ signal_sync.v
+   ├─ system
    └─ top.v
 ```
 
