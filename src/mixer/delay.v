@@ -93,19 +93,14 @@ module delay
 
     wire signed [25:0] scaled_sum =
         $signed({{2{audio_in_r[23]}}, audio_in_r}) + mult_scaled;
-    localparam signed [25:0] AUDIO_MAX = {{3{1'b0}}, {23{1'b1}}};
-    localparam signed [25:0] AUDIO_MIN = {{3{1'b1}}, {23{1'b0}}};
-    function [23:0] sat_sample;
-        input signed [25:0] value;
-        begin
-            if (value > AUDIO_MAX)
-                sat_sample = AUDIO_MAX[23:0];
-            else if (value < AUDIO_MIN)
-                sat_sample = AUDIO_MIN[23:0];
-            else
-                sat_sample = value[23:0];
-        end
-    endfunction
+    wire signed [23:0] scaled_sat;
+    signed_fp_norm #(
+        .QII(11), .QIF(15),
+        .QOI(9), .QOF(15)
+    ) scaled_sat_u (
+        .in(scaled_sum),
+        .out(scaled_sat)
+    );
 
     always @(*)
     begin
@@ -179,7 +174,7 @@ module delay
 
                 FEEDBACK_APPLY:
                 begin
-                    ram_write_data_r <= sat_sample(scaled_sum);
+                    ram_write_data_r <= scaled_sat;
                 end
 
                 RAM_WRITE:
@@ -196,7 +191,7 @@ module delay
                     mult_b_r <= $signed({1'b0, mix_r});
                 end
 
-                MIX_APPLY: audio_out_r <= sat_sample(scaled_sum);
+                MIX_APPLY: audio_out_r <= scaled_sat;
             endcase
         end
     end
