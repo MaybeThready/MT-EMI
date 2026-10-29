@@ -1,0 +1,102 @@
+/** 弯音比例自检：全 65536 位置、24 键误差、单调性、中心、端点、背压和逐阶段复位。 */
+`timescale 1ns/1ps
+module pitch_bend_controller_tb;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg [15:0] bend_value = 16'h8000;
+    reg in_valid = 1'b0;
+    reg out_ready = 1'b0;
+    wire in_ready, out_valid;
+    wire [17:0] bend_ratio;
+    integer position, key_index, wait_cycles, stage;
+    reg [17:0] previous_ratio = 18'd0;
+    reg [17:0] held_ratio;
+    reg [63:0] base_code, bent_code;
+    real cents, ideal_ratio, ideal_frequency, cents_error, max_error = 0.0;
+    integer max_error_position = 0;
+    pitch_bend_controller pitch_bend_controller_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .bend_value(bend_value),
+        .in_valid(in_valid), .in_ready(in_ready), .bend_ratio(bend_ratio),
+        .out_valid(out_valid), .out_ready(out_ready)
+    );
+    initial
+    begin
+        repeat (3) @(negedge clk_sys);
+        rst_n = 1'b1;
+        #1;
+        for (position = 0; position < 65536; position = position + 1)
+        begin
+            bend_value = position[15:0];
+            in_valid = 1'b1;
+            if (!in_ready) $fatal(1, "比例模块没有空闲");
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            // 接收后外部位置改变，不应修改本次事务。
+            bend_value = ~position[15:0];
+            wait_cycles = 0;
+            while (!out_valid)
+            begin
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+                if (wait_cycles > 4) $fatal(1, "比例计算超时");
+            end
+            if (wait_cycles != 4 || $isunknown(bend_ratio)) $fatal(1, "比例延迟或未知值");
+            if (bend_ratio < previous_ratio) $fatal(1, "非单调 position=%0d", position);
+            previous_ratio = bend_ratio;
+            cents = (position <= 32768) ? (200.0 * (position - 32768) / 32768.0) :
+                (200.0 * (position - 32768) / 32767.0);
+            ideal_ratio = 2.0 ** (cents / 1200.0);
+            if ((position == 0 || position == 32768 || position == 65535) &&
+                bend_ratio != $rtoi(ideal_ratio * 131072.0 + 0.5))
+                $fatal(1, "端点或中心错误");
+            // 直接从音律公式产生每个键的基频，独立于 RTL 常量表。
+            for (key_index = 0; key_index < 24; key_index = key_index + 1)
+            begin
+                ideal_frequency = 440.0 * (2.0 ** ((key_index - 9.0) / 12.0));
+                base_code = $rtoi(ideal_frequency * 65536.0 + 0.5);
+                bent_code = (base_code * bend_ratio + 64'd65536) >> 17;
+                cents_error = 1200.0 * $ln((bent_code / 65536.0) / (ideal_frequency * ideal_ratio)) / $ln(2.0);
+                if (cents_error < 0.0) cents_error = -cents_error;
+                if (cents_error > max_error)
+                begin
+                    max_error = cents_error;
+                    max_error_position = position;
+                end
+                if (cents_error > 0.1) $fatal(1, "音分误差超限 %f", cents_error);
+                if (position == 32768 && bent_code != base_code) $fatal(1, "中心不是逐位相等");
+            end
+            held_ratio = bend_ratio;
+            repeat (position % 3)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || bend_ratio !== held_ratio || in_ready) $fatal(1, "比例背压不稳定");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+        end
+        for (stage = 0; stage <= 5; stage = stage + 1)
+        begin
+            in_valid = 1'b1;
+            bend_value = 16'hffff;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            repeat (stage) @(negedge clk_sys);
+            rst_n = 1'b0;
+            #1;
+            if (out_valid || in_ready || bend_ratio !== 18'd131072) $fatal(1, "比例异步复位失败");
+            @(negedge clk_sys);
+            rst_n = 1'b1;
+            repeat (8) @(negedge clk_sys);
+            if (out_valid || !in_ready) $fatal(1, "比例复位后出现旧事务");
+        end
+        $display("PITCH_BEND_CONTROLLER_PASS positions=65536 keys=24 checks=1572864 max_cents=%f position=%0d reset_stages=6", max_error, max_error_position);
+        $finish;
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "比例测试总超时");
+    end
+endmodule

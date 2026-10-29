@@ -1,15 +1,18 @@
 /**
- * keyboard_note_pipeline 模块 v2
- * v2版本修改：分拍装载采样数据并确认计算完成，缩短握手路径。
- * 键盘处理顶层：连接按键检测、声部分配、音高换算和压力平滑。
- * smp_tick_up: 启动一次音符输出；没有新输入时仍更新压力平滑。
- * sample_ready: 可以开始下一次计算；sample_overrun: 尚未完成又来了采样脉冲。
- * note_on/note_off: 每次输入产生的通知只交付一次，不随后续采样重复发送。
- * 等待音频接收时保持结果；同拍新算出的按键结果留到下次采样使用。
- * IF-KEYBOARD-06/07：采样决定、装载、压力下限与结果汇合分拍；最早在 tick 后第七沿交付。
- * 输入事件在音频接收前保持不变，因此装载延后一拍不会改变本次采样内容。
- * VELOCITY_SLEW_STEP: 每次采样的最大力度变化，UQ0.16 编码。
- * TODO: 当前只输出基准音高，未加入弯音。
+ * 键盘与弯音处理顶层 v4
+ * v4 版本修改：寄存基频与倍率的共同有效标志，隔开握手判断与整组装载。
+ * 连接按键事件、声部分配、基频换算、弯音和压力平滑。
+ * 弯音频率 = 基频 * 2^(音分/1200)；子模块采用 LUT 查表／乘法，不使用 DSP。
+ * 琴键与轮子位置同帧保存；频率和力度均完成后，连同起音／松开通知整组交付。
+ */
+
+/**
+ * bend_value: 与琴键同帧的 16 位位置，0000/8000/ffff 对应下端／中心／上端。
+ * smp_tick_up: 启动采样计算；最早在其后 3*MAX_POLYPHONY+10 沿交付，32 声部为 106 沿。
+ * sample_ready: 可启动下一采样；sample_overrun: 尚未完成又来了采样脉冲。
+ * VELOCITY_SLEW_STEP: 每次采样的最大力度变化，UQ0.16 编码；无新输入也继续平滑。
+ * clk_sys 上升沿 valid && ready 接收或交付；背压时保持整组结果与 valid。
+ * NOTE: note_on/off 只交付一次；同拍新完成的键盘结果留到后续采样，不按固定拍数接收。
  */
 module keyboard_note_pipeline
 #(
@@ -24,6 +27,7 @@ module keyboard_note_pipeline
     input smp_tick_up,
     input [KEY_NUM-1:0] key_states,
     input [15:0] key_velocity [KEY_NUM-1:0],
+    input [15:0] bend_value,
     input [MAX_POLYPHONY-1:0] note_busy,
     input in_valid,
     output in_ready,
@@ -59,6 +63,16 @@ module keyboard_note_pipeline
     reg [MAX_POLYPHONY-1:0] sample_off_r;
     reg sample_has_frame_r;
     reg sample_overrun_r;
+    reg [15:0] event_bend_r;
+    reg [15:0] latest_bend_r;
+    wire [31:0] base_frequency [MAX_POLYPHONY-1:0];
+    wire [17:0] bend_ratio;
+    wire ratio_valid;
+    wire pitch_input_ready;
+    wire pitch_valid;
+    wire pitch_input_valid;
+    wire pitch_input_accept;
+    reg pitch_inputs_valid_r;
     wire frequency_ready;
     wire velocity_ready;
     wire frequency_valid;
@@ -79,6 +93,20 @@ module keyboard_note_pipeline
     assign note_off = sample_off_r;
     // 上一整组结果已共同接收才进入本状态，两子模块均空闲；发送 valid 不等待 ready。
     assign conversion_valid = (current_state == STATE_START_CONVERSION);
+    assign pitch_input_valid = pitch_inputs_valid_r;
+    assign pitch_input_accept = pitch_input_valid && pitch_input_ready;
+
+    // 只寄存共同就绪的决定，不提前确认上游；两路数据保持到真正交付。
+    // valid 的产生不依赖 ready；背压时保持，交付同沿清除，避免重复送入。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            pitch_inputs_valid_r <= 1'b0;
+        else if (pitch_input_accept)
+            pitch_inputs_valid_r <= 1'b0;
+        else if (frequency_valid && ratio_valid)
+            pitch_inputs_valid_r <= 1'b1;
+    end
 
     keyboard_event_handler #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH)
@@ -93,8 +121,18 @@ module keyboard_note_pipeline
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH)
     ) note_frequency_mapper_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .key_id(latest_key_id_r), .occupied(latest_occupied_r),
-        .in_valid(conversion_valid), .in_ready(frequency_ready), .note_freq(note_freq),
-        .out_valid(frequency_valid), .out_ready(result_accept)
+        .in_valid(conversion_valid), .in_ready(frequency_ready), .note_freq(base_frequency),
+        .out_valid(frequency_valid), .out_ready(pitch_input_accept)
+    );
+    pitch_bend_controller pitch_bend_controller_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .bend_value(latest_bend_r),
+        .in_valid(conversion_valid), .in_ready(), .bend_ratio(bend_ratio),
+        .out_valid(ratio_valid), .out_ready(pitch_input_accept)
+    );
+    note_pitch_bend #(.MAX_POLYPHONY(MAX_POLYPHONY)) note_pitch_bend_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .base_freq(base_frequency), .bend_ratio(bend_ratio),
+        .in_valid(pitch_input_valid), .in_ready(pitch_input_ready), .note_freq(note_freq),
+        .out_valid(pitch_valid), .out_ready(result_accept)
     );
     note_velocity_controller #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH),
@@ -119,7 +157,7 @@ module keyboard_note_pipeline
             STATE_START_CONVERSION:
                 next_state = STATE_WAIT_CONVERSION_RESULTS;
             STATE_WAIT_CONVERSION_RESULTS:
-                if (frequency_valid && velocity_valid) next_state = STATE_WAIT_AUDIO_ACCEPT;
+                if (pitch_valid && velocity_valid) next_state = STATE_WAIT_AUDIO_ACCEPT;
             STATE_WAIT_AUDIO_ACCEPT:
                 if (result_accept) next_state = smp_tick_up ? STATE_CAPTURE_SAMPLE_INPUT : STATE_WAIT_SAMPLE_TICK;
             default: next_state = STATE_WAIT_SAMPLE_TICK;
@@ -135,6 +173,8 @@ module keyboard_note_pipeline
             sample_off_r <= '0;
             sample_has_frame_r <= 1'b0;
             sample_overrun_r <= 1'b0;
+            event_bend_r <= 16'h8000;
+            latest_bend_r <= 16'h8000;
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
                 latest_key_id_r[voice] <= '0;
             for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
@@ -142,6 +182,8 @@ module keyboard_note_pipeline
         end
         else
         begin
+            // 事件模块一次只允许一个未交付事务，此寄存器随同一次键盘握手保存。
+            if (in_valid && in_ready) event_bend_r <= bend_value;
             if (smp_tick_up && !sample_ready) sample_overrun_r <= 1'b1;
             // 外层异步复位优先；内部判定不绕行公共 ready 的复位门控。
             if (smp_tick_up && sample_available)
@@ -155,6 +197,7 @@ module keyboard_note_pipeline
             // 此时 event_ready 必为零；没有在 tick 选中的新帧不能提前进入本次采样。
             if ((current_state == STATE_CAPTURE_SAMPLE_INPUT) && sample_has_frame_r)
             begin
+                latest_bend_r <= event_bend_r;
                 latest_occupied_r <= event_occupied;
                 latest_held_r <= event_held;
                 for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)

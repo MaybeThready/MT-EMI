@@ -1,0 +1,127 @@
+/** 声部乘法自检：1/3/32 声部参数、随机数、舍入、饱和、中心恢复、背压与复位。 */
+`timescale 1ns/1ps
+module note_pitch_bend_tb;
+    parameter MAX_POLYPHONY = 32;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg [31:0] base_freq [MAX_POLYPHONY-1:0];
+    reg [17:0] bend_ratio;
+    reg in_valid = 1'b0;
+    reg out_ready = 1'b0;
+    wire in_ready, out_valid;
+    wire [31:0] note_freq [MAX_POLYPHONY-1:0];
+    reg [31:0] expected [MAX_POLYPHONY-1:0];
+    reg [63:0] product, rounded;
+    integer iteration, voice, cycles, stage;
+    reg [31:0] random_state = 32'hb17d2026;
+    note_pitch_bend #(.MAX_POLYPHONY(MAX_POLYPHONY)) note_pitch_bend_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .base_freq(base_freq), .bend_ratio(bend_ratio),
+        .in_valid(in_valid), .in_ready(in_ready), .note_freq(note_freq),
+        .out_valid(out_valid), .out_ready(out_ready)
+    );
+    task random_next;
+        begin
+            random_state = random_state ^ (random_state << 13);
+            random_state = random_state ^ (random_state >> 17);
+            random_state = random_state ^ (random_state << 5);
+        end
+    endtask
+    task check_result;
+        begin
+            if (!out_valid) $fatal(1, "声部结果丢失");
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                if (note_freq[voice] !== expected[voice])
+                    $fatal(1, "声部乘积错误 case=%0d voice=%0d got=%h expected=%h", iteration, voice, note_freq[voice], expected[voice]);
+        end
+    endtask
+    initial
+    begin
+        bend_ratio = 18'd131072;
+        for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1) base_freq[voice] = 32'd0;
+        repeat (3) @(negedge clk_sys);
+        rst_n = 1'b1;
+        // 空闲暂存允许输入任意变化，但没有 valid 就不能发布结果。
+        repeat (4)
+        begin
+            bend_ratio = ~bend_ratio;
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                base_freq[voice] = ~base_freq[voice];
+            @(negedge clk_sys);
+            if (out_valid || !in_ready) $fatal(1, "无效输入触发了乘法事务");
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                if (note_freq[voice] !== 32'd0) $fatal(1, "空闲暂存改变公开频率");
+        end
+        for (iteration = 0; iteration < 600; iteration = iteration + 1)
+        begin
+            random_next;
+            case (iteration % 6)
+                0: bend_ratio = 18'd131072;
+                1: bend_ratio = 18'd147123;
+                2: bend_ratio = 18'd116772;
+                3: bend_ratio = 18'd262143;
+                4: bend_ratio = 18'd65536;
+                default: bend_ratio = random_state[17:0];
+            endcase
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+            begin
+                random_next;
+                case ((iteration + voice) % 8)
+                    0: base_freq[voice] = 32'd0;
+                    1: base_freq[voice] = 32'd1;
+                    2: base_freq[voice] = 32'hffffffff;
+                    3: base_freq[voice] = 32'hfffffffe;
+                    4: base_freq[voice] = 32'd28835840;
+                    default: base_freq[voice] = random_state;
+                endcase
+                product = {32'd0, base_freq[voice]} * {46'd0, bend_ratio};
+                rounded = (product + 64'd65536) >> 17;
+                expected[voice] = (rounded > 64'hffffffff) ? 32'hffffffff : rounded[31:0];
+            end
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1) base_freq[voice] = 32'hdeadbeef;
+            bend_ratio = 18'd0;
+            cycles = 0;
+            while (!out_valid)
+            begin
+                @(negedge clk_sys);
+                cycles = cycles + 1;
+                if (cycles > 3 * MAX_POLYPHONY) $fatal(1, "声部计算超时");
+            end
+            if (cycles != 3 * MAX_POLYPHONY) $fatal(1, "声部计算延迟不符");
+            check_result;
+            repeat (iteration % 9)
+            begin
+                @(negedge clk_sys);
+                check_result;
+                if (in_ready) $fatal(1, "忙时误收下一组");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+        end
+        for (stage = 0; stage <= 3 * MAX_POLYPHONY; stage = stage + 1)
+        begin
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            repeat (stage) @(negedge clk_sys);
+            rst_n = 1'b0;
+            #1;
+            if (out_valid || in_ready) $fatal(1, "乘法流水异步复位失败");
+            @(negedge clk_sys);
+            rst_n = 1'b1;
+            repeat (3 * MAX_POLYPHONY + 2) @(negedge clk_sys);
+            if (out_valid || !in_ready) $fatal(1, "乘法流水复位后出现旧数据");
+        end
+        $display("NOTE_PITCH_BEND_PASS voices=%0d batches=600 reset_stages=%0d", MAX_POLYPHONY, 3 * MAX_POLYPHONY + 1);
+        $finish;
+    end
+    initial
+    begin
+        #10000000;
+        $fatal(1, "声部测试总超时");
+    end
+endmodule

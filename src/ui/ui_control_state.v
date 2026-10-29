@@ -1,6 +1,6 @@
 /**
- * 按钮控制模块 v2：设置演奏模式、微调、菜单及音色读写命令。
- * v2 版本修改：接入完整音色菜单；B2/B3 同按时始终优先 B2，边界不回绕。
+ * 按钮控制模块 v3：设置演奏模式、微调、菜单及音色读写命令。
+ * v3 版本修改：音色命令 valid 直接使用异步清零寄存器，去掉重复复位门控。
  * mode: 模式 0/1；fine_adjust: 演奏界面按住 B4 时微调。
  * edit_enable: 演奏界面允许编辑；edit_target 当前固定为通道 0。
  * context_valid/context_ready: 交付本次按钮处理后的模式和编辑设置。
@@ -66,7 +66,8 @@ module ui_control_state
     assign menu_slot = menu_slot_r;
     assign menu_save = menu_save_r;
     assign menu_result_status = menu_result_status_r;
-    assign preset_command_valid = rst_n && command_valid_r;
+    // command_valid_r 在复位时异步清零，不再把复位串入下游参数装载条件。
+    assign preset_command_valid = command_valid_r;
     assign preset_command_write = menu_save_r;
     assign preset_command_slot = menu_slot_r;
     assign preset_result_ready = rst_n && (menu_page_r == PAGE_WAIT_OPERATION) && !command_valid_r;

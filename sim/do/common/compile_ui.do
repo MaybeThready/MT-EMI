@@ -17,3 +17,6 @@ vlog -sv -work $SIM_LIB ../src/ui/ui_input_frame_joiner.v
 vlog -sv -work $SIM_LIB ../src/ui/ui_parameter_encoder.v
 vlog -sv -work $SIM_LIB ../src/ui/ui_preset_controller.v
 vlog -sv -work $SIM_LIB ../src/ui/user_interface.v
+
+vlog -sv -work $SIM_LIB ../src/ui/pitch_bend_controller.v
+vlog -sv -work $SIM_LIB ../src/ui/note_pitch_bend.v

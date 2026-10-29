@@ -1,5 +1,6 @@
 /**
- * 音色记录封装和校验：64 字节记录，CRC-16 每系统周期计算一位。
+ * 音色记录封装和校验模块 v2：64 字节记录，CRC-16 每系统周期计算一位。
+ * v2 版本修改：结果 valid 不再重复判断复位，状态机仍异步复位到等待请求。
  * decode=0 封装，decode=1 校验；输入／输出均按 valid && ready 交付。
  * parameters 为 12 个 16 位整数字段，低字起依次为两波形、插值百分比、
  * 初相角度、A/D 毫秒、S 百分比、R 毫秒及四个干湿比；不含总音量。
@@ -53,7 +54,8 @@ module preset_record_codec
         (parameter_words[143:128] > 16'd100) || (parameter_words[159:144] > 16'd100) ||
         (parameter_words[175:160] > 16'd100) || (parameter_words[191:176] > 16'd100);
     assign in_ready = rst_n && (current_state == STATE_WAIT_REQUEST);
-    assign out_valid = rst_n && (current_state == STATE_WAIT_RESULT_ACCEPT);
+    // 复位状态不是结果有效状态，避免复位经 valid 进入下游数据使能。
+    assign out_valid = (current_state == STATE_WAIT_RESULT_ACCEPT);
     assign record_out = record_r;
     assign parameters_out = parameter_words;
     assign status = status_r;

@@ -2,7 +2,8 @@
 /**
  * 使用真实 sys_clocker、PLL 初始化逻辑和高云原语模型验证正式 top。
  * 覆盖锁定前复位、实际输出周期、心跳、串行参数采集、CRC 和运行中复位。
- * 仅观察内部信号，不强制内部寄存器；不替代器件抖动和实物电气测试。
+ * 增加动态弯音帧与背压检查；仅在定向背压阶段强制 UI 接收可用线，不改内部寄存器。
+ * 不替代器件抖动和实物电气测试。
  */
 module top_tb;
     reg clk_core = 1'b0;
@@ -22,6 +23,10 @@ module top_tb;
     reg [1795:0] expected_serial = '0;
     reg [27:0] held_source = '0;
     reg source_stalled = 1'b0;
+    reg [15:0] held_bend = 16'h8000;
+    integer bend_frames = 0;
+    integer stalled_cycles = 0;
+    reg [3:0] bend_coverage = 4'b0000;
 
     always #10 clk_core = ~clk_core;
 
@@ -50,8 +55,23 @@ module top_tb;
             end
             if (source_stalled && (!top_u.source_valid_r || top_u.source_frame_r !== held_source))
                 $fatal(1, "Input changed during backpressure");
+            if (source_stalled && top_u.bend_value[0] !== held_bend)
+                $fatal(1, "Bend changed during backpressure");
             held_source = top_u.source_frame_r;
+            held_bend = top_u.bend_value[0];
             source_stalled = top_u.source_valid_r && !top_u.source_ready;
+            if (source_stalled) stalled_cycles = stalled_cycles + 1;
+            if (top_u.source_valid_r && top_u.source_ready)
+            begin
+                case (bend_frames % 4)
+                    0: if (held_bend !== 16'h8000) $fatal(1, "Missing center frame");
+                    1: if (held_bend !== 16'h0000) $fatal(1, "Missing lower frame");
+                    2: if (held_bend !== 16'hffff) $fatal(1, "Missing upper frame");
+                    default: if (^held_bend === 1'bx) $fatal(1, "Unknown random bend");
+                endcase
+                bend_coverage[bend_frames % 4] = 1'b1;
+                bend_frames = bend_frames + 1;
+            end
             if (top_u.observed_valid)
             begin
                 if (expected_bits == 0 || top_u.observed_serial !== expected_serial[0])
@@ -88,6 +108,7 @@ module top_tb;
             last_scan_cycle = -1;
             expected_bits = 0;
             source_stalled = 1'b0;
+            bend_frames = 0;
         end
     end
 
@@ -106,9 +127,18 @@ module top_tb;
         // 原语模型采用离散时间精度；允许 2 ps 量化误差。
         if (measured_period < 10.1765 || measured_period > 10.1805)
             $fatal(1, "Unexpected PLL period: %f ns", measured_period);
-        repeat (50000) @(negedge top_u.clk_sys);
+        // 同时阻止 UI 内部接收和向源端声明 ready，覆盖跨两个扫描节拍的背压。
+        @(negedge top_u.clk_sys);
+        force top_u.user_interface_u.input_frame_available = 1'b0;
+        wait (top_u.source_valid_r === 1'b1);
+        repeat (17000) @(negedge top_u.clk_sys);
+        release top_u.user_interface_u.input_frame_available;
+        repeat (80000) @(negedge top_u.clk_sys);
         if (bit_count < 2000 || heartbeat_changes < 50 || captured_frames < 20)
             $fatal(1, "Insufficient serial/heartbeat activity");
+        if (bend_coverage !== 4'b1111 || stalled_cycles < 16000 || bend_frames < 8)
+            $fatal(1, "Insufficient dynamic bend/backpressure coverage");
+        $display("DYNAMIC_BEND_SOURCE_PASS frames=%0d stalled_cycles=%0d coverage=%b", bend_frames, stalled_cycles, bend_coverage);
         #2;
         rst_n = 1'b0;
         #1;

@@ -182,8 +182,8 @@ module user_interface_system_tb;
                         if (row_data[35] != 1) $fatal(1, "向量错误：空闲时遗漏采样");
                         expected_payload = row_payload;
                         expected_pending = 1'b1;
-                        // IF-KEYBOARD-06/07：装载、压力下限、结果确认分拍，最早在 tick 后第七沿交付。
-                        expected_due_cycle = global_cycle + 7;
+                        // IF-BEND-01：比例换算和分时乘法后，32 声部最早在 tick 后第 106 沿交付。
+                        expected_due_cycle = global_cycle + 106;
                     end
                     if (expected_overrun != row_data[36]) $fatal(1, "参考超期状态错误");
                 end

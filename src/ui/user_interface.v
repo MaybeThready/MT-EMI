@@ -1,20 +1,25 @@
 /**
- * 用户交互顶层 v3：处理琴键、按钮和旋钮，向音频输出音符及音色参数。
- * v3 版本修改：新增音色存储与菜单接口，保留 v2 键盘流水和原音频接口。
- * 输入一次接收整组键盘、压力、按钮和旋钮数据；接收条件为 in_valid && in_ready。
- * 输出由 smp_tick_up 启动更新，out_valid && out_ready 时整组交付一次。
- * 等待接收时保持 valid 和数据不变；rst_n 接系统的 rst_sys_n。
- * NOTE: 相对 S1，ADR 改为 20 位采样周期数，新增总音量和四种效果干湿比。
- * NOTE: 新增 button_states、smp_tick_up 和错误指示，详见交接 README。
- * NOTE: 键盘与参数各取采样前已完成的结果，不保证同一输入同时生效。
- * NOTE: 新增音色存储和菜单接口；成功读取目前仅恢复参数，不清音，待音频接口确定。
- * TODO: 弯音尚未实现；note_busy 的更新规则待音频负责人确认。
+ * 用户交互顶层 v5
+ * v5 版本修改：采样沿暂存参数，下一拍分组装载；音符与参数仍整组握手。
+ * 处理琴键、压力、按钮、旋钮、弯音和音色菜单，向音频输出音符及音色参数。
+ * 弯音由键盘流水计算：最终频率 = 基频 * 弯音倍率，内部使用 LUT 查表／乘法，不使用 DSP。
+ */
+
+/**
+ * 输入在 in_valid && in_ready 时锁存完整帧，包含 bend_value；rst_n 接 rst_sys_n。
+ * smp_tick_up 启动计算，out_valid && out_ready 时整组交付，等待时保持 valid 和数据。
+ * 当前 32 声部最早在采样 tick 后第 106 沿交付；接收端必须按握手判断，不依赖固定拍数。
+ * bend_value[0]: 中心为 16'h8000；弯音影响包括尾音在内的占用声部，菜单中仍有效。
+ * NOTE: 相对 S1，ADR 改为 20 位采样周期数，新增总音量、四种干湿比、按钮／采样／错误接口。
+ * NOTE: 新增菜单和存储接口；成功读取目前仅恢复参数，不清音，待音频接口确定。
+ * NOTE: 键盘与参数各取采样前已完成的结果，不保证同一输入的改动在同一采样生效。
+ * TODO: note_busy 的更新规则待系统联调后与音频负责人确认。
  */
 module user_interface
 #(
     parameter KEY_NUM = 24,  // 琴键数量，1～24，按 C4 起连续编号
     parameter KNOB_NUM = 8,  // 旋钮数量；完整 UI 当前使用 8 个
-    parameter BEND_NUM = 1,  // 弯音轮数量，当前保留 1 路接口
+    parameter BEND_NUM = 1,  // 弯音轮数量，当前只支持 1 路
     parameter MAX_POLYPHONY = 32,  // 声部数量，默认 32
     parameter CHANNEL_NUM = 1,  // 音色通道数量，当前只支持 1
     parameter SMP_TICK_FREQ = 48000,  // 采样率，Hz，用于把毫秒换算成采样周期数
@@ -29,7 +34,7 @@ module user_interface
     input [KNOB_NUM-1:0] knob_states,  //当前约定 `knob_states[i]=1` 表示这次有一步转动
     input [KNOB_NUM-1:0] knob_dirs,
     input [KNOB_NUM-1:0] knob_pressed,
-    input [15:0] bend_value [BEND_NUM-1:0],
+    input [15:0] bend_value [BEND_NUM-1:0],  // 下端 0000、中心 8000、上端 ffff
     input [MAX_POLYPHONY-1:0] note_busy,
     output [MAX_POLYPHONY-1:0] note_on,
     output [MAX_POLYPHONY-1:0] note_off,
@@ -92,6 +97,7 @@ module user_interface
     reg knob_delivered_r;
     reg keyboard_delivered_r;
     reg [KEY_NUM-1:0] key_frame_r;
+    reg [15:0] bend_frame_r;
     reg [15:0] pressure_frame_r [KEY_NUM-1:0];
     wire keyboard_input_valid;
     wire keyboard_input_ready;
@@ -110,6 +116,26 @@ module user_interface
     wire pipeline_protocol_error;
     reg out_valid_r;
     reg sample_overrun_r;
+
+    wire sample_capture_accept;
+    // 三组同沿预约、下一沿同时装载；宽参数不再由实时握手判断直接控制。
+    reg wave_capture_pending_r /* synthesis syn_preserve = 1 */;
+    reg envelope_capture_pending_r /* synthesis syn_preserve = 1 */;
+    reg mix_capture_pending_r /* synthesis syn_preserve = 1 */;
+    // 暂存与采样沿相同的版本，不读取下一拍可能已更新的 latest 参数。
+    reg [3:0] sampled_wavetable_0_r;
+    reg [3:0] sampled_wavetable_1_r;
+    reg [15:0] sampled_wavetable_interp_r;
+    reg [15:0] sampled_init_phase_r;
+    reg [19:0] sampled_attack_ticks_r;
+    reg [19:0] sampled_decay_ticks_r;
+    reg [15:0] sampled_sustain_level_r;
+    reg [19:0] sampled_release_ticks_r;
+    reg [15:0] sampled_master_volume_r;
+    reg [15:0] sampled_reverb_mix_r;
+    reg [15:0] sampled_delay_mix_r;
+    reg [15:0] sampled_distortion_mix_r;
+    reg [15:0] sampled_chorus_mix_r;
     genvar channel_index;
     wire [3:0] pipeline_wavetable_0 [0:0];
     reg [3:0] latest_wavetable_0_r;
@@ -163,6 +189,7 @@ module user_interface
     // out_valid_r 与键盘有效状态均异步清零；不重复引入复位组合路径。
     assign out_valid = !configuration_error && out_valid_r && keyboard_audio_valid;
     assign audio_accept = out_valid && out_ready;
+    assign sample_capture_accept = smp_tick_up && !configuration_error && keyboard_sample_ready;
     assign sample_overrun = sample_overrun_r || keyboard_overrun;
     keyboard_note_pipeline #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .VELOCITY_SLEW_STEP(VELOCITY_SLEW_STEP)
@@ -170,6 +197,7 @@ module user_interface
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
         .smp_tick_up(smp_tick_up && !configuration_error),
         .key_states(key_frame_r), .key_velocity(pressure_frame_r), .note_busy(note_busy),
+        .bend_value(bend_frame_r),
         .in_valid(keyboard_input_valid), .in_ready(keyboard_input_ready),
         .note_on(note_on), .note_off(note_off), .note_freq(note_freq), .note_velocity(note_velocity),
         .out_valid(keyboard_audio_valid), .out_ready(out_ready && out_valid_r && !configuration_error),
@@ -230,6 +258,7 @@ module user_interface
             knob_delivered_r <= 1'b0;
             keyboard_delivered_r <= 1'b0;
             key_frame_r <= '0;
+            bend_frame_r <= 16'h8000;
             for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
                 pressure_frame_r[key_index] <= 16'd0;
         end
@@ -247,6 +276,7 @@ module user_interface
                 knob_delivered_r <= 1'b0;
                 keyboard_delivered_r <= 1'b0;
                 key_frame_r <= key_states;
+                bend_frame_r <= bend_value[0];
                 for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
                     pressure_frame_r[key_index] <= key_velocity[key_index];
             end
@@ -324,6 +354,50 @@ module user_interface
     localparam [15:0] DEFAULT_DELAY_MIX = 16'd0;
     localparam [15:0] DEFAULT_DISTORTION_MIX = 16'd0;
     localparam [15:0] DEFAULT_CHORUS_MIX = 16'd0;
+    // IF-SAMPLE-CAPTURE-01：E0接受采样并暂存，E1局部分组装载；键盘仍在E0启动。
+    // 逐拍暂存避免将长使能路径转移到暂存寄存器；无预约时不影响公开输出。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            wave_capture_pending_r <= 1'b0;
+            envelope_capture_pending_r <= 1'b0;
+            mix_capture_pending_r <= 1'b0;
+            sampled_wavetable_0_r <= DEFAULT_WAVETABLE_0;
+            sampled_wavetable_1_r <= DEFAULT_WAVETABLE_1;
+            sampled_wavetable_interp_r <= DEFAULT_WAVETABLE_INTERP;
+            sampled_init_phase_r <= DEFAULT_INIT_PHASE;
+            sampled_attack_ticks_r <= DEFAULT_ATTACK_TICKS;
+            sampled_decay_ticks_r <= DEFAULT_DECAY_TICKS;
+            sampled_sustain_level_r <= DEFAULT_SUSTAIN_LEVEL;
+            sampled_release_ticks_r <= DEFAULT_RELEASE_TICKS;
+            sampled_master_volume_r <= DEFAULT_MASTER_VOLUME;
+            sampled_reverb_mix_r <= DEFAULT_REVERB_MIX;
+            sampled_delay_mix_r <= DEFAULT_DELAY_MIX;
+            sampled_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
+            sampled_chorus_mix_r <= DEFAULT_CHORUS_MIX;
+        end
+        else
+        begin
+            wave_capture_pending_r <= sample_capture_accept;
+            envelope_capture_pending_r <= sample_capture_accept;
+            mix_capture_pending_r <= sample_capture_accept;
+            sampled_wavetable_0_r <= latest_wavetable_0_r;
+            sampled_wavetable_1_r <= latest_wavetable_1_r;
+            sampled_wavetable_interp_r <= latest_wavetable_interp_r;
+            sampled_init_phase_r <= latest_init_phase_r;
+            sampled_attack_ticks_r <= latest_attack_ticks_r;
+            sampled_decay_ticks_r <= latest_decay_ticks_r;
+            sampled_sustain_level_r <= latest_sustain_level_r;
+            sampled_release_ticks_r <= latest_release_ticks_r;
+            sampled_master_volume_r <= latest_master_volume_r;
+            sampled_reverb_mix_r <= latest_reverb_mix_r;
+            sampled_delay_mix_r <= latest_delay_mix_r;
+            sampled_distortion_mix_r <= latest_distortion_mix_r;
+            sampled_chorus_mix_r <= latest_chorus_mix_r;
+        end
+    end
+
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
@@ -376,27 +450,32 @@ module user_interface
                 latest_chorus_mix_r <= pipeline_chorus_mix;
             end
             if (audio_accept) out_valid_r <= 1'b0;
-            if (smp_tick_up && !configuration_error)
+            // 参数已装载后才置有效；公开 out_valid 仍等待同批键盘结果就绪。
+            if (wave_capture_pending_r)
             begin
-                if (keyboard_sample_ready)
-                begin
-                    out_valid_r <= 1'b1;
-                    output_wavetable_0_r <= latest_wavetable_0_r;
-                    output_wavetable_1_r <= latest_wavetable_1_r;
-                    output_wavetable_interp_r <= latest_wavetable_interp_r;
-                    output_init_phase_r <= latest_init_phase_r;
-                    output_attack_ticks_r <= latest_attack_ticks_r;
-                    output_decay_ticks_r <= latest_decay_ticks_r;
-                    output_sustain_level_r <= latest_sustain_level_r;
-                    output_release_ticks_r <= latest_release_ticks_r;
-                    output_master_volume_r <= latest_master_volume_r;
-                    output_reverb_mix_r <= latest_reverb_mix_r;
-                    output_delay_mix_r <= latest_delay_mix_r;
-                    output_distortion_mix_r <= latest_distortion_mix_r;
-                    output_chorus_mix_r <= latest_chorus_mix_r;
-                end
-                else sample_overrun_r <= 1'b1;
+                out_valid_r <= 1'b1;
+                output_wavetable_0_r <= sampled_wavetable_0_r;
+                output_wavetable_1_r <= sampled_wavetable_1_r;
+                output_wavetable_interp_r <= sampled_wavetable_interp_r;
+                output_init_phase_r <= sampled_init_phase_r;
             end
+            if (envelope_capture_pending_r)
+            begin
+                output_attack_ticks_r <= sampled_attack_ticks_r;
+                output_decay_ticks_r <= sampled_decay_ticks_r;
+                output_sustain_level_r <= sampled_sustain_level_r;
+                output_release_ticks_r <= sampled_release_ticks_r;
+            end
+            if (mix_capture_pending_r)
+            begin
+                output_master_volume_r <= sampled_master_volume_r;
+                output_reverb_mix_r <= sampled_reverb_mix_r;
+                output_delay_mix_r <= sampled_delay_mix_r;
+                output_distortion_mix_r <= sampled_distortion_mix_r;
+                output_chorus_mix_r <= sampled_chorus_mix_r;
+            end
+            if (smp_tick_up && !configuration_error && !keyboard_sample_ready)
+                sample_overrun_r <= 1'b1;
         end
     end
 endmodule

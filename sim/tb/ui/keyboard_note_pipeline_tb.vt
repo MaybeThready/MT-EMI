@@ -22,6 +22,7 @@ module keyboard_note_pipeline_tb;
     keyboard_note_pipeline #(.KEY_NUM(3), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .note_busy(note_busy),
+        .bend_value(16'h8000),
         .in_valid(in_valid), .in_ready(in_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity), .out_valid(out_valid), .out_ready(out_ready),
         .sample_ready(sample_ready), .sample_overrun(sample_overrun)
@@ -68,9 +69,9 @@ module keyboard_note_pipeline_tb;
             begin
                 @(negedge clk_sys);
                 cycles = cycles + 1;
-                if (cycles > 7) $fatal(1, "采样计算超时");
+                if (cycles > 13) $fatal(1, "采样计算超时");
             end
-            if (cycles != 6) $fatal(1, "采样装载、压力下限与结果确认流水延迟错误");
+            if (cycles != 12) $fatal(1, "单声部弯音流水延迟错误");
             for (stall = 0; stall <= stalled_ticks; stall = stall + 1)
             begin
                 if (note_on !== expected_on || note_off !== expected_off ||
@@ -146,7 +147,7 @@ module keyboard_note_pipeline_tb;
         #1;
         if (out_valid || sample_overrun) $fatal(1, "整链复位失败");
         // 覆盖数据装载、运算、结果确认及等待接收阶段；复位后不得交付旧结果。
-        for (reset_stage = 0; reset_stage <= 6; reset_stage = reset_stage + 1)
+        for (reset_stage = 0; reset_stage <= 12; reset_stage = reset_stage + 1)
         begin
             @(negedge clk_sys);
             key_states = 3'd0;
@@ -168,7 +169,7 @@ module keyboard_note_pipeline_tb;
             sample(0, 0, 0, 0, 0);
             rst_n = 1'b0;
         end
-        $display("KEYBOARD_PIPELINE_RESET_PASS stages=7");
+        $display("KEYBOARD_PIPELINE_RESET_PASS stages=13");
         $display("KEYBOARD_NOTE_PIPELINE_PASS samples=%0d on=%0d off=%0d", sample_count, on_count, off_count);
         $finish;
     end

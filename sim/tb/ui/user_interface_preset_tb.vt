@@ -3,6 +3,7 @@
  * 公开 UI 音色自检：真实采样节拍下测试菜单、16 槽、覆盖、取消、错误和复位。
  * 独立计算保存记录和音频参数；读取时保持旧输出，验证键盘继续工作。
  * 同按按钮的优先级、槽号边界、模式及总音量保持也在此检查。
+ * 弯音补充：升音时保存、降音时读取；记录内容不含轮子位置，加载后仍使用当前位置。
  */
 module user_interface_preset_tb;
     localparam KEY_NUM = 24;
@@ -154,6 +155,7 @@ module user_interface_preset_tb;
     integer note_off_count = 0;
     integer audio_stall_remaining = 0;
     integer audio_stall_observed = 0;
+    integer load_result_stall_observed = 0;
     reg exercise_load_stall = 1'b0;
 
     function [15:0] reference_crc;
@@ -216,7 +218,8 @@ module user_interface_preset_tb;
         end
         else
         begin
-            if (configuration_error || sample_overrun) $fatal(1, "配置或采样超期");
+            if (configuration_error || sample_overrun)
+                $fatal(1, "配置或采样超期 cycle=%0d phase=%0d", cycle, cycle % 2048);
             if (stalled_request && (!storage_out_valid || held_request !== storage_out_data ||
                 held_request_control !== {storage_out_write,storage_out_slot}))
                 $fatal(1, "存储请求背压不稳定");
@@ -228,6 +231,8 @@ module user_interface_preset_tb;
             held_audio <= parameters;
             if (audio_stall_remaining > 0) audio_stall_remaining <= audio_stall_remaining - 1;
             if (stalled_audio && exercise_load_stall) audio_stall_observed = audio_stall_observed + 1;
+            if (stalled_audio && exercise_load_stall && menu_page == 3'd5)
+                load_result_stall_observed = load_result_stall_observed + 1;
             if (out_valid && out_ready)
             begin
                 if (note_on != 32'd0)
@@ -259,12 +264,12 @@ module user_interface_preset_tb;
                 request_count = request_count + 1;
                 pending <= 1'b1;
                 response_delay <= 400 + (request_count % 127);
-                // 读取的 CRC 期间跨过一个采样点，旧参数输出等待音频接收。
-                // 在下一个采样点前解除背压，不制造超出协议预算的超期。
+                // 新弯音需要 105 拍；请求可能早于本次输出，不能再阻塞 2800 拍。
+                // 300 拍返回后进行 CRC/装载；1400 拍解除背压，仍早于下一采样。
                 if (exercise_load_stall && !storage_out_write)
                 begin
-                    response_delay <= 1800;
-                    audio_stall_remaining <= 2800;
+                    response_delay <= 300;
+                    audio_stall_remaining <= 1400;
                 end
                 storage_in_status <= 3'd0;
                 storage_in_data <= 512'd0;
@@ -324,6 +329,7 @@ module user_interface_preset_tb;
         reg [195:0] wanted;
         reg [15:0] interpolation, phase_value;
         reg [19:0] attack_value, decay_value, release_value;
+        real bend_cents, expected_frequency, frequency_error;
         begin
             interpolation = (expected[2] * 32768 + 50) / 100;
             phase_value = (expected[3] * 65536 + 180) / 360;
@@ -336,6 +342,16 @@ module user_interface_preset_tb;
             repeat (4200) @(negedge clk_sys);
             while (!out_valid) @(negedge clk_sys);
             if (parameters !== wanted) $fatal(1, "音频参数错误 got=%h expected=%h",parameters,wanted);
+            if (note_freq[0] != 32'd0)
+            begin
+                bend_cents = (bend_value[0] <= 16'h8000) ?
+                    200.0 * (int'(bend_value[0]) - 32768) / 32768.0 :
+                    200.0 * (int'(bend_value[0]) - 32768) / 32767.0;
+                expected_frequency = 440.0 * (2.0 ** (bend_cents / 1200.0));
+                frequency_error = 1200.0 * $ln((note_freq[0] / 65536.0) / expected_frequency) / $ln(2.0);
+                if (frequency_error < -0.1 || frequency_error > 0.1)
+                    $fatal(1, "音色操作改变了轮子位置或使用过期弯音");
+            end
         end
     endtask
     task return_to_play;
@@ -432,6 +448,9 @@ module user_interface_preset_tb;
         send_frame(4'd0, 8'd0);
         check_parameters;
         if (note_on_count != 1) $fatal(1, "A4 未正常起音");
+        bend_value[0] = 16'hffff;
+        send_frame(4'd0, 8'd0);
+        check_parameters;
         // 每槽保存不同 Attack；读取全部 16 槽逐一比对。
         for (slot_index=0;slot_index<16;slot_index=slot_index+1)
         begin
@@ -446,6 +465,8 @@ module user_interface_preset_tb;
         send_frame(4'd0,8'h04); master_percent=40;
         press_button(4'h2);
         open_slots(1'b0);
+        bend_value[0] = 16'h0000;
+        send_frame(4'd0, 8'd0);
         for (slot_index=0;slot_index<16;slot_index=slot_index+1)
         begin
             if (menu_page == 3'd5) press_button(4'h8);
@@ -456,6 +477,8 @@ module user_interface_preset_tb;
             check_parameters;
             if (slot_index == 0 && audio_stall_observed < 500)
                 $fatal(1, "未覆盖读取期间的音频输出背压");
+            if (slot_index == 0 && load_result_stall_observed == 0)
+                $fatal(1, "未覆盖读取装载成功后旧音频输出仍在等待");
         end
         exercise_load_stall = 1'b0;
         if (note_on_count != 1 || note_off_count != 0) $fatal(1, "读取导致重复起音或意外清音");

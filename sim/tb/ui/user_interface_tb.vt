@@ -1,6 +1,7 @@
 `timescale 1ns/1ps
 /** 测试 S1 具名端口、原子帧、模式／微调／恢复默认控制，以及音符
  * 空键盘静音、tick 发布、背压稳定性、溢出锁存及复位。键盘演奏另有整链 TB。
+ * 新增：采样沿版本保存、分组装载、交付与新采样同沿、准备期间异步复位取消。
  * 预期数值为独立计算的 UI／Q 格式常量。
  */
 module user_interface_tb;
@@ -47,6 +48,10 @@ module user_interface_tb;
     integer i;
     integer accepted_frames = 0;
     reg [195:0] held_parameters;
+    reg [195:0] stalled_parameters;
+    reg previous_stall = 1'b0;
+    integer output_transfers = 0;
+    integer capture_checks = 0;
     wire [195:0] parameters;
     assign parameters = {chorus_mix, distortion_mix, delay_mix, reverb_mix,
         master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
@@ -121,6 +126,20 @@ module user_interface_tb;
             if (in_valid && in_ready) accepted_frames = accepted_frames + 1;
         end
     end
+    // 只观察公开端口：背压期间整组参数和valid必须保持，包括ready重新拉高的交付沿。
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+            previous_stall = 1'b0;
+        else
+        begin
+            if (previous_stall && (!out_valid || parameters !== stalled_parameters))
+                $fatal(1, "Stalled transaction changed before acceptance");
+            previous_stall = out_valid && !out_ready;
+            stalled_parameters = parameters;
+            if (out_valid && out_ready) output_transfers = output_transfers + 1;
+        end
+    end
     task send_frame;
         input [3:0] buttons;
         input [7:0] turns;
@@ -139,9 +158,15 @@ module user_interface_tb;
         end
     endtask
     task tick;
+        reg [195:0] before_tick;
         begin
             @(negedge clk_sys);
+            before_tick = parameters;
             smp_tick_up = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (parameters !== before_tick) $fatal(1, "Parameters changed before local capture stage");
+            capture_checks = capture_checks + 1;
             @(negedge clk_sys);
             smp_tick_up = 1'b0;
             while (!out_valid) @(negedge clk_sys);
@@ -226,6 +251,8 @@ module user_interface_tb;
         smp_tick_up = 1'b1;
         @(negedge clk_sys);
         smp_tick_up = 1'b0;
+        @(negedge clk_sys);
+        if (master_volume !== 16'd26214) $fatal(1, "New latest value leaked into captured sample");
         while (!out_valid) @(negedge clk_sys);
         if (!out_valid || master_volume !== 16'd26214) $fatal(1, "Tick/version edge ordering");
         // 同一时钟沿接收旧事务并发布最新版本。
@@ -234,6 +261,9 @@ module user_interface_tb;
         @(negedge clk_sys);
         smp_tick_up = 1'b0;
         out_ready = 1'b0;
+        if (out_valid || master_volume !== 16'd26214) $fatal(1, "Old acceptance/new sample boundary");
+        @(negedge clk_sys);
+        if (master_volume !== 16'd29491) $fatal(1, "Deferred capture lost next sample parameters");
         while (!out_valid) @(negedge clk_sys);
         if (!out_valid || master_volume !== 16'd29491) $fatal(1, "Consume/publish same edge");
         rst_n = 1'b0;
@@ -243,6 +273,29 @@ module user_interface_tb;
         rst_n = 1'b1;
         out_ready = 1'b1;
         settle_and_sample(16'd19661,16'd0);
+        // E0之后、E1之前异步复位：取消已预约的装载，恢复后不能重放旧输出。
+        @(negedge clk_sys);
+        out_ready = 1'b0;
+        smp_tick_up = 1'b1;
+        @(posedge clk_sys);
+        #1;
+        rst_n = 1'b0;
+        #1;
+        if (out_valid || sample_overrun) $fatal(1, "Reset did not cancel pending capture");
+        @(negedge clk_sys);
+        smp_tick_up = 1'b0;
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        repeat (200)
+        begin
+            @(negedge clk_sys);
+            if (out_valid) $fatal(1, "Cancelled sample replayed after reset");
+        end
+        out_ready = 1'b1;
+        settle_and_sample(16'd19661,16'd0);
+        // 共11次成功交付；背压中复位的输出和准备中取消的采样均不计入。
+        if (output_transfers != 11) $fatal(1, "Output lost/duplicated: %0d", output_transfers);
+        $display("USER_INTERFACE_SAMPLE_CAPTURE_PASS checks=%0d transfers=%0d version_collision consume_and_tick reset_before_load", capture_checks, output_transfers);
         if (accepted_frames != 8) $fatal(1, "Input lost/duplicated: %0d", accepted_frames);
         $display("USER_INTERFACE_PASS frames=%0d", accepted_frames);
         $finish;

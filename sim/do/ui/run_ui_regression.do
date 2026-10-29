@@ -1,4 +1,6 @@
-# UI 全套默认配置；包含三个系统随机种子。工作目录必须为 sim。
+# UI 全套默认配置和弯音；包含三个系统随机种子。工作目录必须为 sim。
+onerror {quit -code 1 -force}
+onbreak {}
 do run_button_event_handler.do
 do run_keyboard_event_handler.do
 do run_keyboard_frame_events.do
@@ -60,4 +62,5 @@ foreach counts {{1 1} {3 1} {3 2} {24 3} {24 32}} {
     }
 }
 rename ui_parameter_case {}
+do run_pitch_bend_regression.do
 echo "UI regression scripts completed; check each TB PASS and error messages."
