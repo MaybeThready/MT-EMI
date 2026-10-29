@@ -179,21 +179,45 @@ module reverb
     wire signed [PROCESS_W+1:0] mix_sum =
         $signed({{2{audio_in_r[PROCESS_W-1]}}, audio_in_r}) + mult_scaled;
 
-    localparam signed [PROCESS_W+1:0] AUDIO_MAX =
-        {{3{1'b0}}, {(PROCESS_W-1){1'b1}}};
-    localparam signed [PROCESS_W+1:0] AUDIO_MIN =
-        {{3{1'b1}}, {(PROCESS_W-1){1'b0}}};
-    function [PROCESS_W-1:0] sat_sample;
-        input signed [PROCESS_W+1:0] value;
-        begin
-            if (value > AUDIO_MAX)
-                sat_sample = AUDIO_MAX[PROCESS_W-1:0];
-            else if (value < AUDIO_MIN)
-                sat_sample = AUDIO_MIN[PROCESS_W-1:0];
-            else
-                sat_sample = value[PROCESS_W-1:0];
-        end
-    endfunction
+    wire signed [PROCESS_W-1:0] damped_sat, feedback_sat;
+    wire signed [PROCESS_W-1:0] allpass_output_sat, allpass_write_sat;
+    wire signed [PROCESS_W-1:0] comb_sum_sat, mix_sat;
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) damped_sat_u (
+        .in(damp_sum), .out(damped_sat)
+    );
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) feedback_sat_u (
+        .in(feedback_sum), .out(feedback_sat)
+    );
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) allpass_output_sat_u (
+        .in(allpass_output), .out(allpass_output_sat)
+    );
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) allpass_write_sat_u (
+        .in(allpass_write), .out(allpass_write_sat)
+    );
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) comb_sum_sat_u (
+        .in(comb_sum_r), .out(comb_sum_sat)
+    );
+    signed_fp_norm #(
+        .QII(PROCESS_W - 13), .QIF(15),
+        .QOI(PROCESS_W - 15), .QOF(15)
+    ) mix_sat_u (
+        .in(mix_sum), .out(mix_sat)
+    );
 
     always @(*)
     begin
@@ -279,8 +303,8 @@ module reverb
 
                 DAMP_APPLY:
                 begin
-                    damped_r <= sat_sample(damp_sum);
-                    filter_state[stage_index] <= sat_sample(damp_sum);
+                    damped_r <= damped_sat;
+                    filter_state[stage_index] <= damped_sat;
                 end
 
                 FEEDBACK_SETUP:
@@ -293,7 +317,7 @@ module reverb
                 FEEDBACK_APPLY:
                 begin
                     // 输入除以四，再作凸组合，避免反馈级增益随系数增大而失控。
-                    ram_write_data_r <= sat_sample(feedback_sum);
+                    ram_write_data_r <= feedback_sat;
                     comb_sum_r <= comb_sum_r +
                                   {{2{delayed_r[PROCESS_W-1]}}, delayed_r};
                 end
@@ -301,11 +325,11 @@ module reverb
                 ALLPASS_CALC:
                 begin
                     // 全通系数固定为 0.5；写入和输出都饱和，决不回绕。
-                    ram_write_data_r <= sat_sample(allpass_write);
+                    ram_write_data_r <= allpass_write_sat;
                     if (stage_index == 3'd4)
-                        stage_input_r <= sat_sample(allpass_output);
+                        stage_input_r <= allpass_output_sat;
                     else
-                        wet_r <= sat_sample(allpass_output);
+                        wet_r <= allpass_output_sat;
                 end
 
                 RAM_WRITE:
@@ -319,7 +343,7 @@ module reverb
                         valid_count[stage_index] <= valid_count[stage_index] + 12'd1;
 
                     if (stage_index == 3'd3)
-                        stage_input_r <= sat_sample(comb_sum_r);
+                        stage_input_r <= comb_sum_sat;
 
                     if (stage_index != 3'd5)
                         stage_index <= stage_index + 3'd1;
@@ -332,7 +356,7 @@ module reverb
                     mult_b_r <= $signed({1'b0, mix_r});
                 end
 
-                MIX_APPLY: audio_out_r <= sat_sample(mix_sum);
+                MIX_APPLY: audio_out_r <= mix_sat;
             endcase
         end
     end
