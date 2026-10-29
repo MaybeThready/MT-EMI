@@ -1,0 +1,92 @@
+`timescale 1ns/1ps
+/** SPI 字节序、1/84 字节边界、CS/SCK 时序、响应背压、非法长度和半包复位。 */
+module spi_nor_transfer_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    reg [6:0] in_length = 7'd1;
+    reg [671:0] in_data = 672'd0;
+    wire out_valid;
+    reg out_ready = 1'b0;
+    wire [671:0] out_data;
+    wire cs_n, sck, mosi;
+    wire miso;
+    reg test_passed = 1'b0;
+    reg [671:0] expected;
+    integer n, j, edges = 0;
+    time last_edge = 0;
+    time cs_assert = 0;
+    assign #8 miso = mosi;
+    always #5 clk_sys = ~clk_sys;
+    spi_nor_transfer #(.HALF_PERIOD_CYCLES(4)) spi_nor_transfer_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .in_length(in_length), .in_data(in_data), .out_valid(out_valid), .out_ready(out_ready),
+        .out_data(out_data), .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso)
+    );
+    always @(negedge cs_n)
+    begin
+        cs_assert = $time;
+        edges = 0;
+        last_edge = 0;
+    end
+    always @(sck)
+    begin
+        if (rst_n && !cs_n)
+        begin
+            if (last_edge != 0 && $time-last_edge != 40) $fatal(1, "SCK half period");
+            if (last_edge == 0 && $time-cs_assert < 40) $fatal(1, "CS setup");
+            last_edge = $time;
+            if (sck) edges = edges + 1;
+        end
+    end
+    initial
+    begin
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+        for (n = 1; n <= 84; n = n + 83)
+        begin
+            expected = 672'd0;
+            for (j = 0; j < n; j = j + 1) expected[j*8 +: 8] = (j*41+8'h93);
+            in_length = n;
+            in_data = expected;
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            in_data = ~expected;
+            wait (out_valid);
+            repeat (12)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || out_data !== expected || !cs_n || sck || edges != n*8)
+                    $fatal(1, "SPI loopback/order/count/backpressure");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+        end
+        in_valid = 1'b1;
+        in_length = 7'd0;
+        repeat (10) @(negedge clk_sys);
+        if (in_ready || !cs_n) $fatal(1, "Zero length accepted");
+        in_length = 7'd85;
+        repeat (10) @(negedge clk_sys);
+        if (in_ready || !cs_n) $fatal(1, "Overlength accepted");
+        in_length = 7'd84;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        repeat (6) @(posedge sck);
+        @(negedge clk_sys);
+        rst_n = 1'b0;
+        #1;
+        if (!cs_n || sck || out_valid) $fatal(1, "Midpacket reset");
+        $display("SPI_NOR_TRANSFER_PASS");
+        test_passed = 1'b1;
+        $finish;
+    end
+    initial
+    begin
+        #1000000;
+        $fatal(1, "SPI transfer watchdog");
+    end
+endmodule

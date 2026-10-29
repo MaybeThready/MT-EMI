@@ -104,7 +104,7 @@ module user_interface_tb;
         .in_ready(in_ready),
         .button_states(button_states),
         .smp_tick_up(smp_tick_up),
-        .master_volume(master_volume),
+        .master_volume(master_volume), .balance_volume(),
         .reverb_mix(reverb_mix),
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),

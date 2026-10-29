@@ -56,6 +56,7 @@ module user_interface
     input [3:0] button_states,
     input smp_tick_up,
     output [15:0] master_volume,
+    output [15:0] balance_volume,  // 音色自身增益UQ0.16，随存取变化；master_volume不参与存取
     output [15:0] reverb_mix,
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
@@ -132,6 +133,7 @@ module user_interface
     reg [15:0] sampled_sustain_level_r;
     reg [19:0] sampled_release_ticks_r;
     reg [15:0] sampled_master_volume_r;
+    reg [15:0] sampled_balance_volume_r;
     reg [15:0] sampled_reverb_mix_r;
     reg [15:0] sampled_delay_mix_r;
     reg [15:0] sampled_distortion_mix_r;
@@ -162,8 +164,11 @@ module user_interface
     reg [19:0] latest_release_ticks_r;
     reg [19:0] output_release_ticks_r;
     wire [15:0] pipeline_master_volume;
+    wire [15:0] pipeline_balance_volume;
     reg [15:0] latest_master_volume_r;
+    reg [15:0] latest_balance_volume_r;
     reg [15:0] output_master_volume_r;
+    reg [15:0] output_balance_volume_r;
     wire [15:0] pipeline_reverb_mix;
     reg [15:0] latest_reverb_mix_r;
     reg [15:0] output_reverb_mix_r;
@@ -217,6 +222,7 @@ module user_interface
         end
     endgenerate
     assign master_volume = output_master_volume_r;
+    assign balance_volume = output_balance_volume_r;
     assign reverb_mix = output_reverb_mix_r;
     assign delay_mix = output_delay_mix_r;
     assign distortion_mix = output_distortion_mix_r;
@@ -335,6 +341,7 @@ module user_interface
         .sustain_level(pipeline_sustain_level),
         .release_ticks(pipeline_release_ticks),
         .master_volume(pipeline_master_volume),
+        .balance_volume(pipeline_balance_volume),
         .reverb_mix(pipeline_reverb_mix),
         .delay_mix(pipeline_delay_mix),
         .distortion_mix(pipeline_distortion_mix),
@@ -372,6 +379,7 @@ module user_interface
             sampled_sustain_level_r <= DEFAULT_SUSTAIN_LEVEL;
             sampled_release_ticks_r <= DEFAULT_RELEASE_TICKS;
             sampled_master_volume_r <= DEFAULT_MASTER_VOLUME;
+            sampled_balance_volume_r <= 16'hffff;
             sampled_reverb_mix_r <= DEFAULT_REVERB_MIX;
             sampled_delay_mix_r <= DEFAULT_DELAY_MIX;
             sampled_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
@@ -391,6 +399,7 @@ module user_interface
             sampled_sustain_level_r <= latest_sustain_level_r;
             sampled_release_ticks_r <= latest_release_ticks_r;
             sampled_master_volume_r <= latest_master_volume_r;
+            sampled_balance_volume_r <= latest_balance_volume_r;
             sampled_reverb_mix_r <= latest_reverb_mix_r;
             sampled_delay_mix_r <= latest_delay_mix_r;
             sampled_distortion_mix_r <= latest_distortion_mix_r;
@@ -421,7 +430,9 @@ module user_interface
             latest_release_ticks_r <= DEFAULT_RELEASE_TICKS;
             output_release_ticks_r <= DEFAULT_RELEASE_TICKS;
             latest_master_volume_r <= DEFAULT_MASTER_VOLUME;
+            latest_balance_volume_r <= 16'hffff;
             output_master_volume_r <= DEFAULT_MASTER_VOLUME;
+            output_balance_volume_r <= 16'hffff;
             latest_reverb_mix_r <= DEFAULT_REVERB_MIX;
             output_reverb_mix_r <= DEFAULT_REVERB_MIX;
             latest_delay_mix_r <= DEFAULT_DELAY_MIX;
@@ -444,6 +455,7 @@ module user_interface
                 latest_sustain_level_r <= pipeline_sustain_level[0];
                 latest_release_ticks_r <= pipeline_release_ticks[0];
                 latest_master_volume_r <= pipeline_master_volume;
+                latest_balance_volume_r <= pipeline_balance_volume;
                 latest_reverb_mix_r <= pipeline_reverb_mix;
                 latest_delay_mix_r <= pipeline_delay_mix;
                 latest_distortion_mix_r <= pipeline_distortion_mix;
@@ -469,6 +481,7 @@ module user_interface
             if (mix_capture_pending_r)
             begin
                 output_master_volume_r <= sampled_master_volume_r;
+                output_balance_volume_r <= sampled_balance_volume_r;
                 output_reverb_mix_r <= sampled_reverb_mix_r;
                 output_delay_mix_r <= sampled_delay_mix_r;
                 output_distortion_mix_r <= sampled_distortion_mix_r;

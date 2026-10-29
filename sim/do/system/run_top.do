@@ -7,6 +7,10 @@ vlog -sv -work $SIM_LIB ../src/signal_detection/signal_sync.v
 vlog -sv -work $SIM_LIB ../src/pll_init.v
 vlog -sv -work $SIM_LIB ../src/gowin_pll/gowin_pll_mod.v
 vlog -sv -work $SIM_LIB ../src/gowin_pll/gowin_pll.v
+vlog -sv -work $SIM_LIB ../src/system/clock_recovery.v
+vlog -sv -work $SIM_LIB ../src/lcd/lcd_driver.v ../src/preset_storage/flash_board_test.v
+vlog -sv -work $SIM_LIB ../src/drivers/spi_nor_transfer.v ../src/drivers/spi_nor_flash.v ../src/drivers/preset_storage_driver.v
+vlog -sv -work $SIM_LIB tb/drivers/spi_nor_model.vt
 vlog -sv -work $SIM_LIB ../src/system/sys_clocker.v
 vlog -sv -work $SIM_LIB +incdir+../src ../src/top.v
 vlog -sv -work $SIM_LIB tb/top_tb.vt

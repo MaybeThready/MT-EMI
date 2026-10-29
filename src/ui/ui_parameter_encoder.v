@@ -23,6 +23,7 @@ module ui_parameter_encoder
     input [6:0] sustain_percent [0:0],
     input [12:0] release_ms [0:0],
     input [6:0] master_percent,
+    input [6:0] balance_percent,  // 音色增益百分比，独立于演奏总音量，同组握手
     input [6:0] reverb_mix_percent,
     input [6:0] delay_mix_percent,
     input [6:0] distortion_mix_percent,
@@ -38,6 +39,7 @@ module ui_parameter_encoder
     output [15:0] sustain_level [0:0],
     output [19:0] release_ticks [0:0],
     output [15:0] master_volume,
+    output [15:0] balance_volume,  // UQ0.16；100%为FFFF，随音色保存/加载
     output [15:0] reverb_mix,
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
@@ -62,6 +64,9 @@ module ui_parameter_encoder
     reg [6:0] sustain_percent_captured;
     reg [12:0] release_ms_captured;
     reg [6:0] master_percent_captured;
+    reg [6:0] balance_percent_captured;
+    reg [15:0] balance_volume_encoded_r;
+    assign balance_volume = balance_volume_encoded_r;
     reg [6:0] reverb_mix_percent_captured;
     reg [6:0] delay_mix_percent_captured;
     reg [6:0] distortion_mix_percent_captured;
@@ -1068,6 +1073,7 @@ module ui_parameter_encoder
             sustain_percent_captured <= 7'd0;
             release_ms_captured <= 13'd0;
             master_percent_captured <= 7'd0;
+            balance_percent_captured <= 7'd100;
             reverb_mix_percent_captured <= 7'd0;
             delay_mix_percent_captured <= 7'd0;
             distortion_mix_percent_captured <= 7'd0;
@@ -1081,6 +1087,7 @@ module ui_parameter_encoder
             sustain_level_encoded_r <= 16'd0;
             release_ticks_encoded_r <= 20'd0;
             master_volume_encoded_r <= 16'd0;
+            balance_volume_encoded_r <= 16'hffff;
             reverb_mix_encoded_r <= 16'd0;
             delay_mix_encoded_r <= 16'd0;
             distortion_mix_encoded_r <= 16'd0;
@@ -1099,6 +1106,7 @@ module ui_parameter_encoder
                 sustain_percent_captured <= sustain_percent[0];
                 release_ms_captured <= release_ms[0];
                 master_percent_captured <= master_percent;
+                balance_percent_captured <= balance_percent;
                 reverb_mix_percent_captured <= reverb_mix_percent;
                 delay_mix_percent_captured <= delay_mix_percent;
                 distortion_mix_percent_captured <= distortion_mix_percent;
@@ -1125,6 +1133,7 @@ module ui_parameter_encoder
                 sustain_level_encoded_r <= encode_percent(sustain_percent_captured);
                 release_ticks_encoded_r <= (release_sample_count > 32'd1048575) ? 20'hFFFFF : release_sample_count[19:0];
                 master_volume_encoded_r <= encode_percent(master_percent_captured);
+                balance_volume_encoded_r <= encode_percent(balance_percent_captured);
                 reverb_mix_encoded_r <= encode_percent(reverb_mix_percent_captured);
                 delay_mix_encoded_r <= encode_percent(delay_mix_percent_captured);
                 distortion_mix_encoded_r <= encode_percent(distortion_mix_percent_captured);

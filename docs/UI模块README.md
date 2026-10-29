@@ -70,9 +70,9 @@ flowchart TB
         V["note_velocity_controller.v<br/>压力换成力度，并平滑变化"]
         BEND["pitch_bend_controller.v<br/>轮子位置 → 查表插值 → 弯音倍率"]
         FREQ["note_pitch_bend.v<br/>基频 × 倍率 → 最终频率<br/>32 声部分时共用 LUT 乘法流水"]
-        C4["knob_parameter_controller.v<br/>按模式修改参数<br/>粗细调、限幅、恢复默认、装载音色"]
+        C4["knob_parameter_controller.v<br/>按模式修改参数<br/>粗细调、限幅、恢复默认、装载音色<br/>保存／加载音色增益，保留演奏总音量"]
         K5["keyboard_note_pipeline.v<br/>保存音符、音高和力度<br/>等待音频接收"]
-        C5["ui_parameter_encoder.v<br/>把毫秒、角度、百分比<br/>换成音频需要的数值"]
+        C5["ui_parameter_encoder.v<br/>把毫秒、角度、百分比<br/>换成音频需要的数值<br/>输出 balance_volume 音色增益"]
         O["user_interface.v<br/>按采样节拍整理音符和音色参数<br/>交给音频后，本次按下／松开动作不再重复发送"]
         I --> K1 & C1
         K1 --> K2 --> K3 --> K4 --> FREQ --> K5 --> O
@@ -87,16 +87,18 @@ flowchart TB
         P <--> R
     end
     D --> I
-    P <-->|请求／响应| S["存储驱动（待实现）"]
+    P <-->|经控制流水及UI顶层的 storage 接口| S["preset_storage_driver.v<br/>16槽双副本、目录、写后校验<br/>spi_nor_flash.v → spi_nor_transfer.v"]
+    S <--> MEM["核心板 U7 SPI NOR Flash<br/>音色数据掉电保存"]
+    S -->|目录经UI顶层返回| C1
     C2 -->|页面、槽号、结果| LCD["显示驱动（待实现）<br/>绘制菜单和提示"]
-    O --> A["音频（待联调）<br/>channel_rack.v 等：产生声音、执行 ADSR<br/>应用总音量和效果干湿比；返回 note_busy"]
+    O --> A["音频（待联调）<br/>channel_rack.v 等：产生声音、执行 ADSR<br/>接收演奏总音量、音色平衡增益和效果参数<br/>增益运算待音频接入；返回 note_busy"]
     classDef done fill:#e9f5eb,stroke:#38834b,color:#172d1d;
     classDef pending fill:#f5f5f5,stroke:#777,stroke-dasharray:5 5,color:#333;
-    class I,K1,K2,K3,K4,K5,V,BEND,FREQ,C1,C2,C3,C4,C5,O,P,R done;
-    class D,A,S,LCD pending;
+    class I,K1,K2,K3,K4,K5,V,BEND,FREQ,C1,C2,C3,C4,C5,O,P,R,S done;
+    class D,A,LCD,MEM pending;
 ```
 
-基频、弯音倍率和压力平滑并行计算；全部声部的最终频率和力度均完成后才交付。`note_busy` 是音频返回给 UI 的声部忙闲状态。图中绿色表示 UI 逻辑已实现，不表示对应外设或真实声音已验证。
+基频、弯音倍率和压力平滑并行计算；全部声部的最终频率和力度均完成后才交付。`note_busy` 是音频返回给 UI 的声部忙闲状态。图中绿色表示逻辑已实现，不表示完整实物演奏系统已验证。存储 Driver 与 UI 在系统 top 平级例化；U7 灯状态存储测试已由用户确认实物正常，UI存取链路已通过仿真。
 
 **同一次输入先处理按钮，再处理旋钮。** 例如 B4 已按住且旋钮转动，先确定微调，再按微调步长修改参数。琴键与参数分别计算；同一次输入的新音与新音色，当前不保证在同一个音频采样点生效。
 
@@ -132,21 +134,23 @@ flowchart TB
 | 已实现 | 输出总音量、混响／延迟／失真／合唱的干湿比；实际音频运算由音频模块完成 |
 | 已实现 | 16 槽菜单、确认／取消／结果、读写事务、记录校验、整组装载和显示状态输出 |
 | 已实现 | ±200 音分弯音、精确回中；含尾音的占用声部一起弯音，菜单期间继续有效 |
-| 未实现 | 实际存储驱动、断电保存、读取清音、模式 2、高级音效参数、多通道编辑和屏幕绘制 |
-| 待联调 | 实际驱动（含弯音轮采集／校准／滤波）、音频接收和忙闲反馈；尚未上板 |
+| 已实现 | U7 Flash Driver及UI接线、16槽双副本保存／读取、启动目录扫描、写后校验和失败保持原配置 |
+| 已实现 | `balance_volume` 音色增益的保存、加载和UI输出，默认100%；`master_volume` 演奏总音量不参与存取 |
+| 未实现 | K4调节音色增益、读取清音、模式2、高级音效参数、多通道编辑和菜单屏幕绘制 |
+| 待联调 | 琴键／旋钮／弯音轮采集驱动、音频接收和忙闲反馈；完整UI演奏系统尚待上板联调 |
 
 ### 音色保存和读取怎样运行
 
-演奏界面按 B1 打开菜单；菜单内 B2／B3 选择、B1 确认、B4 返回或取消。槽位显示 01～16，执行读写后等待结果，期间不能重复确认或取消。菜单期间暂停旋钮编辑，琴键处理继续运行。
+演奏界面按 B1 打开菜单；菜单内 B2／B3 选择、B1 确认、B4 返回或取消。槽位显示 01～16，执行读写后等待结果，期间不能重复确认或取消。菜单期间暂停旋钮编辑，琴键处理继续运行。 本轮K4仍不调节增益，高级菜单仍提示未实现；加载的音色增益可以再次保存。当前记录为64字节、版本3、13项字段，旧版本或灯测试记录读取会报错并保留当前配置。系统复位后重新扫描目录，音色由菜单手动读取，不自动加载。
 
 ```mermaid
 flowchart TB
     MENU["ui_control_state.v<br/>选择保存／读取、槽位并确认"] --> CTRL["ui_preset_controller.v<br/>一次执行一个命令"]
-    CTRL -->|保存| SAVE["锁存当前 12 个音色参数<br/>preset_record_codec.v 生成记录和 CRC"]
-    SAVE --> WRITE["存储驱动可靠写入后返回结果<br/>当前由 TB 模型代替"]
+    CTRL -->|保存| SAVE["锁存12个基础参数及音色平衡增益<br/>preset_record_codec.v 生成记录和 CRC"]
+    SAVE --> WRITE["存储驱动可靠写入后返回结果<br/>已接入 U7 SPI NOR Flash Driver"]
     CTRL -->|读取| READ["存储驱动返回记录<br/>preset_record_codec.v 检查 CRC、格式和范围"]
     READ --> CHECK{检查通过？}
-    CHECK -->|是| APPLY["knob_parameter_controller.v<br/>一次装载整组参数，保留总音量和模式"]
+    CHECK -->|是| APPLY["knob_parameter_controller.v<br/>装载基础参数和 balance_volume<br/>保留 master_volume 和模式，不清音"]
     CHECK -->|否| FAIL["原参数不变，显示错误"]
     APPLY --> ENC["ui_parameter_encoder.v → user_interface.v<br/>换算后按采样节拍交给音频"]
     WRITE --> RESULT["ui_control_state.v<br/>显示成功或失败状态"]

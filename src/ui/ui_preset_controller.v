@@ -8,7 +8,7 @@
  * apply_* 仅在读取且格式、CRC、参数范围全部正确后有效，整组原子装载。
  * result_status: 0 成功、1 空槽、2 驱动错误、3 CRC、4 格式、5 范围、6 扩展。
  * 所有接口以 clk_sys 上升沿 valid && ready 交付，等待时保持内容不变。
- * TODO: 本轮不含实际存储驱动和清音；无超时猜测，驱动必须返回明确结果。
+ * TODO: 本轮已通过系统顶层接入实际存储驱动，清音仍待后续；无超时猜测，驱动必须返回明确结果。
  */
 module ui_preset_controller
 (
@@ -19,6 +19,7 @@ module ui_preset_controller
     input command_write,
     input [3:0] command_slot,
     input [191:0] current_parameters,
+    input [6:0] current_balance_percent,  // 音色增益，随命令与参数同时锁存；不是 master_volume
     output storage_out_valid,
     input storage_out_ready,
     output storage_out_write,
@@ -31,6 +32,7 @@ module ui_preset_controller
     output apply_valid,
     input apply_ready,
     output [191:0] apply_parameters,
+    output [6:0] apply_balance_percent,  // 与 apply_valid/ready 同拍装载
     output result_valid,
     input result_ready,
     output [3:0] result_status
@@ -47,6 +49,8 @@ module ui_preset_controller
     reg write_r;
     reg [3:0] slot_r;
     reg [191:0] parameters_r;
+    reg [6:0] balance_percent_r;
+    wire [6:0] codec_balance_percent;
     reg [511:0] record_r;
     reg [3:0] status_r;
     wire codec_ready;
@@ -64,6 +68,7 @@ module ui_preset_controller
     // 状态机异步复位到等待命令，装载状态本身已排除复位。
     assign apply_valid = (current_state == STATE_APPLY_LOADED_PARAMETERS);
     assign apply_parameters = parameters_r;
+    assign apply_balance_percent = balance_percent_r;
     assign result_valid = rst_n && (current_state == STATE_REPORT_RESULT);
     assign result_status = status_r;
 
@@ -72,7 +77,8 @@ module ui_preset_controller
     );
     preset_record_codec preset_record_codec_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .decode(!write_r), .slot(slot_r),
-        .parameters(parameters_r), .record_in(record_r),
+        .parameters(parameters_r), .balance_percent(balance_percent_r),
+        .balance_percent_out(codec_balance_percent), .record_in(record_r),
         .in_valid(current_state == STATE_START_RECORD_CODEC), .in_ready(codec_ready),
         .record_out(codec_record), .parameters_out(codec_parameters), .status(codec_status),
         .out_valid(codec_valid), .out_ready(current_state == STATE_WAIT_RECORD_CODEC)
@@ -116,6 +122,7 @@ module ui_preset_controller
             write_r <= 1'b0;
             slot_r <= 4'd0;
             parameters_r <= 192'd0;
+            balance_percent_r <= 7'd100;
             record_r <= 512'd0;
             status_r <= 4'd0;
         end
@@ -127,6 +134,7 @@ module ui_preset_controller
                 write_r <= command_write;
                 slot_r <= command_slot;
                 parameters_r <= current_parameters;
+                balance_percent_r <= current_balance_percent;
                 record_r <= 512'd0;
                 status_r <= 4'd0;
             end
@@ -134,6 +142,7 @@ module ui_preset_controller
             begin
                 record_r <= codec_record;
                 parameters_r <= codec_parameters;
+                balance_percent_r <= codec_balance_percent;
                 if (codec_status != 3'd0) status_r <= {1'b0, codec_status} + 4'd2;
             end
             if (storage_in_valid && (current_state == STATE_WAIT_STORAGE_RESPONSE))

@@ -47,5 +47,11 @@
         <File path="src/ui/ui_preset_controller.v" type="file.verilog" enable="1"/>
         <File path="src/ui/note_pitch_bend.v" type="file.verilog" enable="1"/>
         <File path="src/ui/pitch_bend_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/system/clock_recovery.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd/lcd_driver.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/spi_nor_transfer.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/spi_nor_flash.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/preset_storage_driver.v" type="file.verilog" enable="1"/>
+        <File path="src/preset_storage/flash_board_test.v" type="file.verilog" enable="1"/>
     </FileList>
 </Project>

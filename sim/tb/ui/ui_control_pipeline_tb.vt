@@ -99,7 +99,7 @@ module ui_control_pipeline_tb;
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
         .release_ticks(release_ticks),
-        .master_volume(master_volume),
+        .master_volume(master_volume), .balance_volume(),
         .reverb_mix(reverb_mix),
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),

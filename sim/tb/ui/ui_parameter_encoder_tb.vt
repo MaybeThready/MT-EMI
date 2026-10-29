@@ -70,7 +70,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         .decay_ms(decay_ms),
         .sustain_percent(sustain_percent),
         .release_ms(release_ms),
-        .master_percent(master_percent),
+        .master_percent(master_percent), .balance_percent(7'd100), .balance_volume(),
         .reverb_mix_percent(reverb_mix_percent),
         .delay_mix_percent(delay_mix_percent),
         .distortion_mix_percent(distortion_mix_percent),

@@ -7,6 +7,8 @@ module preset_record_codec_tb;
     reg clk_sys = 1'b0;
     always #5 clk_sys = ~clk_sys;
     reg rst_n = 1'b0;
+    reg [6:0] balance_percent = 7'd37;
+    wire [6:0] balance_percent_out;
     reg decode = 1'b0;
     reg [3:0] slot = 4'd0;
     reg [191:0] parameters = 192'd0;
@@ -24,7 +26,7 @@ module preset_record_codec_tb;
     integer upper_bound [0:11];
     preset_record_codec preset_record_codec_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .decode(decode), .slot(slot),
-        .parameters(parameters), .record_in(record_in),
+        .parameters(parameters), .balance_percent(balance_percent), .balance_percent_out(balance_percent_out), .record_in(record_in),
         .in_valid(in_valid), .in_ready(in_ready), .record_out(record_out),
         .parameters_out(parameters_out), .status(status),
         .out_valid(out_valid), .out_ready(out_ready)
@@ -78,13 +80,27 @@ module preset_record_codec_tb;
         for (i = 0; i < 16; i = i + 1)
         begin
             slot = i[3:0];
-            golden = {256'd0,parameters,16'd18,12'd0,slot,16'd1,16'h5549};
+            golden = {112'd0,9'd0,balance_percent,128'd0,parameters,16'd13,12'd0,slot,16'd3,16'h5549};
             golden[511:496] = reference_crc(golden[495:0]);
             run_request(1'b0, 3'd0);
             if (saved !== golden) $fatal(1, "封装结果不符合独立参考");
             record_in = golden;
             run_request(1'b1, 3'd0);
-            if (parameters_out !== parameters) $fatal(1, "读取参数不一致");
+            if (parameters_out !== parameters || balance_percent_out !== balance_percent) $fatal(1, "读取参数不一致");
+        end
+        // 音色增益0/100边界、101/高位污染、CRC正确但非法值均应明确处理。
+        for (i = 0; i < 4; i = i + 1)
+        begin
+            record_in = golden;
+            case (i)
+                0: record_in[399:384] = 16'd0;
+                1: record_in[399:384] = 16'd100;
+                2: record_in[399:384] = 16'd101;
+                3: record_in[399:384] = 16'h8000;
+            endcase
+            record_in[511:496] = reference_crc(record_in[495:0]);
+            run_request(1'b1, (i < 2) ? 3'd0 : 3'd3);
+            if (i < 2 && balance_percent_out !== record_in[390:384]) $fatal(1, "Balance boundary decode");
         end
         for (bit_index = 0; bit_index < 512; bit_index = bit_index + 1)
         begin

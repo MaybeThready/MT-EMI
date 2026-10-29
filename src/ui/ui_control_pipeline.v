@@ -38,6 +38,7 @@ module ui_control_pipeline
     output [15:0] sustain_level [0:0],
     output [19:0] release_ticks [0:0],
     output [15:0] master_volume,
+    output [15:0] balance_volume,  // 音色增益UQ0.16，随音色装载，master_volume保留
     output [15:0] reverb_mix,
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
@@ -122,6 +123,9 @@ module ui_control_pipeline
     wire [6:0] bank_sustain_percent [0:0];
     wire [12:0] bank_release_ms [0:0];
     wire [6:0] bank_master_percent;
+    wire [6:0] bank_balance_percent;
+    wire [6:0] current_balance_percent;
+    wire [6:0] loaded_balance_percent;
     wire [6:0] bank_reverb_mix_percent;
     wire [6:0] bank_delay_mix_percent;
     wire [6:0] bank_distortion_mix_percent;
@@ -223,6 +227,8 @@ module ui_control_pipeline
         .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) knob_parameter_controller_u (
         .preset_load_valid(preset_load_valid), .preset_load_ready(preset_load_ready),
+        .preset_load_balance_percent(loaded_balance_percent),
+        .preset_current_balance_percent(current_balance_percent),
         .preset_load_parameters(loaded_parameters), .preset_current_parameters(current_parameters),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
@@ -247,7 +253,7 @@ module ui_control_pipeline
         .decay_ms(bank_decay_ms),
         .sustain_percent(bank_sustain_percent),
         .release_ms(bank_release_ms),
-        .master_percent(bank_master_percent),
+        .master_percent(bank_master_percent), .balance_percent(bank_balance_percent),
         .reverb_mix_percent(bank_reverb_mix_percent),
         .delay_mix_percent(bank_delay_mix_percent),
         .distortion_mix_percent(bank_distortion_mix_percent),
@@ -269,7 +275,7 @@ module ui_control_pipeline
         .decay_ms(bank_decay_ms),
         .sustain_percent(bank_sustain_percent),
         .release_ms(bank_release_ms),
-        .master_percent(bank_master_percent),
+        .master_percent(bank_master_percent), .balance_percent(bank_balance_percent),
         .reverb_mix_percent(bank_reverb_mix_percent),
         .delay_mix_percent(bank_delay_mix_percent),
         .distortion_mix_percent(bank_distortion_mix_percent),
@@ -284,7 +290,7 @@ module ui_control_pipeline
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
         .release_ticks(release_ticks),
-        .master_volume(master_volume),
+        .master_volume(master_volume), .balance_volume(balance_volume),
         .reverb_mix(reverb_mix),
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
@@ -297,7 +303,8 @@ module ui_control_pipeline
         .clk_sys(clk_sys), .rst_n(rst_n),
         .command_valid(preset_command_valid), .command_ready(preset_command_ready),
         .command_write(preset_command_write), .command_slot(preset_command_slot),
-        .current_parameters(current_parameters),
+        .current_parameters(current_parameters), .current_balance_percent(current_balance_percent),
+        .apply_balance_percent(loaded_balance_percent),
         .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
         .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot),
         .storage_out_data(storage_out_data),

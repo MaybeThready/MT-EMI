@@ -70,7 +70,7 @@ module user_interface_pitch_bend_tb;
         .sample_overrun(sample_overrun), .menu_page(menu_page),
         .wavetable_0(wavetable_0), .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp),
         .init_phase(init_phase), .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
-        .sustain_level(sustain_level), .release_ticks(release_ticks), .master_volume(master_volume),
+        .sustain_level(sustain_level), .release_ticks(release_ticks), .master_volume(master_volume), .balance_volume(),
         .reverb_mix(reverb_mix), .delay_mix(delay_mix), .distortion_mix(distortion_mix), .chorus_mix(chorus_mix),
         .storage_out_valid(), .storage_out_ready(1'b0), .storage_out_write(), .storage_out_slot(), .storage_out_data(),
         .storage_in_valid(1'b0), .storage_in_ready(), .storage_in_status(3'd0), .storage_in_data(512'd0),

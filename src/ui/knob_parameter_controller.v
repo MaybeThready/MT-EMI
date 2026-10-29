@@ -36,6 +36,7 @@ module knob_parameter_controller
     output [6:0] sustain_percent [0:0],
     output [12:0] release_ms [0:0],
     output [6:0] master_percent,
+    output [6:0] balance_percent,  // 音色增益快照，0..100；本轮只由音色加载修改，K4留待后续
     output [6:0] reverb_mix_percent,
     output [6:0] delay_mix_percent,
     output [6:0] distortion_mix_percent,
@@ -47,6 +48,8 @@ module knob_parameter_controller
     input preset_load_valid,
     output preset_load_ready,
     input [191:0] preset_load_parameters,
+    input [6:0] preset_load_balance_percent,
+    output [6:0] preset_current_balance_percent,
     output [191:0] preset_current_parameters
 );
     // 冻结数据传输属性；握手后不再使用实时输入。
@@ -90,6 +93,11 @@ module knob_parameter_controller
     reg snapshot_load_pending_r /* synthesis syn_preserve = 1 */;
     // 数据逐拍暂存；只有准备完成后的握手沿才更新可见参数。
     reg [191:0] preset_parameters_sampled_r;
+    reg [6:0] preset_balance_sampled_r;
+    reg [6:0] balance_percent_r;
+    reg [6:0] balance_percent_snapshot_r;
+    assign balance_percent = balance_percent_snapshot_r;
+    assign preset_current_balance_percent = balance_percent_r;
     // 三组同拍准备、同拍装载，分别驱动波形／相位、ADSR、效果比例。
     reg preset_wave_load_pending_r /* synthesis syn_preserve = 1 */;
     reg preset_envelope_load_pending_r /* synthesis syn_preserve = 1 */;
@@ -372,6 +380,7 @@ module knob_parameter_controller
         if (!rst_n)
         begin
             preset_parameters_sampled_r <= 192'd0;
+            preset_balance_sampled_r <= 7'd100;
             preset_wave_load_pending_r <= 1'b0;
             preset_envelope_load_pending_r <= 1'b0;
             preset_effect_load_pending_r <= 1'b0;
@@ -380,6 +389,7 @@ module knob_parameter_controller
         begin
             // 这里不使用握手作为宽总线使能，避免把原长路径搬到暂存寄存器。
             preset_parameters_sampled_r <= preset_load_parameters;
+            preset_balance_sampled_r <= preset_load_balance_percent;
             preset_wave_load_pending_r <= preset_load_request && preset_accept_enable;
             preset_envelope_load_pending_r <= preset_load_request && preset_accept_enable;
             preset_effect_load_pending_r <= preset_load_request && preset_accept_enable;
@@ -421,6 +431,7 @@ module knob_parameter_controller
             sustain_percent_snapshot_r <= 7'd70;
             release_ms_snapshot_r <= 13'd200;
             master_percent_snapshot_r <= 7'd30;
+            balance_percent_snapshot_r <= 7'd100;
             reverb_mix_percent_snapshot_r <= 7'd0;
             delay_mix_percent_snapshot_r <= 7'd0;
             distortion_mix_percent_snapshot_r <= 7'd0;
@@ -437,6 +448,7 @@ module knob_parameter_controller
             sustain_percent_snapshot_r <= sustain_percent_r;
             release_ms_snapshot_r <= release_ms_r;
             master_percent_snapshot_r <= master_percent_r;
+            balance_percent_snapshot_r <= balance_percent_r;
             reverb_mix_percent_snapshot_r <= reverb_mix_percent_r;
             delay_mix_percent_snapshot_r <= delay_mix_percent_r;
             distortion_mix_percent_snapshot_r <= distortion_mix_percent_r;
@@ -459,6 +471,7 @@ module knob_parameter_controller
             sustain_percent_r <= 7'd70;
             release_ms_r <= 13'd200;
             master_percent_r <= 7'd30;
+            balance_percent_r <= 7'd100;
             reverb_mix_percent_r <= 7'd0;
             delay_mix_percent_r <= 7'd0;
             distortion_mix_percent_r <= 7'd0;
@@ -505,6 +518,8 @@ module knob_parameter_controller
             end
             if (preset_effect_load_pending_r)
             begin
+                // 同组装载音色增益；master_percent_r 不在加载分支更新。
+                balance_percent_r <= preset_balance_sampled_r;
                 reverb_mix_percent_r <= preset_parameters_sampled_r[134:128];
                 delay_mix_percent_r <= preset_parameters_sampled_r[150:144];
                 distortion_mix_percent_r <= preset_parameters_sampled_r[166:160];

@@ -76,6 +76,7 @@ module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter S
         .preset_load_valid(preset_load_valid),
         .preset_load_ready(preset_load_ready),
         .preset_load_parameters(preset_load_parameters),
+        .preset_load_balance_percent(7'd100), .preset_current_balance_percent(), .balance_percent(),
         .preset_current_parameters(current_parameters),
         .clk_sys(clk_sys),
         .rst_n(rst_n),

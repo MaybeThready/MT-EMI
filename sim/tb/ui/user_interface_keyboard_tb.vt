@@ -49,7 +49,7 @@ module user_interface_keyboard_tb;
         .note_freq(note_freq), .note_velocity(note_velocity), .out_valid(out_valid), .out_ready(out_ready),
         .sample_overrun(sample_overrun), .button_states(4'd0),
         .knob_states(knob_states), .knob_dirs(8'hff), .knob_pressed(8'd0), .bend_value(bend_value),
-        .master_volume(master_volume), .configuration_error(configuration_error),
+        .master_volume(master_volume), .balance_volume(), .configuration_error(configuration_error),
         .wavetable_0(), .wavetable_1(), .wavetable_interp(), .init_phase(), .attack_ticks(),
         .decay_ticks(), .sustain_level(), .release_ticks(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix()
     );
