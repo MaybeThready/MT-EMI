@@ -1,0 +1,205 @@
+/**
+ * 硬削波失真测试平台。逐样本检查增益、限幅、tone 滤波、干湿混合、
+ * 参数锁存、复位及 valid-ready 背压；保留连续音频采样波形供 GUI 观察。
+ */
+
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module distortion_tb();
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+
+    reg clk_sys, rst_n;
+    reg signed [23:0] audio_in;
+    reg [15:0] distortion_mix, distortion_gain, distortion_tone;
+    reg in_valid, out_ready;
+    wire in_ready, out_valid;
+    wire signed [23:0] audio_out;
+
+    distortion distortion_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .audio_in(audio_in),
+        .distortion_mix(distortion_mix),
+        .distortion_gain(distortion_gain),
+        .distortion_tone(distortion_tone),
+        .audio_out(audio_out),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    integer scenario_id, sample_index, transfer_count;
+    reg signed [15:0] reference_tone;
+    reg signed [23:0] expected_audio, observed_audio;
+    reg signed [15:0] expected_clipped, expected_tone;
+    real phase;
+
+    function signed [63:0] round_mult;
+        input signed [63:0] a;
+        input signed [63:0] coeff;
+        reg signed [63:0] product, upper;
+        begin
+            product = a * coeff;
+            upper = product >>> 16;
+            if (upper == 64'sd536870911 ||
+                (product < 0 && product[15:0] == 16'h8000))
+                round_mult = upper;
+            else
+                round_mult = upper + product[15];
+        end
+    endfunction
+
+    function signed [15:0] sat16;
+        input signed [63:0] value;
+        begin
+            if (value > 64'sd32767)
+                sat16 = 16'sh7fff;
+            else if (value < -64'sd32768)
+                sat16 = 16'sh8000;
+            else
+                sat16 = value[15:0];
+        end
+    endfunction
+
+    function signed [23:0] sat24;
+        input signed [63:0] value;
+        begin
+            if (value > 64'sd8388607)
+                sat24 = 24'sh7fffff;
+            else if (value < -64'sd8388608)
+                sat24 = 24'sh800000;
+            else
+                sat24 = value[23:0];
+        end
+    endfunction
+
+    task reset_case;
+        begin
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            out_ready = 1'b0;
+            reference_tone = '0;
+            repeat (4) @(negedge clk_sys);
+            rst_n = 1'b1;
+        end
+    endtask
+
+    task send_sample;
+        input signed [23:0] sample;
+        input [15:0] mix, gain, tone;
+        reg [16:0] alpha_wide;
+        reg [15:0] alpha;
+        begin
+            alpha_wide = {1'b0, tone} - {9'd0, tone[15:8]} + 17'd256;
+            alpha = alpha_wide[16] ? 16'hffff : alpha_wide[15:0];
+            expected_clipped = sat16(round_mult(sample, {gain, 4'b0}));
+            expected_tone = sat16($signed(reference_tone) +
+                round_mult($signed(expected_clipped) - $signed(reference_tone), alpha));
+            expected_audio = sat24($signed(sample) +
+                round_mult($signed(expected_tone) - $signed(sample), mix));
+
+            @(negedge clk_sys);
+            while (!in_ready)
+                @(negedge clk_sys);
+            audio_in = sample;
+            distortion_mix = mix;
+            distortion_gain = gain;
+            distortion_tone = tone;
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            // 输入握手后故意改变外部参数，检查模块使用锁存值。
+            distortion_mix = ~mix;
+            distortion_gain = ~gain;
+            distortion_tone = ~tone;
+            while (!out_valid)
+            begin
+                if (in_ready)
+                    $fatal(1, "Input ready while processing sample %0d", sample_index);
+                @(negedge clk_sys);
+            end
+            observed_audio = audio_out;
+            if (audio_out !== expected_audio ||
+                distortion_u.clipped_r !== expected_clipped ||
+                distortion_u.tone_state_r !== expected_tone)
+                $fatal(1, "Mismatch scenario %0d sample %0d: out=%0d expected=%0d clip=%0d expected=%0d tone=%0d expected=%0d",
+                       scenario_id, sample_index, audio_out, expected_audio,
+                       distortion_u.clipped_r, expected_clipped,
+                       distortion_u.tone_state_r, expected_tone);
+            repeat (2) @(negedge clk_sys);
+            if (!out_valid || in_ready || audio_out !== observed_audio)
+                $fatal(1, "Output changed under backpressure at sample %0d", sample_index);
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+            reference_tone = expected_tone;
+            transfer_count = transfer_count + 1;
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        audio_in = '0;
+        distortion_mix = '0;
+        distortion_gain = '0;
+        distortion_tone = '0;
+        in_valid = 1'b0;
+        out_ready = 1'b0;
+        reference_tone = '0;
+        expected_audio = '0;
+        observed_audio = '0;
+        expected_clipped = '0;
+        expected_tone = '0;
+        scenario_id = 0;
+        sample_index = 0;
+        transfer_count = 0;
+
+        scenario_id = 1;
+        reset_case();
+        for (sample_index = 0; sample_index < 512; sample_index = sample_index + 1)
+        begin
+            phase = 6.283185307179586 * 440.0 * sample_index / 48000.0;
+            send_sample($rtoi(24_000.0 * $sin(phase)),
+                        16'hc000, 16'h4000, 16'hd000);
+        end
+        $display("PASS 440 Hz continuous waveform and parameter latch");
+
+        scenario_id = 2;
+        reset_case();
+        for (sample_index = 0; sample_index < 64; sample_index = sample_index + 1)
+            send_sample(sample_index[0] ? -24'sd4000000 : 24'sd4000000,
+                        sample_index < 16 ? 16'd0 :
+                        sample_index < 32 ? 16'hffff : 16'h8000,
+                        sample_index < 48 ? 16'hffff : 16'd0,
+                        sample_index < 32 ? 16'd0 : 16'hffff);
+        $display("PASS large input, positive/negative clipping, dry/wet, gain zero and tone extremes");
+
+        scenario_id = 3;
+        reset_case();
+        for (sample_index = 0; sample_index < 96; sample_index = sample_index + 1)
+            send_sample(sample_index[0] ? -24'sd16384 : 24'sd16384,
+                        16'hffff, 16'h1000, 16'h8000);
+        $display("PASS unity gain, small signal, rounding and reset");
+        $display("PASS distortion: %0d valid-ready transfers", transfer_count);
+        $stop;
+    end
+
+    initial
+    begin
+        repeat (20_000) @(posedge clk_sys);
+        $fatal(1, "Distortion test timed out");
+    end
+endmodule
