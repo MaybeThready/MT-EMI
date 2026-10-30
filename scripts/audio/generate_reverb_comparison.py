@@ -59,7 +59,8 @@ def fp_mult(a: int, coeff: int) -> int:
 
 
 class ReverbModel:
-    def __init__(self) -> None:
+    def __init__(self, input_width: int = 21) -> None:
+        self.input_width = input_width
         self.memory = [array("i", [0]) * length for length in DELAY_LENGTHS]
         self.pointer = [0] * 6
         self.valid_count = [0] * 6
@@ -68,7 +69,7 @@ class ReverbModel:
     def process(self, audio_in: int, mix: int, feedback: int,
                 damping: int) -> tuple[int, int]:
         """Return (RTL audio_out, wet_r) for one accepted sample."""
-        audio_in = clamp(audio_in, 21)
+        audio_in = clamp(audio_in, self.input_width)
         feedback = min(feedback, 0xF000)
         damping = min(damping, 0xF000)
         comb_input = audio_in >> 2
