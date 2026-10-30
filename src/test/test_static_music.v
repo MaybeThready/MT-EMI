@@ -91,44 +91,42 @@ module test_static_music
         end
     end
 
-    reg signed [15:0] sample_r;
-    reg sample_valid_r, output_started_r, underrun_r;
+    reg output_started_r, sample_seen_r, underrun_r;
     reg [15:0] frame_count_r;
     wire i2s_ready;
-    assign rack_out_ready = !sample_valid_r;
+    wire sample_fire = rack_out_valid && i2s_ready;
+    assign rack_out_ready = i2s_ready;
     always @(posedge clk_sys or negedge rst_sys_n)
     begin
         if (!rst_sys_n)
         begin
-            sample_r <= 16'sd0;
-            sample_valid_r <= 1'b0;
             output_started_r <= 1'b0;
+            sample_seen_r <= 1'b0;
             underrun_r <= 1'b0;
             frame_count_r <= 16'd0;
         end
         else
         begin
-            if (i2s_ready)
-            begin
-                sample_valid_r <= 1'b0;
-                frame_count_r <= frame_count_r + 1'b1;
-                if (output_started_r && !sample_valid_r)
-                    underrun_r <= 1'b1;
-            end
-            if (rack_out_valid && rack_out_ready)
-            begin
-                sample_r <= rack_audio;
-                sample_valid_r <= 1'b1;
+            if (sample_fire)
                 output_started_r <= 1'b1;
+            if (smp_tick_up)
+            begin
+                frame_count_r <= frame_count_r + 1'b1;
+                if (output_started_r && !sample_seen_r && !sample_fire)
+                    underrun_r <= 1'b1;
+                sample_seen_r <= sample_seen_r && sample_fire;
             end
+            else if (sample_fire)
+                sample_seen_r <= 1'b1;
         end
     end
 
     i2s_driver i2s_driver_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n),
         .i2s_tick_up(i2s_tick_up), .i2s_tick_down(i2s_tick_down),
-        .smp_tick_up(smp_tick_up), .audio_data(sample_r),
-        .in_valid(sample_valid_r), .in_ready(i2s_ready),
+        .smp_tick_up(smp_tick_up), .audio_data(rack_audio),
+        .in_valid(rack_out_valid), .in_ready(i2s_ready),
+        .audio_out_lcd(), .out_valid_lcd(), .out_ready_lcd(1'b1),
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck),
         .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n)
     );
