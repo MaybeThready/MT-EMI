@@ -69,7 +69,8 @@ module reverb
                FEEDBACK_SETUP = 4'd6, FEEDBACK_MULT = 4'd7,
                FEEDBACK_APPLY = 4'd8, ALLPASS_CALC = 4'd9,
                RAM_WRITE = 4'd10, MIX_SETUP = 4'd11,
-               MIX_MULT = 4'd12, MIX_APPLY = 4'd13, WF_SEND = 4'd14;
+               MIX_MULT = 4'd12, MIX_APPLY = 4'd13, WF_SEND = 4'd14,
+               ADDR_SETUP = 4'd15;
 
     wire [3:0] stc;
     reg [3:0] stn;
@@ -84,6 +85,7 @@ module reverb
     );
 
     reg [2:0] stage_index;
+    reg [16:0] stage_addr_r;
     reg [11:0] delay_ptr [0:5];
     reg [11:0] valid_count [0:5];
     reg signed [PROCESS_W-1:0] filter_state [0:3];
@@ -131,9 +133,8 @@ module reverb
         endcase
     end
 
-    wire [16:0] stage_addr = stage_base + delay_ptr[stage_index];
-    assign ram_read_addr = stage_addr;
-    assign ram_write_addr = stage_addr;
+    assign ram_read_addr = stage_addr_r;
+    assign ram_write_addr = stage_addr_r;
     assign ram_read_en = (stc == RAM_READ);
     assign ram_write_en = (stc == RAM_WRITE);
 
@@ -222,7 +223,8 @@ module reverb
     always @(*)
     begin
         case (stc)
-            WF_RECV: stn = in_valid ? RAM_READ : WF_RECV;
+            WF_RECV: stn = in_valid ? ADDR_SETUP : WF_RECV;
+            ADDR_SETUP: stn = RAM_READ;
             RAM_READ: stn = RAM_WAIT;
             RAM_WAIT: stn = stage_index < 3'd4 ? DAMP_SETUP : ALLPASS_CALC;
             DAMP_SETUP: stn = DAMP_MULT;
@@ -232,7 +234,7 @@ module reverb
             FEEDBACK_MULT: stn = FEEDBACK_APPLY;
             FEEDBACK_APPLY: stn = RAM_WRITE;
             ALLPASS_CALC: stn = RAM_WRITE;
-            RAM_WRITE: stn = stage_index == 3'd5 ? MIX_SETUP : RAM_READ;
+            RAM_WRITE: stn = stage_index == 3'd5 ? MIX_SETUP : ADDR_SETUP;
             MIX_SETUP: stn = MIX_MULT;
             MIX_MULT: stn = MIX_APPLY;
             MIX_APPLY: stn = WF_SEND;
@@ -247,6 +249,7 @@ module reverb
         if (!rst_n)
         begin
             stage_index <= '0;
+            stage_addr_r <= '0;
             audio_in_r <= '0;
             delayed_r <= '0;
             damped_r <= '0;
@@ -271,6 +274,9 @@ module reverb
         else
         begin
             case (stc)
+                ADDR_SETUP:
+                    stage_addr_r <= stage_base + delay_ptr[stage_index];
+
                 WF_RECV:
                 begin
                     if (in_valid)

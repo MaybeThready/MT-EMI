@@ -29,14 +29,15 @@ module test_mixer
     localparam [15:0] DELAY_TIME = 16'd12000;      // 250 ms @ 48 kHz
     localparam [15:0] DELAY_FEEDBACK = 16'h6000;   // 约 0.38
     // localparam [15:0] DISTORTION_MIX = 16'h1800;   // 约 0.09
-    localparam [15:0] DISTORTION_MIX = 16'hFFFF;
+    localparam [15:0] DISTORTION_MIX = 16'h0000;
     localparam [15:0] DISTORTION_GAIN = 16'h2800;  // UQ4.12，2.5 倍
     localparam [15:0] DISTORTION_TONE = 16'hb000;  // 约 0.69
-    localparam [15:0] CHORUS_MIX = 16'h5000;       // 约 0.31
+    // localparam [15:0] CHORUS_MIX = 16'h5000;       // 约 0.31
+    localparam [15:0] CHORUS_MIX = 16'h0000;       // 约 0.31
     localparam [15:0] CHORUS_RATE = 16'h3000;      // UQ2.14，0.75 Hz
     localparam [7:0] CHORUS_DEPTH = 8'd48;         // 48 个采样，1 ms
     // 两级增益为 UQ1.15；mixer 末端还会固定除以 8。
-    localparam [15:0] BALANCE_VOLUME = 16'hf000;  // 1.875 倍
+    localparam [15:0] BALANCE_VOLUME = 16'h8000;  // 1.875 倍
     // localparam [15:0] MASTER_VOLUME = 16'hf000;   // 1.875 倍
     localparam [15:0] MASTER_VOLUME = 16'h8000;
 
