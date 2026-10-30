@@ -109,6 +109,7 @@ module test_i2s
         .i2s_tick_up(i2s_tick_up), .i2s_tick_down(i2s_tick_down),
         .smp_tick_up(smp_tick_up), .audio_data(sample_r),
         .in_valid(sample_valid_r), .in_ready(i2s_ready),
+        .audio_out_lcd(), .out_valid_lcd(), .out_ready_lcd(1'b1),
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck),
         .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n)
     );
@@ -116,19 +117,30 @@ module test_i2s
     assign key_clk = 1'b0;
 
     reg [15:0] frame_count_r;
-    reg underrun_r;
+    reg underrun_r, sample_seen_r, output_started_r;
     always @(posedge clk_sys or negedge rst_sys_n)
     begin
         if (!rst_sys_n)
         begin
             frame_count_r <= 16'd0;
             underrun_r <= 1'b0;
+            sample_seen_r <= 1'b0;
+            output_started_r <= 1'b0;
         end
-        else if (i2s_ready)
+        else
         begin
-            frame_count_r <= frame_count_r + 1'b1;
-            if (!sample_valid_r)
-                underrun_r <= 1'b1;
+            if (sample_valid_r && i2s_ready)
+                output_started_r <= 1'b1;
+            if (smp_tick_up)
+            begin
+                frame_count_r <= frame_count_r + 1'b1;
+                if (output_started_r && !sample_seen_r &&
+                    !(sample_valid_r && i2s_ready))
+                    underrun_r <= 1'b1;
+                sample_seen_r <= sample_seen_r && sample_valid_r && i2s_ready;
+            end
+            else if (sample_valid_r && i2s_ready)
+                sample_seen_r <= 1'b1;
         end
     end
     assign status_led = {underrun_r, frame_count_r[14]};

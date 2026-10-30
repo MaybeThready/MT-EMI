@@ -11,10 +11,12 @@
  * 默认 clk_sys = 98.304 MHz，BCLK = 1.536 MHz，LRCK = 48 kHz。
  *
  * audio_data: 16 位二进制补码音频，SQ1.15，范围 [-1, 1)。
- * in_valid / in_ready: 在 clk_sys 上升沿同时为 1 时接收一个采样。
- * 每帧只在 smp_tick_up 后第一个 i2s_tick_up 拉高 in_ready 一个 clk_sys 周期。
- * 上游应提前准备好上一采样周期的结果，并保持 valid 和数据直到握手；
- * 此时距帧起点 32 个 clk_sys 周期，距发送最高位还有 32 个周期。
+ * in_valid / in_ready: 单槽待播缓冲。空槽随时接收一个采样；帧起点
+ * 消费旧采样并允许同拍接收下一个。没有待播采样时发送静音。
+ * 同拍空槽输入直接用于本帧；上游应保持 valid 和数据直到握手。
+ * audio_out_lcd / out_valid_lcd / out_ready_lcd: 当前帧实际发送的 PCM
+ * 镜像。LCD 背压时保持旧值；若下一帧到来仍未读走，则跳过该帧的显示采样。
+ * LCD 不会阻塞 I2S，也不会改变上游的 in_ready。
  *
  * i2s_bclk: 连续位时钟；复位后等待首个 smp_tick_up 再启动。
  * i2s_lrck: 低电平表示左声道，高电平表示右声道；先于最高位一个 BCLK 切换。
@@ -30,6 +32,9 @@ module i2s_driver
     input smp_tick_up,
     input signed [15:0] audio_data,
     input in_valid,
+    output signed [15:0] audio_out_lcd,
+    input out_ready_lcd,
+    output out_valid_lcd,
     output i2s_bclk,
     output i2s_lrck,
     output i2s_dout,
@@ -37,15 +42,16 @@ module i2s_driver
     output in_ready
 );
     localparam [1:0]
-        S_WAIT_FRAME = 2'd0,   // 等待完整帧起点
-        S_WAIT_SAMPLE = 2'd1,  // 等待帧起点后的第一个 BCLK 上升沿，接收采样
-        S_SEND_LEFT = 2'd2,    // 在下降沿依次输出左声道 D15..D0
-        S_SEND_RIGHT = 2'd3; // 在下降沿发送右声道的 16 位静音数据
+        S_WAIT_FRAME = 2'd0,
+        S_SEND_LEFT = 2'd1,
+        S_SEND_RIGHT = 2'd2;
 
     wire [1:0] stc;
     reg [1:0] stn;
     reg [3:0] bit_count;      // 当前声道已发送位数
     reg [15:0] sample_shift;
+    reg signed [15:0] pending_sample_r, lcd_sample_r;
+    reg pending_valid_r, lcd_valid_r;
     reg i2s_bclk_r;
     reg i2s_lrck_r;
     reg i2s_dout_r;
@@ -53,7 +59,12 @@ module i2s_driver
     assign i2s_bclk = i2s_bclk_r;
     assign i2s_lrck = i2s_lrck_r;
     assign i2s_dout = i2s_dout_r;
-    assign in_ready = rst_n && (stc == S_WAIT_SAMPLE) && i2s_tick_up;
+    assign in_ready = rst_n && (!pending_valid_r || smp_tick_up);
+    assign audio_out_lcd = lcd_sample_r;
+    assign out_valid_lcd = lcd_valid_r;
+    wire input_fire = in_valid && in_ready;
+    wire signed [15:0] frame_sample = pending_valid_r ? pending_sample_r :
+                                      (input_fire ? audio_data : 16'sd0);
 
     // 状态转换
     fsm #(
@@ -70,12 +81,11 @@ module i2s_driver
     always @(*)
     begin
         if (smp_tick_up)
-            stn = S_WAIT_SAMPLE;
+            stn = S_SEND_LEFT;
         else
         begin
             case (stc)
                 S_WAIT_FRAME: stn = S_WAIT_FRAME;
-                S_WAIT_SAMPLE: stn = i2s_tick_up ? S_SEND_LEFT : S_WAIT_SAMPLE;
                 S_SEND_LEFT:
                     stn = (i2s_tick_down && bit_count == 4'd15) ? S_SEND_RIGHT : S_SEND_LEFT;
                 S_SEND_RIGHT:
@@ -98,7 +108,44 @@ module i2s_driver
             i2s_bclk_r <= 1'b0;
     end
 
-    // 状态输出：先接收完整采样，再依次发送左声道音频和右声道静音。
+    // 输入缓冲与 LCD 镜像各自独立握手。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            pending_sample_r <= 16'sd0;
+            pending_valid_r <= 1'b0;
+            lcd_sample_r <= 16'sd0;
+            lcd_valid_r <= 1'b0;
+        end
+        else
+        begin
+            if (smp_tick_up)
+            begin
+                // 旧样本送本帧；同拍新样本留给下一帧。
+                pending_valid_r <= pending_valid_r && input_fire;
+                if (pending_valid_r && input_fire)
+                    pending_sample_r <= audio_data;
+                if (!lcd_valid_r || out_ready_lcd)
+                begin
+                    lcd_sample_r <= frame_sample;
+                    lcd_valid_r <= 1'b1;
+                end
+            end
+            else
+            begin
+                if (input_fire)
+                begin
+                    pending_sample_r <= audio_data;
+                    pending_valid_r <= 1'b1;
+                end
+                if (lcd_valid_r && out_ready_lcd)
+                    lcd_valid_r <= 1'b0;
+            end
+        end
+    end
+
+    // 帧起点装载待播采样，随后只在 BCLK 下降沿更新串行数据。
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
@@ -116,16 +163,6 @@ module i2s_driver
                     bit_count <= 4'd0;
                     sample_shift <= 16'd0;
                     i2s_dout_r <= 1'b0;
-                end
-
-                S_WAIT_SAMPLE:
-                begin
-                    if (i2s_tick_up)
-                    begin
-                        // 同拍完成握手或填入静音，下一次下降沿才输出 D15。
-                        sample_shift <= in_valid ? audio_data : 16'd0;
-                        bit_count <= 4'd0;
-                    end
                 end
 
                 S_SEND_LEFT, S_SEND_RIGHT:
@@ -158,7 +195,7 @@ module i2s_driver
             begin
                 i2s_lrck_r <= 1'b0;
                 bit_count <= 4'd0;
-                // dout 由发送分支处理上一帧右声道 D0，本拍为静音位 0。
+                sample_shift <= frame_sample;
             end
         end
     end

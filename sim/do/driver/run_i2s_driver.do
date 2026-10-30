@@ -1,5 +1,5 @@
 # Run from sim/: do do/driver/run_i2s_driver.do
-# Check mono data, right-channel silence, handshake, timing and reset; expect PASS.
+# Check mono data, right-channel silence, input buffer, LCD mirror and reset.
 onerror {abort all}
 set SIM_LIB work_i2s_driver
 do do/common/setup.do
