@@ -24,6 +24,11 @@
         <File path="src/fixed_points/unsigned_fp_op.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/chorus.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/delay.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/distortion.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/mixer.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/reverb.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
         <File path="src/rom_wavetables/rom_wavetables.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
@@ -33,6 +38,7 @@
         <File path="src/test/test_dynamic_music.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_i2s.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_keyboard_interaction.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_mixer.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_static_music.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
         <File path="src/ui/button_event_handler.v" type="file.verilog" enable="1"/>
@@ -43,7 +49,9 @@
         <File path="src/ui/knob_event_handler.v" type="file.verilog" enable="1"/>
         <File path="src/ui/knob_parameter_controller.v" type="file.verilog" enable="1"/>
         <File path="src/ui/note_frequency_mapper.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_pitch_bend.v" type="file.verilog" enable="1"/>
         <File path="src/ui/note_velocity_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/pitch_bend_controller.v" type="file.verilog" enable="1"/>
         <File path="src/ui/preset_record_codec.v" type="file.verilog" enable="1"/>
         <File path="src/ui/ui_control_pipeline.v" type="file.verilog" enable="1"/>
         <File path="src/ui/ui_control_state.v" type="file.verilog" enable="1"/>
