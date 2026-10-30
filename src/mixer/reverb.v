@@ -9,7 +9,7 @@
 
 /**
  * clk_sys: 系统时钟；rst_n: 低有效异步复位，仅清控制状态，不清外部 RAM
- * audio_in: 复音求和，SQ(1+$clog2(MAX_POLYPHONY)).15
+ * audio_in: SQ(AUDIO_IN_W-15).15；默认接收复音求和，mixer 可改为 24 位效果器采样
  * audio_out: 发往下一效果器的高位宽采样，SQ(4+$clog2(MAX_POLYPHONY)).15
  * reverb_mix: 干湿比例，UQ0.16；0 为原音，16'hFFFF 近似全湿
  * reverb_feedback: 四路梳状滤波器的反馈/衰减系数，UQ0.16，内部限至 0.9375
@@ -26,11 +26,12 @@
 module reverb
 #(
     parameter MAX_POLYPHONY = 32,
+    parameter AUDIO_IN_W = 16 + $clog2(MAX_POLYPHONY),
     parameter [16:0] RAM_BASE_ADDR = 17'd0
 )(
     input clk_sys,
     input rst_n,
-    input signed [15+$clog2(MAX_POLYPHONY):0] audio_in,
+    input signed [AUDIO_IN_W-1:0] audio_in,
     input [15:0] reverb_mix,
     input [15:0] reverb_feedback,
     input [15:0] reverb_damping,
@@ -46,8 +47,7 @@ module reverb
     output [16:0] ram_write_addr,
     output signed [23:0] ram_write_data
 );
-    localparam INPUT_W = 16 + $clog2(MAX_POLYPHONY);
-    localparam PROCESS_W = INPUT_W + 3;
+    localparam PROCESS_W = 19 + $clog2(MAX_POLYPHONY);
 
     // 48 kHz 下梳状延迟约为 31、33、36、39 ms，全通延迟约为 5、12 ms。
     localparam [11:0] COMB_0_LEN = 12'd1499;
