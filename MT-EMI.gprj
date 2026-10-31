@@ -52,6 +52,6 @@
         <File path="src/drivers/spi_nor_transfer.v" type="file.verilog" enable="1"/>
         <File path="src/drivers/spi_nor_flash.v" type="file.verilog" enable="1"/>
         <File path="src/drivers/preset_storage_driver.v" type="file.verilog" enable="1"/>
-        <File path="src/preset_storage/flash_board_test.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/channel_rack.v" type="file.verilog" enable="1"/>
     </FileList>
 </Project>

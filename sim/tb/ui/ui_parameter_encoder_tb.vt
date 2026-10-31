@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 /** ui_parameter_encoder 自检：复位、握手背压及数据语义。
- * 参考向量使用整数物理单位独立计算。
+ * 参考向量使用整数物理单位独立计算；两路Q15增益覆盖全65536编码、背压与复位。
  */
 module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     reg clk_sys = 1'b0;
@@ -35,7 +35,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     reg [10:0] decay_ms [0:0];
     reg [6:0] sustain_percent [0:0];
     reg [12:0] release_ms [0:0];
-    reg [6:0] master_percent;
+    reg [15:0] master_gain;
     reg [6:0] reverb_mix_percent;
     reg [6:0] delay_mix_percent;
     reg [6:0] distortion_mix_percent;
@@ -49,6 +49,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     wire [15:0] out_sustain_level [0:0];
     wire [19:0] out_release_ticks [0:0];
     wire [15:0] out_master_volume;
+    reg [15:0] balance_gain;
+    wire [15:0] out_balance_volume;
     wire [15:0] out_reverb_mix;
     wire [15:0] out_delay_mix;
     wire [15:0] out_distortion_mix;
@@ -56,6 +58,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     ui_parameter_encoder #(
         .SMP_TICK_FREQ(SMP_TICK_FREQ)
     ) ui_parameter_encoder_u (
+        .reverb_feedback(), .reverb_damping(), .delay_time(), .delay_feedback(), .distortion_gain(), .distortion_tone(), .chorus_rate(), .chorus_depth(),
+        .advanced_parameters(128'h001840008000100090002ee02800b000),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .in_valid(in_valid),
@@ -70,7 +74,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         .decay_ms(decay_ms),
         .sustain_percent(sustain_percent),
         .release_ms(release_ms),
-        .master_percent(master_percent), .balance_percent(7'd100), .balance_volume(),
+        .master_gain(master_gain), .balance_gain(balance_gain), .balance_volume(out_balance_volume),
         .reverb_mix_percent(reverb_mix_percent),
         .delay_mix_percent(delay_mix_percent),
         .distortion_mix_percent(distortion_mix_percent),
@@ -102,6 +106,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     task check_output;
         begin
             if (!out_valid) $fatal(1,"Missing encoder valid");
+            if (out_balance_volume !== ~value[21][15:0]) $fatal(1,"Balance Q15 snapshot changed");
             if (out_wavetable_0[0] !== value[13][3:0]) $fatal(1,"Encoder wavetable_0 vector %0d expected %0d got %0d",index,value[13],out_wavetable_0[0]);
             if (out_wavetable_1[0] !== value[14][3:0]) $fatal(1,"Encoder wavetable_1 vector %0d expected %0d got %0d",index,value[14],out_wavetable_1[0]);
             if (out_wavetable_interp[0] !== value[15][15:0]) $fatal(1,"Encoder wavetable_interp vector %0d expected %0d got %0d",index,value[15],out_wavetable_interp[0]);
@@ -124,6 +129,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         file_handle=$fopen(file_path,"r");
         if (!file_handle) $fatal(1,"Missing encoder vectors");
         reset_dut;
+        if (out_master_volume !== 16'h8000 || out_balance_volume !== 16'h8000) $fatal(1,"Gain reset defaults");
         for (index=0;index<5002;index=index+1)
         begin
             scan_count=$fscanf(file_handle,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",value[0],value[1],value[2],value[3],value[4],value[5],value[6],value[7],value[8],value[9],value[10],value[11],value[12],value[13],value[14],value[15],value[16],value[17],value[18],value[19],value[20],value[21],value[22],value[23],value[24],value[25]);
@@ -137,7 +143,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             decay_ms[0]=value[5];
             sustain_percent[0]=value[6];
             release_ms[0]=value[7];
-            master_percent=value[8];
+            master_gain=value[8];
+            balance_gain=~value[8][15:0];
             reverb_mix_percent=value[9];
             delay_mix_percent=value[10];
             distortion_mix_percent=value[11];
@@ -154,7 +161,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             decay_ms[0]='0;
             sustain_percent[0]='0;
             release_ms[0]='0;
-            master_percent='0;
+            master_gain='0;
+            balance_gain='0;
             reverb_mix_percent='0;
             delay_mix_percent='0;
             distortion_mix_percent='0;
@@ -169,6 +177,26 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             @(negedge clk_sys);
             out_ready=1'b0;
             if (out_valid) $fatal(1,"Duplicate encoder output");
+        end
+        // 全编码独立检查，确保高位不再被百分比端口截掉、也没有再次按Q0.16编码。
+        for (index = 0; index < 65536; index = index + 1)
+        begin
+            @(negedge clk_sys);
+            master_gain = index;
+            balance_gain = 65535 - index;
+            in_valid = 1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            master_gain = 16'd0;
+            balance_gain = 16'd0;
+            wait (out_valid);
+            @(negedge clk_sys);
+            if (out_master_volume !== index[15:0] || out_balance_volume != 65535 - index)
+                $fatal(1, "Q15 exhaustive transfer index=%0d", index);
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
         end
         @(negedge clk_sys);
         in_valid=1'b1;
@@ -193,7 +221,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
                 if (out_valid) $fatal(1,"Cancelled conversion reappeared");
             end
         end
-        $display("UI_PARAMETER_ENCODER_PASS hz=%0d snapshots=5002",SMP_TICK_FREQ);
+        $display("UI_PARAMETER_ENCODER_PASS hz=%0d snapshots=5002 gain_codes=65536",SMP_TICK_FREQ);
         $finish;
     end
 endmodule

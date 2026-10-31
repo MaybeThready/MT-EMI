@@ -1,8 +1,12 @@
 /**
+ * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
  * 把百分比、角度和毫秒换算成音频模块使用的参数编码。
+ * 时序优化：输出 valid 由非复位状态产生，不将复位组合传播到下游整组 CE。
  * SMP_TICK_FREQ: 采样率，Hz，范围 1000～209715；毫秒换算采用四舍五入。
  * attack_ticks/decay_ticks/release_ticks: 20 位采样周期数，相对 S1 改了单位和位宽。
- * wavetable_interp: UQ1.15，0～8000 表示 0～100%；其余比例用 UQ0.16。
+ * wavetable_interp: UQ1.15，0～8000 表示 0～100%；master/balance用UQ1.15全范围；干湿比和Sustain仍用UQ0.16。
+ * advanced_parameters为8个16位音频编码，输入锁存、与其余字段同拍发布；不重复数值换算。
+ * balance_volume为音色增益；master_volume为独立演奏总音量。
  * master_volume 与四个 *_mix: 总音量及混响、延迟、失真、合唱的干湿比。
  * 输入握手后分两拍转换；等待接收时保持整组结果，不混入新的设置。
  * NOTE: UQ0.16 的 100% 编码为 FFFF，略小于 1；Release=0 由音频端直接结束。
@@ -22,8 +26,9 @@ module ui_parameter_encoder
     input [10:0] decay_ms [0:0],
     input [6:0] sustain_percent [0:0],
     input [12:0] release_ms [0:0],
-    input [6:0] master_percent,
-    input [6:0] balance_percent,  // 音色增益百分比，独立于演奏总音量，同组握手
+    input [15:0] master_gain,
+    input [127:0] advanced_parameters,  // 已编码的八项参数，随输入整组锁存
+    input [15:0] balance_gain,  // 音色增益UQ1.15，独立于演奏总音量，同组握手
     input [6:0] reverb_mix_percent,
     input [6:0] delay_mix_percent,
     input [6:0] distortion_mix_percent,
@@ -38,8 +43,16 @@ module ui_parameter_encoder
     output [19:0] decay_ticks [0:0],
     output [15:0] sustain_level [0:0],
     output [19:0] release_ticks [0:0],
-    output [15:0] master_volume,
-    output [15:0] balance_volume,  // UQ0.16；100%为FFFF，随音色保存/加载
+    output [15:0] master_volume,  // UQ1.15，0000..FFFF，默认8000；独立总增益，不随音色保存
+    output [15:0] reverb_feedback,
+    output [15:0] reverb_damping,
+    output [15:0] delay_time,
+    output [15:0] delay_feedback,
+    output [15:0] distortion_gain,
+    output [15:0] distortion_tone,
+    output [15:0] chorus_rate,
+    output [7:0] chorus_depth,
+    output [15:0] balance_volume,  // UQ1.15；1.0为8000，范围[0,2)，随音色保存/加载
     output [15:0] reverb_mix,
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
@@ -47,6 +60,15 @@ module ui_parameter_encoder
     output out_valid,
     input out_ready
 ) /* synthesis syn_romstyle = "logic" */;
+    reg [127:0] advanced_captured_r, advanced_encoded_r;
+    assign reverb_feedback = advanced_encoded_r[0 +: 16];
+    assign reverb_damping = advanced_encoded_r[16 +: 16];
+    assign delay_time = advanced_encoded_r[32 +: 16];
+    assign delay_feedback = advanced_encoded_r[48 +: 16];
+    assign distortion_gain = advanced_encoded_r[64 +: 16];
+    assign distortion_tone = advanced_encoded_r[80 +: 16];
+    assign chorus_rate = advanced_encoded_r[96 +: 16];
+    assign chorus_depth = advanced_encoded_r[112 +: 8];
     // 小型查表用逻辑实现，避免自动推断块 ROM 引入本工程的时钟脉宽违例。
     // 仅限定本模块，不改变正式 PLL、数值算法、两拍转换或 valid/ready 时序。
     localparam STATE_WAIT_PARAMETER_SNAPSHOT = 2'd0;
@@ -63,8 +85,8 @@ module ui_parameter_encoder
     reg [10:0] decay_ms_captured;
     reg [6:0] sustain_percent_captured;
     reg [12:0] release_ms_captured;
-    reg [6:0] master_percent_captured;
-    reg [6:0] balance_percent_captured;
+    reg [15:0] master_gain_captured;
+    reg [15:0] balance_gain_captured;
     reg [15:0] balance_volume_encoded_r;
     assign balance_volume = balance_volume_encoded_r;
     reg [6:0] reverb_mix_percent_captured;
@@ -133,7 +155,8 @@ module ui_parameter_encoder
         {2'b00,release_low_part_r[9:0]} + 12'd500;
 
     assign in_ready = rst_n && (current_state == STATE_WAIT_PARAMETER_SNAPSHOT);
-    assign out_valid = rst_n && (current_state == STATE_WAIT_ENCODED_ACCEPT);
+    // 异步复位回到输入等待态，已保证 out_valid 无效。
+    assign out_valid = (current_state == STATE_WAIT_ENCODED_ACCEPT);
     fsm #(
         .W(2), .INITIAL_STATE(STATE_WAIT_PARAMETER_SNAPSHOT)
     ) fsm_u (
@@ -1072,8 +1095,10 @@ module ui_parameter_encoder
             decay_ms_captured <= 11'd0;
             sustain_percent_captured <= 7'd0;
             release_ms_captured <= 13'd0;
-            master_percent_captured <= 7'd0;
-            balance_percent_captured <= 7'd100;
+            master_gain_captured <= 16'h8000;
+            balance_gain_captured <= 16'h8000;
+            advanced_captured_r <= 128'h001840008000100090002ee02800b000;
+            advanced_encoded_r <= 128'h001840008000100090002ee02800b000;
             reverb_mix_percent_captured <= 7'd0;
             delay_mix_percent_captured <= 7'd0;
             distortion_mix_percent_captured <= 7'd0;
@@ -1086,8 +1111,8 @@ module ui_parameter_encoder
             decay_ticks_encoded_r <= 20'd0;
             sustain_level_encoded_r <= 16'd0;
             release_ticks_encoded_r <= 20'd0;
-            master_volume_encoded_r <= 16'd0;
-            balance_volume_encoded_r <= 16'hffff;
+            master_volume_encoded_r <= 16'h8000;
+            balance_volume_encoded_r <= 16'h8000;
             reverb_mix_encoded_r <= 16'd0;
             delay_mix_encoded_r <= 16'd0;
             distortion_mix_encoded_r <= 16'd0;
@@ -1105,8 +1130,9 @@ module ui_parameter_encoder
                 decay_ms_captured <= decay_ms[0];
                 sustain_percent_captured <= sustain_percent[0];
                 release_ms_captured <= release_ms[0];
-                master_percent_captured <= master_percent;
-                balance_percent_captured <= balance_percent;
+                master_gain_captured <= master_gain;
+                balance_gain_captured <= balance_gain;
+                advanced_captured_r <= advanced_parameters;
                 reverb_mix_percent_captured <= reverb_mix_percent;
                 delay_mix_percent_captured <= delay_mix_percent;
                 distortion_mix_percent_captured <= distortion_mix_percent;
@@ -1132,8 +1158,9 @@ module ui_parameter_encoder
                 decay_ticks_encoded_r <= (decay_sample_count > 32'd1048575) ? 20'hFFFFF : decay_sample_count[19:0];
                 sustain_level_encoded_r <= encode_percent(sustain_percent_captured);
                 release_ticks_encoded_r <= (release_sample_count > 32'd1048575) ? 20'hFFFFF : release_sample_count[19:0];
-                master_volume_encoded_r <= encode_percent(master_percent_captured);
-                balance_volume_encoded_r <= encode_percent(balance_percent_captured);
+                master_volume_encoded_r <= master_gain_captured;
+                balance_volume_encoded_r <= balance_gain_captured;
+                advanced_encoded_r <= advanced_captured_r;
                 reverb_mix_encoded_r <= encode_percent(reverb_mix_percent_captured);
                 delay_mix_encoded_r <= encode_percent(delay_mix_percent_captured);
                 distortion_mix_encoded_r <= encode_percent(distortion_mix_percent_captured);

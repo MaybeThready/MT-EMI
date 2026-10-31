@@ -1,5 +1,6 @@
 /**
- * spi_nor_flash 模块 v1
+ * spi_nor_flash 模块 v2
+ * v2：输入就绪独立寄存，写数据按64位分组在空闲态暂存，降低状态网扇出。
  * 单线 SPI NOR 命令层：识别、读取、页编程、4 KiB 扇区擦除和忙轮询。
  * 先以 JEDEC ID + SFDP 校验 128 Mbit、3 字节地址、256 字节页及 20h 擦除。
  * 不修改保护寄存器，不发送整片擦除；地址硬限制为预留的最后 128 KiB。
@@ -88,8 +89,10 @@ module spi_nor_flash
     reg [6:0] packet_length;
     reg [671:0] packet_data;
     wire [639:0] sfdp_data;
+    reg ready_r /* synthesis syn_preserve = 1 */;
+    genvar data_group;
 
-    assign in_ready = rst_n && (current_state == STATE_IDLE);
+    assign in_ready = rst_n && ready_r;
     assign out_valid = valid_r;
     assign out_status = status_r;
     assign out_data = result_r;
@@ -125,6 +128,31 @@ module spi_nor_flash
     fsm #(.W(5), .INITIAL_STATE(STATE_IDLE)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
+
+    // 独立就绪寄存器与 IDLE 同拍，不改变请求握手时刻；不与大组数据 CE 共网。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n) ready_r <= 1'b1;
+        else ready_r <= (next_state == STATE_IDLE);
+    end
+    generate
+        for (data_group = 0; data_group < 10; data_group = data_group + 1)
+        begin : input_data_groups
+            reg capture_r /* synthesis syn_preserve = 1 */;
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n) capture_r <= 1'b1;
+                else capture_r <= (next_state == STATE_IDLE);
+            end
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n) data_r[data_group*64 +: 64] <= 64'd0;
+                else if (capture_r) data_r[data_group*64 +: 64] <= in_data[data_group*64 +: 64];
+            end
+        end
+    endgenerate
+    // 空闲暂存不代表接收命令；仅 valid && ready 的最后一帧会进入 DISPATCH。
+    // 接收后 capture_r 同沿关闭，发送方可以立即改变输入。
 
     always @(*)
     begin
@@ -278,7 +306,6 @@ module spi_nor_flash
             operation_r <= 2'd0;
             address_r <= 24'd0;
             length_r <= 7'd0;
-            data_r <= 640'd0;
             result_r <= 640'd0;
             status_r <= 3'd0;
             jedec_r <= 24'd0;
@@ -294,15 +321,18 @@ module spi_nor_flash
                 operation_r <= in_operation;
                 address_r <= in_address;
                 length_r <= in_length;
-                data_r <= in_data;
                 status_r <= 3'd0;
             end
             // 宽数据装载由独立状态控制，不把响应握手/复位门控串到 640 位使能。
             // transfer_data 在响应接收后保持，下一包尚未发起，允许延后一拍装载。
             if (current_state == STATE_DISPATCH) result_r <= 640'd0;
             if (current_state == STATE_CAPTURE) result_r <= transfer_data[671:32];
-            if ((current_state != next_state) && ((next_state == STATE_DELAY) || (current_state == STATE_DELAY)
-                || (current_state == STATE_COMMAND_WAIT))) timer_r <= 32'd0;
+            // 仅三个明确事件重置计时；不比较完整next_state，避免上层请求译码
+            // 经本层状态转移组合逻辑再驱动32位定时器使能。计数起点与旧版相同。
+            if (((current_state == STATE_WAKE_WAIT) && transfer_valid)
+                || ((current_state == STATE_DELAY) && (timer_r >= RELEASE_WAIT_CYCLES - 1))
+                || ((current_state == STATE_COMMAND_WAIT) && transfer_valid))
+                timer_r <= 32'd0;
             else if ((current_state == STATE_DELAY) || (current_state == STATE_POLL) || (current_state == STATE_POLL_WAIT))
             begin
                 if (timer_r != 32'hffffffff) timer_r <= timer_r + 32'd1;

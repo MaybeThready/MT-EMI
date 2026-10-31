@@ -1,5 +1,6 @@
 /**
- * spi_nor_transfer 模块 v1
+ * spi_nor_transfer 模块 v2
+ * v2：发送缓存按64位分组暂存，输入长度校验不再驱动672位装载使能。
  * SPI mode 0 单线整包传输；低字节先发，每个字节 MSB 先发。
  * 全部寄存器使用 clk_sys；flash_clk 只是输出引脚，不作为内部时钟。
  * MISO 经两级同步，在低半周期末取样；HALF_PERIOD_CYCLES 必须 >= 4。
@@ -53,6 +54,9 @@ module spi_nor_transfer
     wire miso_sync;
     wire half_tick;
     wire last_bit;
+    wire [671:0] shifted_transmit;
+    genvar data_group;
+    assign shifted_transmit = {8'd0, transmit_r[671:8]};
 
     assign half_tick = (counter_r == HALF_PERIOD_CYCLES - 1);
     assign last_bit = (bit_index_r == 3'd7) && (byte_index_r == length_r - 7'd1);
@@ -70,6 +74,35 @@ module spi_nor_transfer
     fsm #(.W(3), .INITIAL_STATE(STATE_IDLE)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
+
+    generate
+        for (data_group = 0; data_group < 11; data_group = data_group + 1)
+        begin : transmit_groups
+            localparam GROUP_WIDTH = (data_group == 10) ? 32 : 64;
+            reg capture_r /* synthesis syn_preserve = 1 */;
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n) capture_r <= 1'b1;
+                else capture_r <= (next_state == STATE_IDLE);
+            end
+            // 空闲时暂存，真正握手沿后关闭；无需上游额外保持数据。
+            // 仅分拆装载使能，SPI位／字节移位时刻与原版本一致。
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n)
+                    transmit_r[data_group*64 +: GROUP_WIDTH] <= '0;
+                else if (capture_r)
+                    transmit_r[data_group*64 +: GROUP_WIDTH] <= in_data[data_group*64 +: GROUP_WIDTH];
+                else if ((current_state == STATE_HIGH) && half_tick && !last_bit)
+                begin
+                    if (bit_index_r == 3'd7)
+                        transmit_r[data_group*64 +: GROUP_WIDTH] <= shifted_transmit[data_group*64 +: GROUP_WIDTH];
+                    else if (data_group == 0)
+                        transmit_r[7:0] <= {transmit_r[6:0], 1'b0};
+                end
+            end
+        end
+    endgenerate
 
     always @(*)
     begin
@@ -107,7 +140,6 @@ module spi_nor_transfer
             length_r <= 7'd0;
             byte_index_r <= 7'd0;
             bit_index_r <= 3'd0;
-            transmit_r <= 672'd0;
             receive_r <= 672'd0;
             receive_byte_r <= 8'd0;
             cs_n_r <= 1'b1;
@@ -116,6 +148,8 @@ module spi_nor_transfer
         end
         else
         begin
+            // RESULT背压时保持数据；进入空闲后才清空下一笔接收缓存。
+            if (current_state == STATE_IDLE) receive_r <= 672'd0;
             if ((current_state == STATE_IDLE) || (current_state == STATE_RESULT) || half_tick)
                 counter_r <= {COUNT_WIDTH{1'b0}};
             else
@@ -126,8 +160,6 @@ module spi_nor_transfer
                 length_r <= in_length;
                 byte_index_r <= 7'd0;
                 bit_index_r <= 3'd0;
-                transmit_r <= in_data;
-                receive_r <= 672'd0;
                 receive_byte_r <= 8'd0;
                 cs_n_r <= 1'b0;
                 mosi_r <= in_data[7];
@@ -148,12 +180,10 @@ module spi_nor_transfer
                     if (bit_index_r == 3'd7)
                     begin
                         byte_index_r <= byte_index_r + 7'd1;
-                        transmit_r <= {8'd0, transmit_r[671:8]};
                         mosi_r <= transmit_r[15];
                     end
                     else
                     begin
-                        transmit_r[7:0] <= {transmit_r[6:0], 1'b0};
                         mosi_r <= transmit_r[6];
                     end
                 end

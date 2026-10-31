@@ -1,15 +1,19 @@
 `timescale 1ns/1ps
-/** 既有音色控制器/codec + 新驱动 + SPI 引脚模型，检查保存快照与重启后的参数装载。 */
+/**
+ * UQ1.15：保存1.5增益，经真实存储RTL和SPI介质模型读取后逐位一致。 既有音色控制器/codec + 新驱动 + SPI 引脚模型，检查保存快照与重启后的参数装载。 */
 module ui_flash_integration_tb;
     reg clk_sys = 1'b0;
     reg rst_n = 1'b0;
-    reg [6:0] current_balance_percent = 7'd37;
-    wire [6:0] apply_balance_percent;
+    reg [15:0] current_balance_gain = 16'hc000;
+    wire [15:0] apply_balance_gain;
     reg command_valid = 1'b0;
     wire command_ready;
     reg command_write = 1'b0;
     reg [3:0] command_slot = 4'd3;
     reg [191:0] current_parameters;
+    reg [127:0] current_advanced;
+    wire [127:0] apply_advanced;
+    localparam [127:0] SAVED_ADVANCED = 128'h00ff8000ffff1800f000ffff80004000;
     wire storage_out_valid, storage_out_ready, storage_out_write, storage_in_valid, storage_in_ready;
     wire [3:0] storage_out_slot;
     wire [511:0] storage_out_data, storage_in_data;
@@ -31,9 +35,10 @@ module ui_flash_integration_tb;
     always @(posedge clk_sys)
         if (rst_n && apply_valid && apply_ready) applies = applies + 1;
     ui_preset_controller ui_preset_controller_u (
+        .current_advanced(current_advanced), .apply_advanced(apply_advanced),
         .clk_sys(clk_sys), .rst_n(rst_n), .command_valid(command_valid), .command_ready(command_ready),
         .command_write(command_write), .command_slot(command_slot), .current_parameters(current_parameters),
-        .current_balance_percent(current_balance_percent), .apply_balance_percent(apply_balance_percent),
+        .current_balance_gain(current_balance_gain), .apply_balance_gain(apply_balance_gain),
         .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
         .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot), .storage_out_data(storage_out_data),
         .storage_in_valid(storage_in_valid), .storage_in_ready(storage_in_ready),
@@ -56,12 +61,14 @@ module ui_flash_integration_tb;
             command_write = wr;
             command_valid = 1'b1;
             current_parameters = original_parameters;
-            current_balance_percent = 7'd37;
+            current_balance_gain = 16'hc000;
+            current_advanced = SAVED_ADVANCED;
             do @(posedge clk_sys); while (!command_ready);
             @(negedge clk_sys);
             command_valid = 1'b0;
             current_parameters = 192'd0;
-            current_balance_percent = 7'd99;
+            current_balance_gain = 16'd32440;
+            current_advanced = 128'd0;
         end
     endtask
     task result;
@@ -96,7 +103,7 @@ module ui_flash_integration_tb;
         repeat (29)
         begin
             @(negedge clk_sys);
-            if (!apply_valid || apply_parameters !== original_parameters || apply_balance_percent !== 7'd37 || result_valid)
+            if (!apply_valid || apply_parameters !== original_parameters || apply_balance_gain !== 16'hc000 || apply_advanced !== SAVED_ADVANCED || result_valid)
                 $fatal(1, "Reboot load snapshot/apply backpressure");
         end
         apply_ready = 1'b1;
@@ -112,7 +119,7 @@ module ui_flash_integration_tb;
         command(1'b1);
         result(4'd2);
         if (applies != 1) $fatal(1, "Failed save applied");
-        $display("UI_FLASH_INTEGRATION_PASS save balance37_snapshot reboot load empty driver_error");
+        $display("UI_FLASH_INTEGRATION_PASS save balance37_advanced_snapshot reboot load empty driver_error");
         test_passed = 1'b1;
         $finish;
     end

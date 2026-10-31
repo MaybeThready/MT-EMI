@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-/** NOR 命令层：识别前禁写、非法地址/长度/跨页拒绝，以及有效编程/读取/擦除。 */
+/** NOR 命令层：识别前禁写、非法地址/长度/跨页拒绝、编程/读取/擦除及忙超时。
+ * 逐拍核对原计时规则，保证缩短控制路径不改变唤醒等待和超时周期。
+ */
 module spi_nor_flash_tb;
     reg clk_sys = 1'b0;
     reg rst_n = 1'b0;
@@ -27,6 +29,30 @@ module spi_nor_flash_tb;
         .jedec_id(jedec_id), .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso)
     );
     spi_nor_model flash_u (.clk_sys(clk_sys), .cs_n(cs_n), .sck(sck), .mosi(mosi), .miso(miso));
+    reg [31:0] expected_timer;
+    integer timer_checks = 0;
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            expected_timer = spi_nor_flash_u.timer_r;
+            // 独立保留旧状态转移规则作为周期等价参考，不复用新清零条件。
+            if ((spi_nor_flash_u.current_state != spi_nor_flash_u.next_state)
+                && ((spi_nor_flash_u.next_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd18)))
+                expected_timer = 32'd0;
+            else if ((spi_nor_flash_u.current_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd5)
+                || (spi_nor_flash_u.current_state == 5'd6))
+            begin
+                if (expected_timer != 32'hffffffff) expected_timer = expected_timer + 32'd1;
+            end
+            #1;
+            if (spi_nor_flash_u.timer_r !== expected_timer) $fatal(1, "Timer cycle equivalence failed");
+            timer_checks = timer_checks + 1;
+        end
+    end
     task execute;
         input [1:0] op;
         input [23:0] addr;
@@ -76,7 +102,11 @@ module spi_nor_flash_tb;
         execute(2'd2, 24'hfff000, 7'd0, 3'd0);
         execute(2'd0, 24'hffffb0, 7'd80, 3'd0);
         if (result !== {640{1'b1}}) $fatal(1, "Erase readback");
-        $display("SPI_NOR_FLASH_PASS");
+        flash_u.stuck_busy = 1'b1;
+        execute(2'd3, 24'd0, 7'd0, 3'd2);
+        flash_u.stuck_busy = 1'b0;
+        execute(2'd3, 24'd0, 7'd0, 3'd0);
+        $display("SPI_NOR_FLASH_PASS timer_equivalence_cycles=%0d busy_timeout recovery", timer_checks);
         test_passed = 1'b1;
         $finish;
     end

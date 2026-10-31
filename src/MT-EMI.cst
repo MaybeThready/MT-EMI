@@ -2,10 +2,9 @@
 // P16 是板载 50 MHz 输入，非专用 GCLK；以实际布局布线报告核对路由。
 IO_LOC "clk_core" P16;
 IO_PORT "clk_core" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-// SW5/U4: pressed HIGH via R35 to +1V5, released LOW via R37 to GND.
-// Source: official core 4072 schematic page 7; top converts to internal rst_n.
-IO_LOC "reset_button" U4;
-IO_PORT "reset_button" IO_TYPE=LVCMOS15 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=1.5;
+// K16 / S0: low-active system reset; menu buttons belong to an external module.
+IO_LOC "rst_n" K16;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
 // 只用板载 led[1] 与 led[4]；避开配置和调试专用脚。
 IO_LOC "status_led[0]" J14;
 IO_LOC "status_led[1]" N21;
@@ -34,15 +33,7 @@ IO_PORT "flash_mosi" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "flash_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
 IO_PORT "flash_wp_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "flash_hold_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
-// Pro Dock 4071f Rev1.5 page 15: existing board buttons, no external wiring.
-IO_LOC "ui_button_n[0]" K16;
-IO_LOC "ui_button_n[1]" F15;
-IO_LOC "ui_button_n[2]" G15;
-IO_LOC "ui_button_n[3]" G16;
-IO_PORT "ui_button_n[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+// External menu-button pins will be assigned when button_driver is integrated.
 
 // LCD J20, Pro Dock 4071f Rev1.5; RGB666 maps to panel RGB[7:2].
 IO_LOC "lcd_clk" H21;

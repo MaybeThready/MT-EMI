@@ -3,6 +3,7 @@
  * 存储驱动引脚级自检：16 槽、覆盖、目录、背压、重启、双副本 CRC 恢复。
  * 注入擦除/正文/提交时掉电、WEL 拒绝、WIP 超时、识别异常及写后损坏。
  * 使用独立 Flash 模型和软件形式 CRC32 参考，不以 DUT 内部数据作为期望值。
+ * 时序优化回归：代号相等、A/B 先后、符号边界及写入时 FFFFFFFF 回绕。
  */
 module preset_storage_driver_tb;
     reg clk_sys = 1'b0;
@@ -190,6 +191,30 @@ module preset_storage_driver_tb;
         reset_driver;
         read_slot(4'd1, expected[1]);
         $display("PASS: generation wrap-around");
+
+        // 相同代号优先 B；A 比 B 新时选择 A，半范围边界保持原判定规则。
+        send_request(1'b1, 4'd2, pattern(302));
+        receive_result(3'd0, 1'b0, 512'd0);
+        set_generation(2*8192, 32'd7);
+        set_generation(2*8192+4096, 32'd7);
+        read_slot(4'd2, pattern(302));
+        set_generation(2*8192, 32'd8);
+        read_slot(4'd2, pattern(2));
+        set_generation(2*8192, 32'h80000007);
+        read_slot(4'd2, pattern(2));
+        set_generation(2*8192, 32'd0);
+        set_generation(2*8192+4096, 32'hffffffff);
+        read_slot(4'd2, pattern(2));
+        // 写入选择 B=FFFFFFFF 后，新 A 的代号必须回绕为零且重启仍可读取。
+        set_generation(2*8192, 32'hfffffffe);
+        send_request(1'b1, 4'd2, pattern(303));
+        receive_result(3'd0, 1'b0, 512'd0);
+        if ({flash_u.memory[2*8192+7], flash_u.memory[2*8192+6],
+             flash_u.memory[2*8192+5], flash_u.memory[2*8192+4]} !== 32'd0)
+            $fatal(1, "Saved generation did not wrap to zero");
+        reset_driver;
+        read_slot(4'd2, pattern(303));
+        $display("PASS: generation tie, A newer, half-range boundary, write wrap and restart");
 
         // The newer B copy is corrupt: recover A. Both corrupt must report damage, not empty.
         flash_u.memory[15*8192+4096+20] = flash_u.memory[15*8192+4096+20] ^ 8'h01;

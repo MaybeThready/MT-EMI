@@ -1,5 +1,7 @@
 /**
- * preset_storage_driver 模块 v1
+ * preset_storage_driver 模块 v2
+ * v2：代号差值、选择决定分拍寄存，切断比较到整组记录选择的组合长路径。
+ * 时序补充：命令接收后显式选择等待态，避免跨模块 ready 后串联状态加法。
  * 对接既有 UI：16 槽、512 位不透明记录、valid/ready 请求及响应。
  * 核心板 U7 的 0xFE0000..0xFFFFFF 专用于音色；每槽两份独立 4 KiB 扇区。
  * 保存流程：擦除非活动副本、写正文、回读、写提交标记、再次回读。
@@ -70,6 +72,7 @@ module preset_storage_driver
     localparam STATE_RESULT = 5'd21;
     localparam STATE_CHECK_BODY = 5'd22;
     localparam STATE_CHECK_FINAL = 5'd23;
+    localparam STATE_COMPARE = 5'd24;
     localparam RECORD_MAGIC = 32'h3150544d;
     localparam COMMIT_MARK = 32'h434f4d54;
     wire [4:0] current_state;
@@ -98,8 +101,8 @@ module preset_storage_driver
     reg catalog_r;
     reg [15:0] present_r;
     wire record_valid;
-    wire choose_b;
-    wire [31:0] generation_delta;
+    reg choose_b_r;
+    reg [31:0] generation_delta_r;
     wire [639:0] selected_copy;
     wire any_valid;
     wire flash_ready;
@@ -141,7 +144,8 @@ module preset_storage_driver
     endgenerate
 
     assign in_ready = rst_n && (current_state == STATE_IDLE);
-    assign out_valid = rst_n && (current_state == STATE_RESULT);
+    // 异步复位到 STATE_POWER 已保证响应无效，避免复位进入下游数据 CE。
+    assign out_valid = (current_state == STATE_RESULT);
     assign out_data = result_r;
     assign out_status = status_r;
     assign catalog_valid = rst_n && catalog_r;
@@ -150,9 +154,7 @@ module preset_storage_driver
     assign flash_hold_n = 1'b1;
     assign record_valid = (buffer_r[31:0] == RECORD_MAGIC)
         && (buffer_r[639:608] == COMMIT_MARK) && (buffer_r[607:576] == ~crc_r);
-    assign generation_delta = buffer_r[63:32] - copy_a_r[63:32];
-    assign choose_b = valid_b_r && (!valid_a_r || !generation_delta[31]);
-    assign selected_copy = choose_b ? buffer_r : copy_a_r;
+    assign selected_copy = choose_b_r ? buffer_r : copy_a_r;
     assign any_valid = valid_a_r || valid_b_r;
     assign transaction_failed = flash_valid && response_ready && (flash_status != 3'd0);
     assign verify_failed = ((current_state == STATE_CHECK_BODY) || (current_state == STATE_CHECK_FINAL))
@@ -206,7 +208,19 @@ module preset_storage_driver
                     end
                     default: ;
                 endcase
-                if (flash_ready) next_state = current_state + 5'd1;
+                if (flash_ready)
+                begin
+                    case (current_state)
+                        STATE_PROBE: next_state = STATE_PROBE_WAIT;
+                        STATE_READ: next_state = STATE_READ_WAIT;
+                        STATE_ERASE: next_state = STATE_ERASE_WAIT;
+                        STATE_PROGRAM: next_state = STATE_PROGRAM_WAIT;
+                        STATE_VERIFY_BODY: next_state = STATE_VERIFY_BODY_WAIT;
+                        STATE_COMMIT: next_state = STATE_COMMIT_WAIT;
+                        STATE_VERIFY: next_state = STATE_VERIFY_WAIT;
+                        default: next_state = STATE_POWER;
+                    endcase
+                end
             end
             STATE_PROBE_WAIT, STATE_READ_WAIT, STATE_ERASE_WAIT, STATE_PROGRAM_WAIT,
             STATE_VERIFY_BODY_WAIT, STATE_COMMIT_WAIT, STATE_VERIFY_WAIT:
@@ -235,7 +249,8 @@ module preset_storage_driver
                 if (crc_count_r == 10'd575) next_state = STATE_EVALUATE;
             STATE_EVALUATE:
                 if (crc_for_write_r) next_state = STATE_ERASE;
-                else next_state = bank_r ? STATE_SELECT : STATE_READ;
+                else next_state = bank_r ? STATE_COMPARE : STATE_READ;
+            STATE_COMPARE: next_state = STATE_SELECT;
             STATE_SELECT:
                 if (boot_r) next_state = (slot_r == 4'd15) ? STATE_IDLE : STATE_READ;
                 else next_state = write_r ? STATE_BUILD : STATE_RESULT;
@@ -267,6 +282,8 @@ module preset_storage_driver
             blank_a_r <= 1'b0;
             blank_b_r <= 1'b0;
             generation_r <= 32'd0;
+            generation_delta_r <= 32'd0;
+            choose_b_r <= 1'b0;
             crc_for_write_r <= 1'b0;
             crc_input_r <= 576'd0;
             crc_r <= 32'hffffffff;
@@ -325,8 +342,13 @@ module preset_storage_driver
                 begin
                     valid_b_r <= record_valid;
                     blank_b_r <= (&blank_group_r);
+                    generation_delta_r <= buffer_r[63:32] - copy_a_r[63:32];
                 end
             end
+            // EVALUATE 保存差值及 B 有效性，COMPARE 保存选择，SELECT 才使用。
+            // 保留模 2^32 的代号顺序；代号相同时仍优先 B。
+            if (current_state == STATE_COMPARE)
+                choose_b_r <= valid_b_r && (!valid_a_r || !generation_delta_r[31]);
             if (current_state == STATE_SELECT)
             begin
                 present_r[slot_r] <= any_valid;
@@ -342,7 +364,7 @@ module preset_storage_driver
                 end
                 else if (write_r)
                 begin
-                    bank_r <= any_valid ? !choose_b : 1'b0;
+                    bank_r <= any_valid ? !choose_b_r : 1'b0;
                     generation_r <= any_valid ? selected_copy[63:32] + 32'd1 : 32'd0;
                 end
                 else if (any_valid) result_r <= selected_copy[575:64];
