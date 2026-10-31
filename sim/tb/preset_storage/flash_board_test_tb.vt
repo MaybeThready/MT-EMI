@@ -1,0 +1,149 @@
+`timescale 1ns/1ps
+/** 板级测试控制器+真实存储驱动+SPI NOR模型：只读启动、按键不重复、保存/重启读回、错误显示、四种灯值、未保存丢弃。 */
+module flash_board_test_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg [3:0] buttons = 4'd0;
+    wire req_valid, req_ready, req_write, rsp_valid, rsp_ready;
+    wire [3:0] slot;
+    wire [511:0] data, result;
+    wire [2:0] response_status, status, driver_status;
+    wire catalog;
+    wire [23:0] id;
+    wire [1:0] led_on, value_led_on;
+    wire cs_n, sck, mosi;
+    tri1 miso;
+    reg test_passed = 1'b0;
+    integer writes = 0;
+    integer before_writes, n;
+    reg [23:0] displayed_id;
+    always #5 clk_sys = ~clk_sys;
+    always @(posedge clk_sys)
+        if (rst_n && req_valid && req_ready)
+        begin
+            if (slot != 4'd15) $fatal(1, "Wrong test slot");
+            if (req_write) writes = writes + 1;
+        end
+    flash_board_test #(.DISPLAY_HALF_CYCLES(4)) flash_board_test_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .buttons(buttons), .catalog_valid(catalog), .jedec_id(id),
+        .request_valid(req_valid), .request_ready(req_ready), .request_write(req_write),
+        .request_slot(slot), .request_data(data), .response_valid(rsp_valid), .response_ready(rsp_ready),
+        .response_status(response_status), .response_data(result), .status(status),
+        .driver_status(driver_status), .led_on(led_on), .value_led_on(value_led_on)
+    );
+    preset_storage_driver #(.HALF_PERIOD_CYCLES(4), .POWER_UP_CYCLES(10),
+        .BUSY_TIMEOUT_CYCLES(20000), .RELEASE_WAIT_CYCLES(10)) preset_storage_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(req_valid), .in_ready(req_ready),
+        .in_write(req_write), .in_slot(slot), .in_data(data), .out_valid(rsp_valid), .out_ready(rsp_ready),
+        .out_status(response_status), .out_data(result), .catalog_valid(catalog), .slot_present(),
+        .jedec_id(id), .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso),
+        .flash_wp_n(), .flash_hold_n()
+    );
+    spi_nor_model flash_u (.clk_sys(clk_sys), .cs_n(cs_n), .sck(sck), .mosi(mosi), .miso(miso));
+    task reset_test;
+        begin
+            @(negedge clk_sys); rst_n = 1'b0;
+            repeat (5) @(negedge clk_sys);
+            rst_n = 1'b1;
+            wait (status != 0);
+            repeat (5) @(negedge clk_sys);
+        end
+    endtask
+    task press;
+        input [3:0] keys;
+        begin
+            @(negedge clk_sys); buttons = keys;
+            repeat (5) @(negedge clk_sys);
+            buttons = 4'd0;
+            wait (status != 0);
+            repeat (5) @(negedge clk_sys);
+        end
+    endtask
+    initial
+    begin
+        // 启动时按住保存，不允许在识别完成后自动写入。
+        buttons = 4'b0001;
+        reset_test;
+        if (status != 2 || !catalog || id != 24'hef4018 || writes != 0 || flash_u.program_commands != 0)
+            $fatal(1, "Boot must be read-only/empty and identify chip");
+        buttons = 0;
+        repeat (5) @(negedge clk_sys);
+        if (value_led_on != 0) $fatal(1, "Empty slot must leave LED2/3 off");
+        // 未保存的修改在复位后消失；长按只翻转一次。
+        buttons = 4'b1100;
+        repeat (100) @(negedge clk_sys);
+        if (value_led_on != 3 || status != 5 || writes != 0 || led_on[1])
+            $fatal(1, "Editing must be volatile, held keys only toggle once");
+        buttons = 0;
+        reset_test;
+        if (value_led_on != 0 || writes != 0) $fatal(1, "Unsaved empty-slot reset");
+        press(4'b1100);
+        // 保持保存按钮直到完成，不允许重复写；保存中编辑忽略。
+        buttons = 1;
+        wait (status == 0);
+        buttons = 13;
+        wait (status == 1);
+        repeat (100) @(negedge clk_sys);
+        if (writes != 1 || led_on != 3 || value_led_on != 3) $fatal(1, "Save/held-key/busy edit/result LED");
+        buttons = 0;
+        before_writes = flash_u.program_commands;
+        reset_test;
+        if (status != 1 || value_led_on != 3 || flash_u.program_commands != before_writes)
+            $fatal(1, "Restart did not restore both LEDs without writing");
+        press(4'b1100);
+        if (value_led_on != 0 || led_on[1]) $fatal(1, "Unsaved edit indicator");
+        press(4'b0010);
+        if (value_led_on != 3 || writes != 1) $fatal(1, "Read must discard edits");
+        // 逐一保存 01、00、10、11，断电清除易失状态，再只读恢复。
+        for (n = 0; n < 4; n = n + 1)
+        begin
+            case (n)
+                0: press(4'b1000);
+                1: press(4'b0100);
+                2: press(4'b1000);
+                3: press(4'b0100);
+            endcase
+            press(4'b0001);
+            if (status != 1) $fatal(1, "Save varied LED values");
+            before_writes = flash_u.program_commands;
+            @(negedge clk_sys); rst_n = 0;
+            flash_u.power_cut(0);
+            reset_test;
+            if (status != 1 || flash_u.program_commands != before_writes)
+                $fatal(1, "Power-cycle restore must not rewrite");
+            case (n)
+                0: if (value_led_on != 1) $fatal(1, "Restore 01");
+                1: if (value_led_on != 0) $fatal(1, "Restore 00");
+                2: if (value_led_on != 2) $fatal(1, "Restore 10");
+                3: if (value_led_on != 3) $fatal(1, "Restore 11");
+            endcase
+        end
+        // 数据不匹配分支独立于存储CRC：注入一次成功响应的末字节错误。
+        fork
+            press(4'b0010);
+            begin
+                wait (rsp_valid);
+                force flash_board_test_u.response_data = {8'h00, data[503:0]};
+                @(negedge clk_sys);
+                @(negedge clk_sys);
+                release flash_board_test_u.response_data;
+            end
+        join
+        if (status != 4) $fatal(1, "Last byte mismatch missed");
+        flash_u.memory[15*8192+4096+20] = flash_u.memory[15*8192+4096+20] ^ 8'h01;
+        flash_u.memory[15*8192+20] = flash_u.memory[15*8192+20] ^ 8'h01;
+        reset_test;
+        if (status != 3 || driver_status != 4) $fatal(1, "Corrupt record status");
+        flash_u.bad_id = 1'b1;
+        reset_test;
+        if (status != 3 || driver_status != 3 || catalog) $fatal(1, "Bad ID status");
+        $display("FLASH_BOARD_TEST_PASS identify empty edit unsaved_discard save held_key busy_edit read reset four_values power_cycle_no_write mismatch corrupt bad_id");
+        test_passed = 1'b1;
+        $finish;
+    end
+    initial
+    begin
+        #80000000;
+        $fatal(1, "Board test watchdog");
+    end
+endmodule

@@ -1,0 +1,131 @@
+`timescale 1ns/1ps
+/**
+ * UQ1.15：保存1.5增益，经真实存储RTL和SPI介质模型读取后逐位一致。 既有音色控制器/codec + 新驱动 + SPI 引脚模型，检查保存快照与重启后的参数装载。 */
+module ui_flash_integration_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg [15:0] current_balance_gain = 16'hc000;
+    wire [15:0] apply_balance_gain;
+    reg command_valid = 1'b0;
+    wire command_ready;
+    reg command_write = 1'b0;
+    reg [3:0] command_slot = 4'd3;
+    reg [191:0] current_parameters;
+    reg [127:0] current_advanced;
+    wire [127:0] apply_advanced;
+    localparam [127:0] SAVED_ADVANCED = 128'h00ff8000ffff1800f000ffff80004000;
+    wire storage_out_valid, storage_out_ready, storage_out_write, storage_in_valid, storage_in_ready;
+    wire [3:0] storage_out_slot;
+    wire [511:0] storage_out_data, storage_in_data;
+    wire [2:0] storage_in_status;
+    wire catalog_valid;
+    wire [15:0] slot_present;
+    wire [23:0] jedec_id;
+    wire apply_valid, result_valid;
+    reg apply_ready = 1'b0;
+    reg result_ready = 1'b0;
+    wire [191:0] apply_parameters;
+    wire [3:0] result_status;
+    wire cs_n, sck, mosi, wp_n, hold_n;
+    tri1 miso;
+    reg test_passed = 1'b0;
+    reg [191:0] original_parameters;
+    integer applies = 0;
+    always #5 clk_sys = ~clk_sys;
+    always @(posedge clk_sys)
+        if (rst_n && apply_valid && apply_ready) applies = applies + 1;
+    ui_preset_controller ui_preset_controller_u (
+        .current_advanced(current_advanced), .apply_advanced(apply_advanced),
+        .clk_sys(clk_sys), .rst_n(rst_n), .command_valid(command_valid), .command_ready(command_ready),
+        .command_write(command_write), .command_slot(command_slot), .current_parameters(current_parameters),
+        .current_balance_gain(current_balance_gain), .apply_balance_gain(apply_balance_gain),
+        .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
+        .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot), .storage_out_data(storage_out_data),
+        .storage_in_valid(storage_in_valid), .storage_in_ready(storage_in_ready),
+        .storage_in_status(storage_in_status), .storage_in_data(storage_in_data),
+        .apply_valid(apply_valid), .apply_ready(apply_ready), .apply_parameters(apply_parameters),
+        .result_valid(result_valid), .result_ready(result_ready), .result_status(result_status)
+    );
+    preset_storage_driver #(.HALF_PERIOD_CYCLES(4), .POWER_UP_CYCLES(10), .RELEASE_WAIT_CYCLES(10)) preset_storage_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(storage_out_valid), .in_ready(storage_out_ready),
+        .in_write(storage_out_write), .in_slot(storage_out_slot), .in_data(storage_out_data),
+        .out_valid(storage_in_valid), .out_ready(storage_in_ready), .out_status(storage_in_status), .out_data(storage_in_data),
+        .catalog_valid(catalog_valid), .slot_present(slot_present), .jedec_id(jedec_id),
+        .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso), .flash_wp_n(wp_n), .flash_hold_n(hold_n)
+    );
+    spi_nor_model flash_u (.clk_sys(clk_sys), .cs_n(cs_n), .sck(sck), .mosi(mosi), .miso(miso));
+    task command;
+        input wr;
+        begin
+            @(negedge clk_sys);
+            command_write = wr;
+            command_valid = 1'b1;
+            current_parameters = original_parameters;
+            current_balance_gain = 16'hc000;
+            current_advanced = SAVED_ADVANCED;
+            do @(posedge clk_sys); while (!command_ready);
+            @(negedge clk_sys);
+            command_valid = 1'b0;
+            current_parameters = 192'd0;
+            current_balance_gain = 16'd32440;
+            current_advanced = 128'd0;
+        end
+    endtask
+    task result;
+        input [3:0] code;
+        begin
+            wait (result_valid);
+            repeat (11)
+            begin
+                @(negedge clk_sys);
+                if (!result_valid || result_status !== code || apply_valid) $fatal(1, "UI result mismatch");
+            end
+            result_ready = 1'b1;
+            @(negedge clk_sys);
+            result_ready = 1'b0;
+        end
+    endtask
+    initial
+    begin
+        original_parameters = {16'd40,16'd30,16'd20,16'd10,16'd5000,16'd100,16'd2000,16'd1,16'd359,16'd100,16'd3,16'd0};
+        current_parameters = original_parameters;
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+        // Submit while the storage boot scan is still busy: request must wait intact.
+        command(1'b1);
+        result(4'd0);
+        if (!catalog_valid || slot_present != 16'h0008 || applies != 0) $fatal(1, "Save/catalog/apply mismatch");
+        rst_n = 1'b0;
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+        command(1'b0);
+        wait (apply_valid);
+        repeat (29)
+        begin
+            @(negedge clk_sys);
+            if (!apply_valid || apply_parameters !== original_parameters || apply_balance_gain !== 16'hc000 || apply_advanced !== SAVED_ADVANCED || result_valid)
+                $fatal(1, "Reboot load snapshot/apply backpressure");
+        end
+        apply_ready = 1'b1;
+        @(negedge clk_sys);
+        apply_ready = 1'b0;
+        result(4'd0);
+        if (applies != 1) $fatal(1, "Duplicate load");
+        command_slot = 4'd7;
+        command(1'b0);
+        result(4'd1);
+        if (applies != 1) $fatal(1, "Empty slot applied");
+        flash_u.reject_wren = 1'b1;
+        command(1'b1);
+        result(4'd2);
+        if (applies != 1) $fatal(1, "Failed save applied");
+        $display("UI_FLASH_INTEGRATION_PASS save balance37_advanced_snapshot reboot load empty driver_error");
+        test_passed = 1'b1;
+        $finish;
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "UI Flash integration watchdog");
+    end
+endmodule

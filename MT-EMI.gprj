@@ -5,23 +5,61 @@
     <Version>5</Version>
     <Device name="GW5AST-138C" pn="GW5AST-LV138FPG676AC1/I0">gw5ast138c-003</Device>
     <FileList>
+        <File path="src/adsr_division/adsr_division.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/channel_rack.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/envelope.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/envelope_group.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/phase_accumulator.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/phase_accumulator_group.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/wavetable_interpolation.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/wavetable_synthesizer.v" type="file.verilog" enable="1"/>
+        <File path="src/audio_mix_buffer/audio_mix_buffer.v" type="file.verilog" enable="1"/>
         <File path="src/common/clock_divider.v" type="file.verilog" enable="1"/>
         <File path="src/common/fsm.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/i2s_driver.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/keyboard_driver.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/signed_fp_norm.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/signed_fp_op.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/unsigned_fp_norm.v" type="file.verilog" enable="1"/>
         <File path="src/fixed_points/unsigned_fp_op.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="src/gowin_pll/gowin_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/chorus.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/delay.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/distortion.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/mixer.v" type="file.verilog" enable="1"/>
+        <File path="src/mixer/reverb.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
+        <File path="src/rom_wavetables/rom_wavetables.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
-        <File path="src/drivers/keyboard_adc.v" type="file.verilog" enable="1"/>
-        <File path="src/drivers/keyboard_pressure_scanner.v" type="file.verilog" enable="1"/>
-        <File path="src/drivers/keyboard_driver.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_dynamic_music.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_i2s.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_keyboard_interaction.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_mixer.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_static_music.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/button_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_frame_events.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_note_pipeline.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/keyboard_voice_allocator.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/knob_event_handler.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/knob_parameter_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_frequency_mapper.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_pitch_bend.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/note_velocity_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/pitch_bend_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/preset_record_codec.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_control_pipeline.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_control_state.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_input_frame_joiner.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_parameter_encoder.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/ui_preset_controller.v" type="file.verilog" enable="1"/>
+        <File path="src/ui/user_interface.v" type="file.verilog" enable="1"/>
+        <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
     </FileList>
 </Project>

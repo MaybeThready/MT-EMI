@@ -1,0 +1,418 @@
+/**
+ * 两路 ADSR 包络组测试平台
+ * 检查共享除法器、不同声部的 Release 系数及组握手
+ */
+
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module envelope_group_tb();
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+    localparam DONE = 3'd0, ATTACK = 3'd1, DECAY = 3'd2,
+               SUSTAIN = 3'd3, RELEASE = 3'd4;
+
+    reg clk_sys;
+    reg rst_n;
+    wire smp_tick_up;
+    sys_ticker st_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .i2s_tick_up(),
+        .i2s_tick_down(),
+        .smp_tick_up(smp_tick_up),
+        .smp_tick_down(),
+        .scan_tick_up(),
+        .scan_tick_down()
+    );
+
+    reg [19:0] attack_ticks, decay_ticks, release_ticks;
+    reg [15:0] sustain_level;
+    reg [1:0] note_on, note_off;
+    wire [15:0] volume [1:0];
+    wire [1:0] note_busy;
+    reg in_valid;
+    wire in_ready;
+    reg out_ready;
+    wire out_valid;
+
+    envelope_group #(
+        .ENVELOPE_NUM(2)
+    ) eg_u (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .smp_tick_up(smp_tick_up),
+        .attack_ticks(attack_ticks),
+        .decay_ticks(decay_ticks),
+        .sustain_level(sustain_level),
+        .release_ticks(release_ticks),
+        .note_on(note_on),
+        .note_off(note_off),
+        .volume(volume),
+        .note_busy(note_busy),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready)
+    );
+
+    wire [1:0] lane_out_valid = eg_u.out_valids;
+    wire lane_out_ready = eg_u.out_ready_w;
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    reg [2:0] expected_state [1:0];
+    reg [15:0] expected_volume [1:0];
+    reg [15:0] release_start [1:0];
+    reg [31:0] release_k [1:0];
+    integer release_duration [1:0];
+    integer stage_tick [1:0];
+    integer scenario_id;
+    integer sample_count;
+    integer transfer_count;
+    integer stall_count;
+    integer partial_valid_count;
+    integer error_count;
+    integer sample_index;
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+            transfer_count <= 0;
+        else if (out_valid && out_ready)
+            transfer_count <= transfer_count + 1;
+    end
+
+    function [31:0] calc_inverse;
+        input [19:0] duration;
+        begin
+            calc_inverse = duration <= 1 ? 32'hffff_ffff :
+                           64'h1_0000_0000 / duration;
+        end
+    endfunction
+
+    function [31:0] calc_k;
+        input [15:0] level;
+        input [31:0] inverse;
+        reg [47:0] product;
+        begin
+            product = level * inverse;
+            calc_k = (product + 48'd32768) >> 16;
+        end
+    endfunction
+
+    function [15:0] calc_delta;
+        input [31:0] slope;
+        input integer tick_count;
+        reg [63:0] product;
+        reg [63:0] rounded;
+        begin
+            product = slope * tick_count;
+            rounded = (product + 64'd32768) >> 16;
+            calc_delta = rounded > 64'd65535 ? 16'hffff : rounded[15:0];
+        end
+    endfunction
+
+    task advance_reference;
+        input [1:0] new_note_on;
+        input [1:0] new_note_off;
+        input [19:0] new_attack;
+        input [19:0] new_decay;
+        input [15:0] new_sustain;
+        input [19:0] new_release;
+        reg [31:0] next_k_a, next_k_d, next_inv_r;
+        reg [15:0] delta;
+        integer a, d, r;
+        integer i;
+        begin
+            a = new_attack == 0 ? 1 : new_attack;
+            d = new_decay == 0 ? 1 : new_decay;
+            r = new_release == 0 ? 1 : new_release;
+            next_k_a = calc_k(16'hffff, calc_inverse(a));
+            next_k_d = calc_k(16'hffff - new_sustain, calc_inverse(d));
+            next_inv_r = calc_inverse(r);
+
+            for (i = 0; i < 2; i = i + 1)
+            begin
+                if (new_note_on[i])
+                begin
+                    expected_state[i] = ATTACK;
+                    expected_volume[i] = 16'd0;
+                    stage_tick[i] = 0;
+                end
+                else if (new_note_off[i] && expected_state[i] != DONE)
+                begin
+                    expected_state[i] = RELEASE;
+                    release_start[i] = expected_volume[i];
+                    release_k[i] = calc_k(expected_volume[i], next_inv_r);
+                    release_duration[i] = r;
+                    stage_tick[i] = 0;
+                end
+                else
+                begin
+                    case (expected_state[i])
+                        ATTACK:
+                        begin
+                            if (stage_tick[i] == a)
+                            begin
+                                expected_state[i] = DECAY;
+                                stage_tick[i] = 0;
+                                expected_volume[i] = 16'hffff;
+                            end
+                            else
+                            begin
+                                stage_tick[i] = stage_tick[i] + 1;
+                                expected_volume[i] = calc_delta(next_k_a, stage_tick[i]);
+                            end
+                        end
+
+                        DECAY:
+                        begin
+                            if (stage_tick[i] == d)
+                            begin
+                                expected_state[i] = SUSTAIN;
+                                expected_volume[i] = new_sustain;
+                            end
+                            else
+                            begin
+                                stage_tick[i] = stage_tick[i] + 1;
+                                delta = calc_delta(next_k_d, stage_tick[i]);
+                                expected_volume[i] = 16'hffff - delta;
+                            end
+                        end
+
+                        SUSTAIN: expected_volume[i] = new_sustain;
+
+                        RELEASE:
+                        begin
+                            if (stage_tick[i] == release_duration[i])
+                            begin
+                                expected_state[i] = DONE;
+                                expected_volume[i] = 16'd0;
+                            end
+                            else
+                            begin
+                                stage_tick[i] = stage_tick[i] + 1;
+                                delta = calc_delta(release_k[i], stage_tick[i]);
+                                expected_volume[i] = release_start[i] - delta;
+                            end
+                        end
+
+                        DONE: expected_volume[i] = 16'd0;
+                    endcase
+                end
+            end
+        end
+    endtask
+
+    task send_sample;
+        input [1:0] new_note_on;
+        input [1:0] new_note_off;
+        input [19:0] new_attack;
+        input [19:0] new_decay;
+        input [15:0] new_sustain;
+        input [19:0] new_release;
+        input integer input_delay;
+        input integer output_stall;
+        integer i;
+        integer wait_cycles;
+        integer old_transfer_count;
+        reg [15:0] held_0, held_1;
+        reg [1:0] held_busy;
+        begin
+            @(posedge smp_tick_up);
+            @(negedge smp_tick_up);
+            @(negedge clk_sys);
+            note_on = new_note_on;
+            note_off = new_note_off;
+            attack_ticks = new_attack;
+            decay_ticks = new_decay;
+            sustain_level = new_sustain;
+            release_ticks = new_release;
+            out_ready = output_stall == 0;
+            old_transfer_count = transfer_count;
+
+            for (i = 0; i < input_delay; i = i + 1)
+            begin
+                if (in_ready !== 1'b1 || out_valid !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL input wait: scenario=%0d sample=%0d", scenario_id, sample_count);
+                end
+                @(negedge clk_sys);
+            end
+            if (in_ready !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input ready: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+
+            advance_reference(new_note_on, new_note_off,
+                              new_attack, new_decay, new_sustain, new_release);
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (in_ready !== 1'b0)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL input handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            note_on = 2'b00;
+            note_off = 2'b00;
+
+            wait_cycles = 0;
+            while (out_valid !== 1'b1 && wait_cycles < 192)
+            begin
+                if ((lane_out_valid == 2'b01 || lane_out_valid == 2'b10) &&
+                    lane_out_ready !== 1'b0)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL partial output released: scenario=%0d sample=%0d",
+                             scenario_id, sample_count);
+                end
+                if (lane_out_valid == 2'b01 || lane_out_valid == 2'b10)
+                    partial_valid_count = partial_valid_count + 1;
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+            end
+            if (out_valid !== 1'b1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output timeout: scenario=%0d sample=%0d", scenario_id, sample_count);
+                $stop;
+            end
+
+            if (volume[0] !== expected_volume[0] ||
+                volume[1] !== expected_volume[1] ||
+                note_busy !== {(expected_state[1] != DONE), (expected_state[0] != DONE)})
+            begin
+                error_count = error_count + 1;
+                $display("FAIL envelope: scenario=%0d sample=%0d expected=%04h/%04h actual=%04h/%04h busy=%b",
+                         scenario_id, sample_count,
+                         expected_volume[0], expected_volume[1],
+                         volume[0], volume[1], note_busy);
+            end
+
+            if (output_stall != 0)
+            begin
+                stall_count = stall_count + 1;
+                held_0 = volume[0];
+                held_1 = volume[1];
+                held_busy = note_busy;
+                for (i = 0; i < output_stall; i = i + 1)
+                begin
+                    @(negedge clk_sys);
+                    if (out_valid !== 1'b1 || lane_out_ready !== 1'b0 ||
+                        volume[0] !== held_0 || volume[1] !== held_1 ||
+                        note_busy !== held_busy)
+                    begin
+                        error_count = error_count + 1;
+                        $display("FAIL output stall: scenario=%0d sample=%0d", scenario_id, sample_count);
+                    end
+                end
+                out_ready = 1'b1;
+            end
+
+            @(posedge clk_sys);
+            #1;
+            if (out_valid !== 1'b0 || transfer_count !== old_transfer_count + 1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL output handshake: scenario=%0d sample=%0d", scenario_id, sample_count);
+            end
+            sample_count = sample_count + 1;
+            @(negedge clk_sys);
+        end
+    endtask
+
+    initial
+    begin
+        expected_state[0] = DONE;
+        expected_state[1] = DONE;
+        expected_volume[0] = 0;
+        expected_volume[1] = 0;
+        release_start[0] = 0;
+        release_start[1] = 0;
+        release_k[0] = 0;
+        release_k[1] = 0;
+        release_duration[0] = 1;
+        release_duration[1] = 1;
+        stage_tick[0] = 0;
+        stage_tick[1] = 0;
+        scenario_id = 0;
+        sample_count = 0;
+        stall_count = 0;
+        partial_valid_count = 0;
+        error_count = 0;
+        note_on = 0;
+        note_off = 0;
+        attack_ticks = 20'd7;
+        decay_ticks = 20'd9;
+        sustain_level = 16'h7000;
+        release_ticks = 20'd10;
+        in_valid = 0;
+        out_ready = 1;
+        rst_n = 0;
+        #20_000;
+        if (in_ready !== 1'b0 || out_valid !== 1'b0 ||
+            volume[0] !== 16'd0 || volume[1] !== 16'd0 || note_busy !== 2'b00)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL reset");
+        end
+        rst_n = 1;
+
+        scenario_id = 1;
+        send_sample(2'b11, 2'b00, 7, 9, 16'h7000, 10, 3, 4);
+        repeat (7 + 9 + 7)
+            send_sample(0, 0, 7, 9, 16'h7000, 10, 0, 0);
+        send_sample(0, 2'b11, 7, 9, 16'h7000, 10, 2, 4);
+        repeat (12)
+            send_sample(0, 0, 7, 9, 16'h7000, 10, 0, 0);
+        $display("Scenario 1: simultaneous complete ADSR");
+
+        scenario_id = 2;
+        send_sample(2'b01, 0, 7, 9, 16'h7000, 12, 0, 0);
+        repeat (3) send_sample(0, 0, 7, 9, 16'h7000, 12, 0, 0);
+        send_sample(2'b10, 2'b01, 7, 9, 16'h7000, 12, 3, 4);
+        repeat (12) send_sample(0, 0, 7, 9, 16'h7000, 12, 0, 0);
+        send_sample(0, 2'b10, 7, 9, 16'h7000, 7, 0, 4);
+        repeat (14) send_sample(0, 0, 7, 9, 16'h7000, 7, 0, 0);
+        $display("Scenario 2: staggered voices and independent Release");
+
+        scenario_id = 3;
+        send_sample(2'b11, 0, 0, 0, 16'h8000, 0, 2, 4);
+        repeat (4) send_sample(0, 0, 0, 0, 16'h8000, 0, 0, 0);
+        send_sample(0, 2'b11, 0, 0, 16'h8000, 0, 0, 4);
+        repeat (3) send_sample(0, 0, 0, 0, 16'h8000, 0, 0, 0);
+        $display("Scenario 3: zero tick inputs become one");
+
+        scenario_id = 4;
+        send_sample(2'b01, 0, 7, 9, 16'h5000, 11, 0, 0);
+        repeat (18) send_sample(0, 0, 7, 9, 16'h5000, 11, 0, 0);
+        send_sample(0, 2'b01, 7, 9, 16'h5000, 11, 0, 0);
+        repeat (4) send_sample(0, 0, 7, 9, 16'h5000, 11, 0, 0);
+        send_sample(2'b01, 0, 7, 9, 16'h5000, 11, 2, 4);
+        repeat (9) send_sample(0, 0, 7, 9, 16'h5000, 11, 0, 0);
+        $display("Scenario 4: retrigger during Release");
+
+        if (transfer_count != sample_count || stall_count == 0 || partial_valid_count == 0)
+        begin
+            error_count = error_count + 1;
+            $display("FAIL totals: samples=%0d transfers=%0d stalls=%0d partial=%0d",
+                     sample_count, transfer_count, stall_count, partial_valid_count);
+        end
+        $display("ENVELOPE_GROUP_TB: %0d samples, %0d transfers, %0d stalls, %0d partial-valid clocks, %0d errors",
+                 sample_count, transfer_count, stall_count, partial_valid_count, error_count);
+        $stop;
+    end
+endmodule

@@ -1,0 +1,7425 @@
+{
+  "seed": 1018,
+  "coverage": {
+    "note_on_events": 448,
+    "note_off_events": 420,
+    "created_samples": 1227,
+    "accepted_samples": 1226,
+    "max_held_keys": 24,
+    "max_allocated": 32,
+    "coarse_frames": 122,
+    "input_frames": 146,
+    "chord_1_frames": 3,
+    "slew_samples": 1947,
+    "frozen_tail_samples": 10095,
+    "chord_5_frames": 67,
+    "fine_frames": 22,
+    "mode_changes": 15,
+    "parameter_resets": 31,
+    "phase_resets": 4,
+    "wave_changes": 7,
+    "reclaimed_voices": 33,
+    "interpolation_one_frames": 18,
+    "release_zero_frames": 2,
+    "menu_frames": 2,
+    "chord_8_frames": 6,
+    "chord_24_frames": 3,
+    "tail_steals": 378,
+    "skipped_ticks": 4,
+    "reset_cancelled": 1
+  },
+  "slots": [
+    {
+      "slot": 0,
+      "label": "startup_reset",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1,
+      "label": "baseline",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 2,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 3,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 4,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 5,
+      "label": "single_a4",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 6,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 7,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 8,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 9,
+      "label": "pressure_rise",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 10,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 11,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 12,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 13,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 14,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 15,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 16,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 17,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 18,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 19,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 20,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 21,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 22,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 23,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 24,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 25,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 26,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 27,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 28,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 29,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 30,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 31,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 32,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 33,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 34,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 35,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 36,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 37,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 38,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 39,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 40,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 41,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 42,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 43,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 44,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 45,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 46,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 47,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 48,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 49,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 50,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 51,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 52,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 53,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 54,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 55,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 56,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 57,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 58,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 59,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 60,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 61,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 62,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 63,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 64,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 65,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 66,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 67,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 68,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 69,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 70,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 71,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 72,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 73,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 74,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 75,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 76,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 77,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 78,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 79,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 80,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 81,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 82,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 83,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 84,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 85,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 86,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 87,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 88,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 89,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 90,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 91,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 92,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 93,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 94,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 95,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 96,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 97,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 98,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 99,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 100,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 101,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 102,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 103,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 104,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 105,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 106,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 107,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 108,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 109,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 110,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 111,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 112,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 113,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 114,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 115,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 116,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 117,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 118,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 119,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 120,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 121,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 122,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 123,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 124,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 125,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 126,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 127,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 128,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 129,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 130,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 131,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 132,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 133,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 134,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 135,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 136,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 137,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 138,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 139,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 140,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 141,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 142,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 143,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 144,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 145,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 146,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 147,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 148,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 149,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 150,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 151,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 152,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 153,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 154,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 155,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 156,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 157,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 158,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 159,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 160,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 161,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 162,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 163,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 164,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 165,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 166,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 167,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 168,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 169,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 170,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 171,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 172,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 173,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 174,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 175,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 176,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 177,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 178,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 179,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 180,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 181,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 182,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 183,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 184,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 185,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 186,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 187,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 188,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 189,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 190,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 191,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 192,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 193,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 194,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 195,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 196,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 197,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 198,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 199,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 200,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 201,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 202,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 203,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 204,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 205,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 206,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 207,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 208,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 209,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 210,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 211,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 212,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 213,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 214,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 215,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 216,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 217,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 218,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 219,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 220,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 221,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 222,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 223,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 224,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 225,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 226,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 227,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 228,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 229,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 230,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 231,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 232,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 233,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 234,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 235,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 236,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 237,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 238,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 239,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 240,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 241,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 242,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 243,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 244,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 245,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 246,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 247,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 248,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 249,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 250,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 251,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 252,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 253,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 254,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 255,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 256,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 257,
+      "label": "pressure_rise_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 258,
+      "label": "pressure_fall",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 259,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 260,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 261,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 262,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 263,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 264,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 265,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 266,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 267,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 268,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 269,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 270,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 271,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 272,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 273,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 274,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 275,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 276,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 277,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 278,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 279,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 280,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 281,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 282,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 283,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 284,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 285,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 286,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 287,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 288,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 289,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 290,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 291,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 292,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 293,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 294,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 295,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 296,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 297,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 298,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 299,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 300,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 301,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 302,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 303,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 304,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 305,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 306,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 307,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 308,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 309,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 310,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 311,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 312,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 313,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 314,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 315,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 316,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 317,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 318,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 319,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 320,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 321,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 322,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 323,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 324,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 325,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 326,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 327,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 328,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 329,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 330,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 331,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 332,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 333,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 334,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 335,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 336,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 337,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 338,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 339,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 340,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 341,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 342,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 343,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 344,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 345,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 346,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 347,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 348,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 349,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 350,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 351,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 352,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 353,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 354,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 355,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 356,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 357,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 358,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 359,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 360,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 361,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 362,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 363,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 364,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 365,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 366,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 367,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 368,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 369,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 370,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 371,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 372,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 373,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 374,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 375,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 376,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 377,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 378,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 379,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 380,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 381,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 382,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 383,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 384,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 385,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 386,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 387,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 388,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 389,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 390,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 391,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 392,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 393,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 394,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 395,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 396,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 397,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 398,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 399,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 400,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 401,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 402,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 403,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 404,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 405,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 406,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 407,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 408,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 409,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 410,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 411,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 412,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 413,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 414,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 415,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 416,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 417,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 418,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 419,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 420,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 421,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 422,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 423,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 424,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 425,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 426,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 427,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 428,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 429,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 430,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 431,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 432,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 433,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 434,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 435,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 436,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 437,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 438,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 439,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 440,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 441,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 442,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 443,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 444,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 445,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 446,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 447,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 448,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 449,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 450,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 451,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 452,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 453,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 454,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 455,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 456,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 457,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 458,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 459,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 460,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 461,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 462,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 463,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 464,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 465,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 466,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 467,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 468,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 469,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 470,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 471,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 472,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 473,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 474,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 475,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 476,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 477,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 478,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 479,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 480,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 481,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 482,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 483,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 484,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 485,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 486,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 487,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 488,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 489,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 490,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 491,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 492,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 493,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 494,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 495,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 496,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 497,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 498,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 499,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 500,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 501,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 502,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 503,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 504,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 505,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 506,
+      "label": "pressure_fall_settle",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 507,
+      "label": "single_release",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 508,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 509,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 510,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 511,
+      "label": "five_note_chord",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 512,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 513,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 514,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 515,
+      "label": "adsr_coarse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 516,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 517,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 518,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 519,
+      "label": "adsr_fine_same_frame_b4",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 520,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 521,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 522,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 523,
+      "label": "adsr_fine_held_b4",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 524,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 525,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 526,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 527,
+      "label": "adsr_back_to_coarse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 528,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 529,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 530,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 531,
+      "label": "mode_and_phase_same_frame",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 532,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 533,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 534,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 535,
+      "label": "phase_fine",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 536,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 537,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 538,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 539,
+      "label": "phase_reset_beats_rotation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 540,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 541,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 542,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 543,
+      "label": "phase_held_not_repeat",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 544,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 545,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 546,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 547,
+      "label": "phase_release",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 548,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 549,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 550,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 551,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 552,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 553,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 554,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 555,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 556,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 557,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 558,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 559,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 560,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 561,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 562,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 563,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 564,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 565,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 566,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 567,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 568,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 569,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 570,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 571,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 572,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 573,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 574,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 575,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 576,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 577,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 578,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 579,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 580,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 581,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 582,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 583,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 584,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 585,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 586,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 587,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 588,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 589,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 590,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 591,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 592,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 593,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 594,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 595,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 596,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 597,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 598,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 599,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 600,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 601,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 602,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 603,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 604,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 605,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 606,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 607,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 608,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 609,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 610,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 611,
+      "label": "right_wave_steps",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 612,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 613,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 614,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 615,
+      "label": "right_wave_reverse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 616,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 617,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 618,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 619,
+      "label": "right_wave_reverse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 620,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 621,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 622,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 623,
+      "label": "right_wave_reverse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 624,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 625,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 626,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 627,
+      "label": "right_wave_reverse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 628,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 629,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 630,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 631,
+      "label": "right_wave_reverse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 632,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 633,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 634,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 635,
+      "label": "mix_coarse",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 636,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 637,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 638,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 639,
+      "label": "mix_fine",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 640,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 641,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 642,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 643,
+      "label": "all_defaults_mode1",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 644,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 645,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 646,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 647,
+      "label": "mode0",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 648,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 649,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 650,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 651,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 652,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 653,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 654,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 655,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 656,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 657,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 658,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 659,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 660,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 661,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 662,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 663,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 664,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 665,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 666,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 667,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 668,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 669,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 670,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 671,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 672,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 673,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 674,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 675,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 676,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 677,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 678,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 679,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 680,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 681,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 682,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 683,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 684,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 685,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 686,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 687,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 688,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 689,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 690,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 691,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 692,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 693,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 694,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 695,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 696,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 697,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 698,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 699,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 700,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 701,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 702,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 703,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 704,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 705,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 706,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 707,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 708,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 709,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 710,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 711,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 712,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 713,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 714,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 715,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 716,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 717,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 718,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 719,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 720,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 721,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 722,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 723,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 724,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 725,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 726,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 727,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 728,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 729,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 730,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 731,
+      "label": "left_wave_interpolation",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 732,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 733,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 734,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 735,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 736,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 737,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 738,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 739,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 740,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 741,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 742,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 743,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 744,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 745,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 746,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 747,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 748,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 749,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 750,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 751,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 752,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 753,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 754,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 755,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 756,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 757,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 758,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 759,
+      "label": "release_zero",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 760,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 761,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 762,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 763,
+      "label": "menu_disable_edit",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 764,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 765,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 766,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 767,
+      "label": "menu_stay",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 768,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 769,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 770,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 771,
+      "label": "menu_exit_fine",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 772,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 773,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 774,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 775,
+      "label": "eight_note_chord",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 776,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 777,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 778,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 779,
+      "label": "24_note_chord",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 780,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 781,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 782,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 783,
+      "label": "24_release_long_tail",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 784,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 785,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 786,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 787,
+      "label": "32_slots_tail_steal",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 788,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 789,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 790,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 791,
+      "label": "interleaved_release",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 792,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 793,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 794,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 795,
+      "label": "interleaved_retrigger",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 796,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 797,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 798,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 799,
+      "label": "all_release",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 800,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 801,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 802,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 803,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 804,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 805,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 806,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 807,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 808,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 809,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 810,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 811,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 812,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 813,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 814,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 815,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 816,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 817,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 818,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 819,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 820,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 821,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 822,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 823,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 824,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 825,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 826,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 827,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 828,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 829,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 830,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 831,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 832,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 833,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 834,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 835,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 836,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 837,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 838,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 839,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 840,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 841,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 842,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 843,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 844,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 845,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 846,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 847,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 848,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 849,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 850,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 851,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 852,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 853,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 854,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 855,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 856,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 857,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 858,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 859,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 860,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 861,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 862,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 863,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 864,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 865,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 866,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 867,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 868,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 869,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 870,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 871,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 872,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 873,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 874,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 875,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 876,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 877,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 878,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 879,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 880,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 881,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 882,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 883,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 884,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 885,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 886,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 887,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 888,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 889,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 890,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 891,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 892,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 893,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 894,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 895,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 896,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 897,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 898,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 899,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 900,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 901,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 902,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 903,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 904,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 905,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 906,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 907,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 908,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 909,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 910,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 911,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 912,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 913,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 914,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 915,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 916,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 917,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 918,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 919,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 920,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 921,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 922,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 923,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 924,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 925,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 926,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 927,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 928,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 929,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 930,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 931,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 932,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 933,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 934,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 935,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 936,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 937,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 938,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 939,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 940,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 941,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 942,
+      "label": "tail_feedback_wait",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 943,
+      "label": "reclaim_finished_tails",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 944,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 945,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 946,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 947,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 948,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 949,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 950,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 951,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 952,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 953,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 954,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 955,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 956,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 957,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 958,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 959,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 960,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 961,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 962,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 963,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 964,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 965,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 966,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 967,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 968,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 969,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 970,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 971,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 972,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 973,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 974,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 975,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 976,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 977,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 978,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 979,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 980,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 981,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 982,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 983,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 984,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 985,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 986,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 987,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 988,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 989,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 990,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 991,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 992,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 993,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 994,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 995,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 996,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 997,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 998,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 999,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1000,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1001,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1002,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1003,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1004,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1005,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1006,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1007,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1008,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1009,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1010,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1011,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1012,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1013,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1014,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1015,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1016,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1017,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1018,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1019,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1020,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1021,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1022,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1023,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1024,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1025,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1026,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1027,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1028,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1029,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1030,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1031,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1032,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1033,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1034,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1035,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1036,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1037,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1038,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1039,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1040,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1041,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1042,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1043,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1044,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1045,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1046,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1047,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1048,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1049,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1050,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1051,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1052,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1053,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1054,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1055,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1056,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1057,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1058,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1059,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1060,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1061,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1062,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1063,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1064,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1065,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1066,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1067,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1068,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1069,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1070,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1071,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1072,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1073,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1074,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1075,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1076,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1077,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1078,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1079,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1080,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1081,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1082,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1083,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1084,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1085,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1086,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1087,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1088,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1089,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1090,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1091,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1092,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1093,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1094,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1095,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1096,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1097,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1098,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1099,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1100,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1101,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1102,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1103,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1104,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1105,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1106,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1107,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1108,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1109,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1110,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1111,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1112,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1113,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1114,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1115,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1116,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1117,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1118,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1119,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1120,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1121,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1122,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1123,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1124,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1125,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1126,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1127,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1128,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1129,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1130,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1131,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1132,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1133,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1134,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1135,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1136,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1137,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1138,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1139,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1140,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1141,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1142,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1143,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1144,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1145,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1146,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1147,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1148,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1149,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1150,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1151,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1152,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1153,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1154,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1155,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1156,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1157,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1158,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1159,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1160,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1161,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1162,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1163,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1164,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1165,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1166,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1167,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1168,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1169,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1170,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1171,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1172,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1173,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1174,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1175,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1176,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1177,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1178,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1179,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1180,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1181,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1182,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1183,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1184,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1185,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1186,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1187,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1188,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1189,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1190,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1191,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1192,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1193,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1194,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1195,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1196,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1197,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1198,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1199,
+      "label": "random_mixed",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1200,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1201,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1202,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1203,
+      "label": "overrun_start",
+      "input": false,
+      "new_sample": false
+    },
+    {
+      "slot": 1204,
+      "label": "overrun_wait",
+      "input": false,
+      "new_sample": false
+    },
+    {
+      "slot": 1205,
+      "label": "overrun_wait",
+      "input": false,
+      "new_sample": false
+    },
+    {
+      "slot": 1206,
+      "label": "consume_on_tick",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1207,
+      "label": "overrun_sticky",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1208,
+      "label": "overrun_sticky",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1209,
+      "label": "reset_pending_start",
+      "input": false,
+      "new_sample": false
+    },
+    {
+      "slot": 1210,
+      "label": "reset_pending",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1211,
+      "label": "reset_baseline",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1212,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1213,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1214,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1215,
+      "label": "reset_five_note_chord",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1216,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1217,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1218,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1219,
+      "label": "reset_release",
+      "input": true,
+      "new_sample": true
+    },
+    {
+      "slot": 1220,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1221,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1222,
+      "label": "hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1223,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1224,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1225,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1226,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1227,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1228,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1229,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1230,
+      "label": "final_hold",
+      "input": false,
+      "new_sample": true
+    },
+    {
+      "slot": 1231,
+      "label": "drain",
+      "input": false,
+      "new_sample": false
+    }
+  ]
+}

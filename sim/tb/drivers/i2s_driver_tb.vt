@@ -1,0 +1,240 @@
+/**
+ * I2S 驱动仿真：逐位检查左右声道、单槽输入握手和独立 LCD 镜像。
+ * 使用真实 sys_ticker 的 tick 相位；通过后用 $stop 保留 GUI 波形。
+ */
+`timescale 1ns/1ps
+
+module i2s_driver_tb();
+    localparam real CLK_HALF_NS = 1.0e9 / (2.0 * 98_304_000.0);
+    localparam integer FRAME_CYCLES = 2048;
+
+    reg clk_sys, rst_n;
+    reg signed [15:0] audio_data;
+    reg in_valid, out_ready_lcd;
+    wire in_ready, out_valid_lcd;
+    wire signed [15:0] audio_out_lcd;
+    wire i2s_tick_up, i2s_tick_down, smp_tick_up;
+    wire i2s_bclk, i2s_lrck, i2s_dout, sd_mode_n;
+
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .i2s_tick_up(i2s_tick_up), .i2s_tick_down(i2s_tick_down),
+        .smp_tick_up(smp_tick_up), .smp_tick_down(),
+        .scan_tick_up(), .scan_tick_down()
+    );
+    i2s_driver i2s_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .i2s_tick_up(i2s_tick_up), .i2s_tick_down(i2s_tick_down),
+        .smp_tick_up(smp_tick_up),
+        .audio_data(audio_data), .in_valid(in_valid), .in_ready(in_ready),
+        .audio_out_lcd(audio_out_lcd),
+        .out_valid_lcd(out_valid_lcd), .out_ready_lcd(out_ready_lcd),
+        .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck),
+        .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n)
+    );
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever #(CLK_HALF_NS) clk_sys = ~clk_sys;
+    end
+
+    reg frame_started;
+    reg model_pending_valid, model_lcd_valid;
+    reg signed [15:0] model_pending_sample, model_lcd_sample;
+    reg [15:0] expected_frame;
+    reg [15:0] selected_sample;
+    reg fire, old_lcd_valid;
+    reg previous_bclk, previous_lrck, previous_dout;
+    reg saved_frame, saved_up, saved_down;
+    integer cycle_count, last_frame_cycle, serial_index;
+    integer total_frames, accepted_samples, lcd_transfers, lcd_drops;
+    integer nonzero_frames, stalled_input_cycles;
+
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            frame_started = 1'b0;
+            model_pending_valid = 1'b0;
+            model_pending_sample = '0;
+            model_lcd_valid = 1'b0;
+            model_lcd_sample = '0;
+            expected_frame = '0;
+            cycle_count = 0;
+            last_frame_cycle = 0;
+            serial_index = 0;
+            #1;
+            if (in_ready !== 1'b0 || out_valid_lcd !== 1'b0 ||
+                i2s_bclk !== 1'b0 || i2s_lrck !== 1'b1 ||
+                i2s_dout !== 1'b0)
+                $fatal(1, "Asynchronous reset outputs incorrect");
+        end
+        else
+        begin
+            cycle_count = cycle_count + 1;
+            saved_frame = smp_tick_up;
+            saved_up = i2s_tick_up;
+            saved_down = i2s_tick_down;
+            previous_bclk = i2s_bclk;
+            previous_lrck = i2s_lrck;
+            previous_dout = i2s_dout;
+            if (in_ready !== (!model_pending_valid || saved_frame))
+                $fatal(1, "Input ready mismatch at cycle %0d", cycle_count);
+            if (out_valid_lcd !== model_lcd_valid ||
+                (model_lcd_valid && audio_out_lcd !== model_lcd_sample))
+                $fatal(1, "LCD data changed before handshake");
+            fire = in_valid && in_ready;
+            if (fire) accepted_samples = accepted_samples + 1;
+            else if (in_valid) stalled_input_cycles = stalled_input_cycles + 1;
+            if (model_lcd_valid && out_ready_lcd)
+                lcd_transfers = lcd_transfers + 1;
+            old_lcd_valid = model_lcd_valid;
+
+            if (saved_frame)
+            begin
+                if (!saved_down ||
+                    (frame_started && cycle_count - last_frame_cycle != FRAME_CYCLES) ||
+                    (frame_started && serial_index != 31))
+                    $fatal(1, "Frame tick, period or bit count mismatch");
+                selected_sample = model_pending_valid ? model_pending_sample :
+                                  (fire ? audio_data : 16'd0);
+                expected_frame = selected_sample;
+                if (selected_sample != 0) nonzero_frames = nonzero_frames + 1;
+                model_pending_valid = model_pending_valid && fire;
+                if (model_pending_valid)
+                    model_pending_sample = audio_data;
+                if (!old_lcd_valid || out_ready_lcd)
+                begin
+                    model_lcd_sample = selected_sample;
+                    model_lcd_valid = 1'b1;
+                end
+                else
+                    lcd_drops = lcd_drops + 1;
+                frame_started = 1'b1;
+                last_frame_cycle = cycle_count;
+                serial_index = 0;
+                total_frames = total_frames + 1;
+            end
+            else
+            begin
+                if (fire)
+                begin
+                    model_pending_sample = audio_data;
+                    model_pending_valid = 1'b1;
+                end
+                if (old_lcd_valid && out_ready_lcd)
+                    model_lcd_valid = 1'b0;
+            end
+
+            #1;
+            if (out_valid_lcd !== model_lcd_valid ||
+                (model_lcd_valid && audio_out_lcd !== model_lcd_sample))
+                $fatal(1, "LCD output mismatch after clock edge");
+            if (sd_mode_n !== 1'b1 ||
+                (^{i2s_bclk, i2s_lrck, i2s_dout}) === 1'bx)
+                $fatal(1, "Unknown or invalid I2S output");
+                if (i2s_bclk !== (frame_started ?
+                (saved_up ? 1'b1 : saved_down ? 1'b0 : previous_bclk) : 1'b0))
+                $fatal(1, "BCLK does not follow ticker");
+            if ((i2s_dout !== previous_dout || i2s_lrck !== previous_lrck) &&
+                !saved_down)
+                $fatal(1, "Serial output changed outside falling BCLK tick");
+
+            if (saved_frame)
+            begin
+                if (i2s_lrck !== 1'b0 || i2s_dout !== 1'b0)
+                    $fatal(1, "Right D0 / next left LRCK incorrect: frame=%0d stc=%0d lrck=%b dout=%b",
+                           total_frames, i2s_driver_u.stc, i2s_lrck, i2s_dout);
+            end
+            else if (frame_started && saved_down)
+            begin
+                if (i2s_dout !== (serial_index < 16 ?
+                                  expected_frame[15 - serial_index] : 1'b0) ||
+                    i2s_lrck !== (serial_index >= 15))
+                    $fatal(1, "Serial bit mismatch: frame=%0d bit=%0d expected=%h",
+                           total_frames, serial_index, expected_frame);
+                serial_index = serial_index + 1;
+            end
+        end
+    end
+
+    task automatic send_sample;
+        input [15:0] value;
+        begin
+            @(negedge clk_sys);
+            audio_data = value;
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            while (!in_ready) @(posedge clk_sys);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            audio_data = ~value;
+        end
+    endtask
+
+    task automatic reset_driver;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            repeat (4) @(negedge clk_sys);
+            rst_n = 1'b1;
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        audio_data = '0;
+        in_valid = 1'b0;
+        out_ready_lcd = 1'b0;
+        total_frames = 0;
+        accepted_samples = 0;
+        lcd_transfers = 0;
+        lcd_drops = 0;
+        nonzero_frames = 0;
+        stalled_input_cycles = 0;
+        reset_driver;
+
+        // 空帧，随后提前送样。第二个样本在满槽时等待到下一帧。
+        while (total_frames < 1) @(negedge clk_sys);
+        send_sample(16'h4000);
+        send_sample(16'hc000);
+        send_sample(16'ha5c3);
+        // 持续 LCD 背压，I2S 仍发送所有样本；慢显示只会丢显示帧。
+        repeat (2400) @(negedge clk_sys);
+        out_ready_lcd = 1'b1;
+        send_sample(16'h7fff);
+        repeat (4300) @(negedge clk_sys);
+        out_ready_lcd = 1'b0;
+        send_sample(16'h8001);
+        repeat (100) @(negedge clk_sys);
+        reset_driver; // 在帧中复位，待播和 LCD valid 一起清除。
+        out_ready_lcd = 1'b1;
+        // 空槽在帧边界同拍握手，直接播放本次输入。
+        @(negedge clk_sys);
+        while (!smp_tick_up) @(negedge clk_sys);
+        audio_data = 16'h1234;
+        in_valid = 1'b1;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        send_sample(16'h0001);
+        repeat (6600) @(negedge clk_sys);
+
+        if (total_frames < 8 || accepted_samples != 7 ||
+            lcd_transfers == 0 || lcd_drops == 0 ||
+            nonzero_frames < 4 || stalled_input_cycles == 0)
+            $fatal(1, "Scenario coverage incomplete: frames=%0d accepted=%0d LCD=%0d/%0d",
+                   total_frames, accepted_samples, lcd_transfers, lcd_drops);
+        $display("PASS i2s_driver: %0d frames, %0d samples, %0d LCD transfers, %0d display drops",
+                 total_frames, accepted_samples, lcd_transfers, lcd_drops);
+        $stop;
+    end
+
+    initial
+    begin
+        repeat (100000) @(posedge clk_sys);
+        $fatal(1, "I2S test timed out");
+    end
+endmodule

@@ -1,0 +1,316 @@
+/**
+ * 公开 UI 弯音系统自检：24 键/32 声部，真实 smp/scan 节拍，独立音律参考。
+ * 检查单音、和弦、全部声部、尾音与抢占、菜单、帧配对、背压稳定和事件次数。
+ * 与正式相位累加器组联仿，确认仅改音高不复位相位；busy 为保持尾音的简化模型。
+ */
+`timescale 1ns/1ps
+module user_interface_pitch_bend_tb;
+    reg clk_sys = 1'b0;
+    always #5.089286 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    wire smp_tick_up, scan_tick_up;
+    reg [23:0] key_states = 24'd0;
+    reg [15:0] key_velocity [23:0];
+    reg [15:0] bend_value [0:0];
+    reg [3:0] button_states = 4'd0;
+    reg in_valid = 1'b0;
+    wire in_ready, out_valid, out_ready;
+    wire [31:0] note_on, note_off;
+    wire [31:0] note_freq [31:0];
+    wire [15:0] note_velocity [31:0];
+    reg [31:0] note_busy = 32'd0;
+    wire configuration_error, sample_overrun;
+    wire [2:0] menu_page;
+    wire [3:0] wavetable_0 [0:0], wavetable_1 [0:0];
+    wire [15:0] wavetable_interp [0:0], init_phase [0:0], sustain_level [0:0];
+    wire [19:0] attack_ticks [0:0], decay_ticks [0:0], release_ticks [0:0];
+    wire [15:0] master_volume, reverb_mix, delay_mix, distortion_mix, chorus_mix;
+    wire [195:0] parameters;
+    wire phase_ready, phase_valid;
+    wire [11:0] phase [31:0];
+    reg allow_audio = 1'b1;
+    integer cycle = 0, tick_cycle = 0, latency = 0, max_latency = 0;
+    integer min_latency = 2048, max_phase_latency = 0;
+    integer output_count = 0, phase_count = 0, on_count = 0, off_count = 0;
+    integer frame_count = 0, applied_frames = 0, voice, key_index;
+    reg [31:0] reference_phase [31:0];
+    reg [11:0] expected_phase [31:0];
+    reg [63:0] increment_product;
+    integer expected_key [31:0];
+    integer pending_key [31:0];
+    reg [31:0] expected_on = 32'd0, expected_off = 32'd0;
+    reg [31:0] pending_on = 32'd0, pending_off = 32'd0;
+    integer expected_bend = 32768, pending_bend = 32768;
+    reg pending_frame = 1'b0;
+    integer frame_cycle = 0;
+    reg stalled = 1'b0;
+    reg [31:0] held_frequency [31:0];
+    reg [15:0] held_velocity [31:0];
+    reg [63:0] held_events;
+    reg [195:0] held_parameters;
+    reg [195:0] default_parameters;
+    real cents, ideal, error_cents, max_error = 0.0;
+    integer start_outputs, i;
+
+    assign parameters = {chorus_mix, distortion_mix, delay_mix, reverb_mix, master_volume,
+        release_ticks[0], sustain_level[0], decay_ticks[0], attack_ticks[0], init_phase[0],
+        wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+    assign out_ready = phase_ready && allow_audio;
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(smp_tick_up), .scan_tick_up(scan_tick_up),
+        .i2s_tick_up(), .i2s_tick_down(), .smp_tick_down(), .scan_tick_down()
+    );
+    user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
+        .key_states(key_states), .key_velocity(key_velocity), .bend_value(bend_value),
+        .button_states(button_states), .knob_states(8'd0), .knob_dirs(8'd0), .knob_pressed(8'd0),
+        .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
+        .out_valid(out_valid), .out_ready(out_ready), .note_on(note_on), .note_off(note_off),
+        .note_freq(note_freq), .note_velocity(note_velocity), .configuration_error(configuration_error),
+        .sample_overrun(sample_overrun), .menu_page(menu_page),
+        .wavetable_0(wavetable_0), .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp),
+        .init_phase(init_phase), .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
+        .sustain_level(sustain_level), .release_ticks(release_ticks), .master_volume(master_volume), .balance_volume(),
+        .reverb_mix(reverb_mix), .delay_mix(delay_mix), .distortion_mix(distortion_mix), .chorus_mix(chorus_mix),
+        .storage_out_valid(), .storage_out_ready(1'b0), .storage_out_write(), .storage_out_slot(), .storage_out_data(),
+        .storage_in_valid(1'b0), .storage_in_ready(), .storage_in_status(3'd0), .storage_in_data(512'd0),
+        .storage_catalog_valid(1'b0), .storage_slot_present(16'd0), .menu_selection(), .menu_slot(),
+        .menu_save(), .menu_result_status(), .menu_slot_known(), .menu_slot_present()
+    );
+    phase_accumulator_group #(.ACCUMULATOR_NUM(32)) phase_accumulator_group_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(smp_tick_up), .note_on(note_on),
+        .init_phase(init_phase[0]), .freq(note_freq), .out_phase(phase),
+        .in_valid(out_valid && allow_audio), .in_ready(phase_ready),
+        .out_valid(phase_valid), .out_ready(1'b1)
+    );
+    always @(negedge clk_sys) cycle = cycle + 1;
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            if (configuration_error || sample_overrun) $fatal(1, "弯音系统配置或超期错误");
+            if (smp_tick_up)
+            begin
+                if (output_count != phase_count) $fatal(1, "上一相位计算未结束");
+                tick_cycle = cycle;
+                expected_on = 32'd0;
+                expected_off = 32'd0;
+                if (pending_frame)
+                begin
+                    if (cycle - frame_cycle < 500) $fatal(1, "测试帧未留足声部分配时间");
+                    for (voice = 0; voice < 32; voice = voice + 1) expected_key[voice] = pending_key[voice];
+                    expected_bend = pending_bend;
+                    expected_on = pending_on;
+                    expected_off = pending_off;
+                    pending_frame = 1'b0;
+                    applied_frames = applied_frames + 1;
+                end
+            end
+            if (stalled)
+            begin
+                if (!out_valid || {note_on, note_off} !== held_events || parameters !== held_parameters)
+                    $fatal(1, "音符或参数背压时改变");
+                for (voice = 0; voice < 32; voice = voice + 1)
+                    if (note_freq[voice] !== held_frequency[voice] || note_velocity[voice] !== held_velocity[voice])
+                        $fatal(1, "频率或力度背压时改变");
+            end
+            stalled = out_valid && !out_ready;
+            held_events = {note_on, note_off};
+            held_parameters = parameters;
+            for (voice = 0; voice < 32; voice = voice + 1)
+            begin
+                held_frequency[voice] = note_freq[voice];
+                held_velocity[voice] = note_velocity[voice];
+            end
+            if (out_valid && out_ready)
+            begin
+                latency = cycle - tick_cycle;
+                if (latency > max_latency) max_latency = latency;
+                if (latency < min_latency) min_latency = latency;
+                if (latency < 106) $fatal(1, "32 声部结果过早交付 latency=%0d", latency);
+                if (note_on !== expected_on || note_off !== expected_off)
+                    $fatal(1, "帧事件错配 sample=%0d got=%h/%h expected=%h/%h", output_count, note_on, note_off, expected_on, expected_off);
+                if (output_count == 0) default_parameters = parameters;
+                else if (parameters !== default_parameters) $fatal(1, "弯音改变音色参数");
+                cents = (expected_bend <= 32768) ? 200.0 * (expected_bend - 32768) / 32768.0 :
+                    200.0 * (expected_bend - 32768) / 32767.0;
+                for (voice = 0; voice < 32; voice = voice + 1)
+                begin
+                    if ($isunknown({note_freq[voice], note_velocity[voice]})) $fatal(1, "输出有未知值");
+                    if (expected_key[voice] < 0)
+                    begin
+                        if (note_freq[voice] != 32'd0 || note_velocity[voice] != 16'd0) $fatal(1, "空闲声部不为零");
+                    end
+                    else
+                    begin
+                        ideal = 440.0 * (2.0 ** ((expected_key[voice] - 9.0) / 12.0 + cents / 1200.0));
+                        error_cents = 1200.0 * $ln((note_freq[voice] / 65536.0) / ideal) / $ln(2.0);
+                        if (error_cents < 0.0) error_cents = -error_cents;
+                        if (error_cents > max_error) max_error = error_cents;
+                        if (error_cents > 0.1) $fatal(1, "公开频率错误 sample=%0d voice=%0d bend=%0d cents=%f", output_count, voice, expected_bend, error_cents);
+                        if (expected_bend == 32768 && note_freq[voice] != $rtoi(ideal * 65536.0 + 0.5))
+                            $fatal(1, "回中未精确恢复");
+                        if (note_velocity[voice] !== 16'd32768) $fatal(1, "弯音改变力度");
+                    end
+                    increment_product = ((64'd1 << 32) / 64'd48000) * note_freq[voice];
+                    reference_phase[voice] = note_on[voice] ? 32'd0 :
+                        reference_phase[voice] + ((increment_product + 64'd32768) >> 16);
+                    expected_phase[voice] = (reference_phase[voice][31:20] == 12'hfff) ? 12'hfff :
+                        reference_phase[voice][31:20] + reference_phase[voice][19];
+                    if (note_on[voice]) on_count = on_count + 1;
+                    if (note_off[voice]) off_count = off_count + 1;
+                end
+                // 本测试保持旧尾音 busy，覆盖满声部；不模拟尚未约定的新音完成确认。
+                note_busy <= note_busy | note_on;
+                expected_on = 32'd0;
+                expected_off = 32'd0;
+                output_count = output_count + 1;
+            end
+            if (phase_valid)
+            begin
+                if (cycle - tick_cycle > max_phase_latency) max_phase_latency = cycle - tick_cycle;
+                for (voice = 0; voice < 32; voice = voice + 1)
+                    if (phase[voice] !== expected_phase[voice]) $fatal(1, "弯音导致相位跳回或数值错误 voice=%0d", voice);
+                phase_count = phase_count + 1;
+            end
+        end
+    end
+
+    task send_frame;
+        input [23:0] keys;
+        input [15:0] position;
+        input [3:0] buttons;
+        input [31:0] starts;
+        input [31:0] stops;
+        integer n;
+        begin
+            // 扫描后 32 拍交付；驱动帧和采样分别使用 8192/2048 个系统周期。
+            @(posedge scan_tick_up);
+            repeat (32) @(negedge clk_sys);
+            key_states = keys;
+            bend_value[0] = position;
+            button_states = buttons;
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            while (!in_ready) @(posedge clk_sys);
+            @(negedge clk_sys);
+            if (pending_frame) $fatal(1, "测试模型仍有未应用帧");
+            pending_frame = 1'b1;
+            pending_bend = position;
+            pending_on = starts;
+            pending_off = stops;
+            frame_cycle = cycle;
+            frame_count = frame_count + 1;
+            in_valid = 1'b0;
+            // 未握手的数据必须被忽略。
+            bend_value[0] = ~position;
+        end
+    endtask
+    task settle;
+        begin
+            wait (applied_frames == frame_count);
+            start_outputs = output_count;
+            wait (output_count > start_outputs);
+            @(negedge clk_sys);
+        end
+    endtask
+    initial
+    begin
+        bend_value[0] = 16'h8000;
+        for (i = 0; i < 24; i = i + 1) key_velocity[i] = 16'd32768;
+        for (i = 0; i < 32; i = i + 1)
+        begin
+            expected_key[i] = -1;
+            pending_key[i] = -1;
+            reference_phase[i] = 32'd0;
+            expected_phase[i] = 12'd0;
+        end
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+        send_frame(24'd0, 16'h8000, 4'd0, 32'd0, 32'd0);
+        settle;
+        pending_key[0] = 9;
+        send_frame(24'h000200, 16'hffff, 4'd0, 32'd1, 32'd0);
+        settle;
+        send_frame(24'h000200, 16'h0000, 4'd0, 32'd0, 32'd0);
+        settle;
+        send_frame(24'h000200, 16'h8000, 4'd0, 32'd0, 32'd0);
+        settle;
+        // A4 已占声部 0，剩余 23 键依次占用 1～23。
+        for (i = 0; i < 9; i = i + 1) pending_key[i + 1] = i;
+        for (i = 10; i < 24; i = i + 1) pending_key[i] = i;
+        send_frame(24'hffffff, 16'h7fff, 4'd0, 32'h00fffffe, 32'd0);
+        settle;
+        send_frame(24'hffff00, 16'h8001, 4'd0, 32'd0, 32'h000001fe);
+        settle;
+        // 8 个松键尾音仍占用声部；再次按下 8 键使用剩下的 8 个空闲声部。
+        for (i = 0; i < 8; i = i + 1) pending_key[24 + i] = i;
+        send_frame(24'hffffff, 16'h1234, 4'd0, 32'hff000000, 32'd0);
+        settle;
+        // 进入菜单后全部 32 声部（含 8 条尾音）继续弯音。
+        send_frame(24'hffffff, 16'hfffe, 4'd1, 32'd0, 32'd0);
+        settle;
+        if (menu_page !== 3'd1) $fatal(1, "未进入主菜单");
+        send_frame(24'hffffff, 16'hffff, 4'd0, 32'd0, 32'd0);
+        settle;
+        send_frame(24'hfffffe, 16'h6000, 4'd0, 32'd0, 32'h01000000);
+        settle;
+        // 已满时优先抢占最早的松键尾音，即声部 1；旧映射不能影响新音。
+        pending_key[1] = 0;
+        send_frame(24'hffffff, 16'ha000, 4'd0, 32'h00000002, 32'd0);
+        settle;
+        // 背压期间公开 UI 接收下一帧，旧采样必须仍保持之前的轮子位置。
+        @(posedge scan_tick_up);
+        allow_audio = 1'b0;
+        @(posedge smp_tick_up);
+        repeat (131) @(negedge clk_sys);
+        if (!out_valid) $fatal(1, "未形成音频背压");
+        bend_value[0] = 16'h0000;
+        in_valid = 1'b1;
+        @(posedge clk_sys);
+        while (!in_ready) @(posedge clk_sys);
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        pending_frame = 1'b1;
+        pending_bend = 0;
+        pending_on = 32'd0;
+        pending_off = 32'd0;
+        frame_cycle = cycle;
+        frame_count = frame_count + 1;
+        bend_value[0] = 16'h8000;
+        repeat (120) @(negedge clk_sys);
+        allow_audio = 1'b1;
+        settle;
+        send_frame(24'hffffff, 16'h8000, 4'd8, 32'd0, 32'd0);
+        settle;
+        if (menu_page !== 3'd0) $fatal(1, "未回演奏页面");
+        // 输入与采样同沿：本次采样仍用旧位置，新位置只能在下一次采样采用。
+        @(negedge clk_sys);
+        while (!smp_tick_up) @(negedge clk_sys);
+        bend_value[0] = 16'hffff;
+        button_states = 4'd0;
+        in_valid = 1'b1;
+        @(posedge clk_sys);
+        if (!in_ready) $fatal(1, "同沿测试未成功输入");
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        pending_frame = 1'b1;
+        pending_bend = 65535;
+        pending_on = 32'd0;
+        pending_off = 32'd0;
+        frame_cycle = cycle;
+        frame_count = frame_count + 1;
+        bend_value[0] = 16'h0000;
+        settle;
+        wait (phase_count == output_count);
+        if (on_count != 33 || off_count != 9) $fatal(1, "弯音重复触发或丢失事件");
+        if (min_latency != 106 || max_phase_latency >= 2048) $fatal(1, "UI 或相位时钟预算错误");
+        $display("USER_INTERFACE_PITCH_BEND_PASS frames=%0d samples=%0d phase_samples=%0d keys=24 voices=32 on=%0d off=%0d max_cents=%f min_latency=%0d max_latency=%0d max_phase_latency=%0d", frame_count, output_count, phase_count, on_count, off_count, max_error, min_latency, max_latency, max_phase_latency);
+        $finish;
+    end
+    initial
+    begin
+        #5000000;
+        $fatal(1, "弯音系统测试超时");
+    end
+endmodule

@@ -1,0 +1,837 @@
+/**
+ * 测试三片165位序、八路AB解码/按键消抖、事件排队、背压和复位。
+ * 同时检查默认扫描、1/2/4跳变模式及UI握手；全部正确后打印PASS。
+ */
+`timescale 1ns/1ps
+
+module knob_driver_tb();
+    localparam integer FAST = 0;
+    localparam integer DEFAULT = 1;
+    localparam integer FAST_SCAN_CYCLES = 512;
+    localparam real CLK_HALF_NS = 1.0e9 / (2.0 * 98_304_000.0);
+    reg clk_sys;
+    reg [1:0] rst_n;
+    reg fast_tick_enable;
+    reg fast_scan_tick;
+    reg fast_extra_tick;
+    integer fast_tick_count;
+    wire [1:0] scan_tick_up;
+    wire [1:0] serial_data;
+    wire [1:0] load_n;
+    wire [1:0] shift_clk;
+    wire [1:0] out_valid;
+    wire [1:0] out_ready;
+    wire [1:0] overflow;
+    wire [1:0] scan_error;
+    wire [7:0] knob_states [0:1];
+    wire [7:0] knob_dirs [0:1];
+    wire [7:0] knob_pressed [0:1];
+    reg [7:0] physical_a [0:1];
+    reg [7:0] physical_b [0:1];
+    reg [7:0] physical_pressed [0:1];
+    reg manual_ready;
+    wire ui_in_ready;
+    wire ui_out_valid;
+    reg ui_out_ready;
+    wire signed [1:0] ui_delta [7:0];
+    wire [7:0] ui_pressed_event;
+    reg regression_passed;
+    reg regression_failed;
+    reg fast_done;
+    reg default_done;
+    wire variant_one_done;
+    wire variant_two_done;
+    integer cycle_count;
+    integer loaded_frames [0:1];
+    integer accepted_frames [0:1];
+    integer positive_steps [0:1];
+    integer negative_steps [0:1];
+    reg [7:0] last_pressed [0:1];
+    reg first_frame [0:1];
+    reg [7:0] first_expected_pressed;
+    reg allow_overflow;
+    reg allow_scan_error;
+    integer main_phase;
+    integer lane;
+    integer saved_count;
+    integer saved_loads;
+    reg [23:0] expected_main [0:1023];
+    integer expected_write;
+    integer expected_read;
+    integer checked_events;
+    integer checked_ui_frames;
+    integer checked_serial_frames;
+    integer full_fifo_replacements;
+
+    assign scan_tick_up[FAST] = fast_scan_tick || fast_extra_tick;
+    assign out_ready[FAST] = manual_ready && ui_in_ready;
+    assign out_ready[DEFAULT] = 1'b1;
+
+    knob_driver #(
+        .SCAN_HZ(192000), .DEBOUNCE_TICKS(1024), .RELEASE_TICKS(1536),
+        .SHIFT_HALF_CYCLES(4), .LOAD_CYCLES(4),
+        .DIRECTION_INVERT(8'h80), .EVENT_FIFO_DEPTH(4)
+    ) knob_driver_u1 (
+        .clk_sys(clk_sys), .rst_n(rst_n[FAST]), .scan_tick_up(scan_tick_up[FAST]),
+        .serial_data(serial_data[FAST]), .out_ready(out_ready[FAST]),
+        .load_n(load_n[FAST]), .shift_clk(shift_clk[FAST]),
+        .knob_states(knob_states[FAST]), .knob_dirs(knob_dirs[FAST]),
+        .knob_pressed(knob_pressed[FAST]), .out_valid(out_valid[FAST]),
+        .overflow(overflow[FAST]), .scan_error(scan_error[FAST])
+    );
+
+    knob_driver knob_driver_u2 (
+        .clk_sys(clk_sys), .rst_n(rst_n[DEFAULT]), .scan_tick_up(scan_tick_up[DEFAULT]),
+        .serial_data(serial_data[DEFAULT]), .out_ready(out_ready[DEFAULT]),
+        .load_n(load_n[DEFAULT]), .shift_clk(shift_clk[DEFAULT]),
+        .knob_states(knob_states[DEFAULT]), .knob_dirs(knob_dirs[DEFAULT]),
+        .knob_pressed(knob_pressed[DEFAULT]), .out_valid(out_valid[DEFAULT]),
+        .overflow(overflow[DEFAULT]), .scan_error(scan_error[DEFAULT])
+    );
+
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys), .rst_n(rst_n[DEFAULT]),
+        .i2s_tick_up(), .i2s_tick_down(), .smp_tick_up(), .smp_tick_down(),
+        .scan_tick_up(scan_tick_up[DEFAULT]), .scan_tick_down()
+    );
+
+    knob_event_handler knob_event_handler_u (
+        .clk_sys(clk_sys), .rst_n(rst_n[FAST]), .scan_tick_up(scan_tick_up[FAST]),
+        .knob_states(knob_states[FAST]), .knob_dirs(knob_dirs[FAST]),
+        .knob_pressed(knob_pressed[FAST]), .knob_delta(ui_delta),
+        .knob_pressed_event(ui_pressed_event),
+        .out_ready(ui_out_ready), .in_valid(out_valid[FAST] && manual_ready),
+        .out_valid(ui_out_valid), .in_ready(ui_in_ready)
+    );
+
+    knob_driver_variant_tb #(
+        .TRANSITIONS(1), .INVERT_DIRECTION(1'b1)
+    ) variant_one_u (.clk_sys(clk_sys), .done(variant_one_done));
+    knob_driver_variant_tb #(
+        .TRANSITIONS(2), .INVERT_DIRECTION(1'b0)
+    ) variant_two_u (.clk_sys(clk_sys), .done(variant_two_done));
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever #(CLK_HALF_NS) clk_sys = ~clk_sys;
+    end
+
+    task automatic fail;
+        input [8*160-1:0] reason;
+        begin
+            regression_failed = 1'b1;
+            regression_passed = 1'b0;
+            $display("FAIL: %0s (phase=%0d events=%0d time=%0t)",
+                     reason, main_phase, checked_events, $time);
+            $fatal(1, "knob_driver_tb failed");
+        end
+    endtask
+
+    always @(negedge clk_sys or negedge rst_n[FAST])
+    begin
+        if (!rst_n[FAST] || !fast_tick_enable)
+        begin
+            fast_tick_count <= 0;
+            fast_scan_tick <= 1'b0;
+        end
+        else if (fast_tick_count == FAST_SCAN_CYCLES - 1)
+        begin
+            fast_tick_count <= 0;
+            fast_scan_tick <= 1'b1;
+        end
+        else
+        begin
+            fast_tick_count <= fast_tick_count + 1;
+            fast_scan_tick <= 1'b0;
+        end
+    end
+
+    always @(posedge clk_sys)
+    begin
+        cycle_count = cycle_count + 1;
+        if (rst_n[FAST] && knob_driver_u1.push_event && knob_driver_u1.pop_event &&
+            knob_driver_u1.queue_count_r == 4)
+            full_fifo_replacements = full_fifo_replacements + 1;
+    end
+
+    genvar board;
+    generate
+        for (board = 0; board < 2; board = board + 1)
+        begin : g_board_model
+            reg [23:0] serial_r;
+            integer shifts;
+            reg have_loaded;
+            reg previous_stall;
+            reg [23:0] held_payload;
+            integer last_tick;
+            integer last_rising_shift;
+            integer last_falling_shift;
+            integer load_cycle;
+
+            assign serial_data[board] = serial_r[23];
+            // 外部三片165模型：并行装载后Q7立即是第一位，随后23个上升沿移位。
+            always @(negedge load_n[board] or posedge shift_clk[board] or negedge rst_n[board])
+            begin
+                if (!rst_n[board])
+                begin
+                    serial_r = 24'hFFFFFF;
+                    shifts = 0;
+                    have_loaded = 1'b0;
+                    loaded_frames[board] = 0;
+                    last_rising_shift = 0;
+                    last_falling_shift = 0;
+                end
+                else if (!load_n[board])
+                begin
+                    if (have_loaded && !allow_scan_error && shifts != 23)
+                        fail("three-chip scan must shift exactly 23 times after reading the first bit");
+                    serial_r = {physical_a[board], physical_b[board], ~physical_pressed[board]};
+                    shifts = 0;
+                    have_loaded = 1'b1;
+                    loaded_frames[board] = loaded_frames[board] + 1;
+                    checked_serial_frames = checked_serial_frames + 1;
+                    load_cycle = cycle_count;
+                    last_rising_shift = 0;
+                    last_falling_shift = 0;
+                end
+                else
+                begin
+                    serial_r = {serial_r[22:0], 1'b0};
+                    shifts = shifts + 1;
+                    if (shifts > 23)
+                        fail("more than 23 shift-clock rising edges in one scan");
+                end
+            end
+
+            always @(posedge load_n[board])
+            begin
+                if (rst_n[board] && have_loaded &&
+                    cycle_count - load_cycle != (board == FAST ? 4 : 16))
+                    fail("parallel-load pulse width differs from LOAD_CYCLES");
+            end
+
+            always @(posedge shift_clk[board])
+            begin
+                if (rst_n[board])
+                begin
+                    if (load_n[board] !== 1'b1)
+                        fail("shift clock rose while parallel load was active");
+                    if (last_falling_shift != 0 && cycle_count - last_falling_shift !=
+                        (board == FAST ? 5 : 17))
+                        fail("serial shift low phase lost its data-settling interval");
+                    last_rising_shift = cycle_count;
+                end
+            end
+
+            always @(negedge shift_clk[board])
+            begin
+                if (rst_n[board] && last_rising_shift != 0)
+                begin
+                    if (cycle_count - last_rising_shift != (board == FAST ? 4 : 16))
+                        fail("serial shift high pulse differs from SHIFT_HALF_CYCLES");
+                    last_falling_shift = cycle_count;
+                end
+            end
+
+            always @(posedge clk_sys or negedge rst_n[board])
+            begin
+                if (!rst_n[board])
+                begin
+                    previous_stall = 1'b0;
+                    held_payload = 24'd0;
+                    accepted_frames[board] = 0;
+                    positive_steps[board] = 0;
+                    negative_steps[board] = 0;
+                    last_pressed[board] = 8'd0;
+                    first_frame[board] = 1'b1;
+                    last_tick = -1;
+                end
+                else
+                begin
+                    if (previous_stall && (!out_valid[board] ||
+                        {knob_states[board], knob_dirs[board], knob_pressed[board]} !== held_payload))
+                        fail("valid or payload changed while the receiver applied backpressure");
+                    previous_stall = out_valid[board] && !out_ready[board];
+                    held_payload = {knob_states[board], knob_dirs[board], knob_pressed[board]};
+                    if ((^{load_n[board], shift_clk[board], out_valid[board], overflow[board], scan_error[board]}) === 1'bx)
+                        fail("unknown control output after reset");
+                    if ((board == DEFAULT || !allow_overflow) && overflow[board])
+                        fail("unexpected event FIFO overflow");
+                    if ((board == DEFAULT || !allow_scan_error) && scan_error[board])
+                        fail("unexpected scan timing error");
+                    if (board == DEFAULT && scan_tick_up[board])
+                    begin
+                        if (last_tick >= 0 && cycle_count - last_tick != 8192)
+                            fail("real default sys_ticker does not produce 8192-clock scan intervals");
+                        last_tick = cycle_count;
+                    end
+                    if (out_valid[board] && out_ready[board])
+                    begin
+                        if ((^{knob_states[board], knob_dirs[board], knob_pressed[board]}) === 1'bx)
+                            fail("unknown event payload at handshake");
+                        accepted_frames[board] = accepted_frames[board] + 1;
+                        if (first_frame[board])
+                        begin
+                            if (knob_states[board] !== 8'd0 || knob_pressed[board] !==
+                                (board == FAST ? first_expected_pressed : 8'h01))
+                                fail("first frame must contain the debounced initial held state and no rotation");
+                            first_frame[board] = 1'b0;
+                        end
+                        else if (board == FAST && (knob_states[board] != 0 || knob_pressed[board] != last_pressed[board]))
+                        begin
+                            if (expected_read >= expected_write)
+                                fail("unexpected rotation or pressed-state change");
+                            if (knob_states[board] !== expected_main[expected_read][23:16] ||
+                                (knob_dirs[board] & knob_states[board]) !== expected_main[expected_read][15:8] ||
+                                knob_pressed[board] !== expected_main[expected_read][7:0])
+                            begin
+                                $display("event expected=%h actual=%h index=%0d", expected_main[expected_read],
+                                         {knob_states[board], knob_dirs[board] & knob_states[board], knob_pressed[board]}, expected_read);
+                                fail("event order, direction, lane or pressed snapshot differs from the stimulus");
+                            end
+                            expected_read = expected_read + 1;
+                            checked_events = checked_events + 1;
+                        end
+                        last_pressed[board] = knob_pressed[board];
+                        for (integer k = 0; k < 8; k = k + 1)
+                        begin
+                            if (knob_states[board][k])
+                            begin
+                                if (knob_dirs[board][k]) positive_steps[board] = positive_steps[board] + 1;
+                                else negative_steps[board] = negative_steps[board] + 1;
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    endgenerate
+
+    // 现有UI处理模块的独立事务参考：输入手动握手一次，只能输出一次±1/按压沿。
+    reg [23:0] expected_ui [0:8191];
+    integer ui_write;
+    integer ui_read;
+    reg ui_history_valid;
+    reg [7:0] ui_previous_pressed;
+    reg [7:0] ui_expected_positive;
+    reg [7:0] ui_expected_negative;
+    reg ui_was_stalled;
+    reg [7:0] held_ui_pressed_event;
+    reg signed [1:0] held_ui_delta [7:0];
+    integer ui_lane;
+    always @(posedge clk_sys or negedge rst_n[FAST])
+    begin
+        if (!rst_n[FAST])
+        begin
+            ui_write = 0;
+            ui_read = 0;
+            ui_history_valid = 1'b0;
+            ui_previous_pressed = 8'd0;
+            ui_was_stalled = 1'b0;
+            held_ui_pressed_event = 8'd0;
+            for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                held_ui_delta[ui_lane] = 2'sd0;
+            expected_read = expected_write;
+        end
+        else
+        begin
+            if (ui_was_stalled)
+            begin
+                if (!ui_out_valid || ui_pressed_event !== held_ui_pressed_event)
+                    fail("UI valid or pressed events changed under output backpressure");
+                for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                begin
+                    if (ui_delta[ui_lane] !== held_ui_delta[ui_lane])
+                        fail("UI delta changed under output backpressure");
+                end
+            end
+            ui_was_stalled = ui_out_valid && !ui_out_ready;
+            held_ui_pressed_event = ui_pressed_event;
+            for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                held_ui_delta[ui_lane] = ui_delta[ui_lane];
+
+            if (out_valid[FAST] && out_ready[FAST])
+            begin
+                expected_ui[ui_write] = {
+                    knob_states[FAST] & knob_dirs[FAST],
+                    knob_states[FAST] & ~knob_dirs[FAST],
+                    ui_history_valid ? (knob_pressed[FAST] & ~ui_previous_pressed) : 8'd0};
+                ui_write = ui_write + 1;
+                ui_history_valid = 1'b1;
+                ui_previous_pressed = knob_pressed[FAST];
+            end
+            if (ui_out_valid && ui_out_ready)
+            begin
+                if (ui_read >= ui_write)
+                    fail("UI produced an output without an input handshake");
+                for (ui_lane = 0; ui_lane < 8; ui_lane = ui_lane + 1)
+                begin
+                    if (ui_delta[ui_lane] !== (expected_ui[ui_read][16+ui_lane] ? 2'sd1 :
+                        expected_ui[ui_read][8+ui_lane] ? -2'sd1 : 2'sd0))
+                        fail("UI delta is not exactly one signed step per driver transaction");
+                end
+                if (ui_pressed_event !== expected_ui[ui_read][7:0])
+                    fail("UI pressed-event history or startup-held suppression differs");
+                ui_read = ui_read + 1;
+                checked_ui_frames = checked_ui_frames + 1;
+            end
+        end
+    end
+
+    task automatic expect_event;
+        input [7:0] states;
+        input [7:0] dirs;
+        input [7:0] pressed;
+        begin
+            expected_main[expected_write] = {states, dirs & states, pressed};
+            expected_write = expected_write + 1;
+        end
+    endtask
+
+    task automatic scan_once;
+        input integer board_id;
+        begin
+            @(negedge load_n[board_id]);
+            @(posedge load_n[board_id]);
+            // 完成整帧及解码，但仍处于下一扫描tick之前。
+            if (board_id == FAST) repeat (260) @(negedge clk_sys);
+            else repeat (1000) @(negedge clk_sys);
+        end
+    endtask
+
+    task automatic main_scans;
+        input integer count;
+        begin
+            repeat (count) scan_once(FAST);
+        end
+    endtask
+
+    task automatic set_main_ab;
+        input integer knob;
+        input [1:0] ab;
+        begin
+            @(negedge clk_sys);
+            physical_a[FAST][knob] = ab[1];
+            physical_b[FAST][knob] = ab[0];
+            scan_once(FAST);
+        end
+    endtask
+
+    task automatic rotate_main;
+        input integer knob;
+        input positive;
+        input report_expected;
+        begin
+            if (report_expected)
+                expect_event(8'd1 << knob, (positive ^ (knob == 7)) ? (8'd1 << knob) : 8'd0,
+                             physical_pressed[FAST]);
+            if (positive)
+            begin
+                set_main_ab(knob, 2'b10); set_main_ab(knob, 2'b00);
+                set_main_ab(knob, 2'b01); set_main_ab(knob, 2'b11);
+            end
+            else
+            begin
+                set_main_ab(knob, 2'b01); set_main_ab(knob, 2'b00);
+                set_main_ab(knob, 2'b10); set_main_ab(knob, 2'b11);
+            end
+        end
+    endtask
+
+    task automatic wait_events;
+        integer guard;
+        begin
+            guard = 0;
+            while (expected_read < expected_write && guard < 32)
+            begin
+                scan_once(FAST);
+                guard = guard + 1;
+            end
+            if (expected_read != expected_write)
+                fail("expected driver events did not drain");
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 2'b00;
+        fast_tick_enable = 1'b1;
+        fast_scan_tick = 1'b0;
+        fast_extra_tick = 1'b0;
+        fast_tick_count = 0;
+        physical_a[FAST] = 8'hFF; physical_b[FAST] = 8'hFF;
+        physical_a[DEFAULT] = 8'hFF; physical_b[DEFAULT] = 8'hFF;
+        physical_pressed[FAST] = 8'h04;
+        physical_pressed[DEFAULT] = 8'h01;
+        first_expected_pressed = 8'h04;
+        manual_ready = 1'b1;
+        ui_out_ready = 1'b1;
+        allow_overflow = 1'b0;
+        allow_scan_error = 1'b0;
+        main_phase = 0;
+        expected_write = 0;
+        expected_read = 0;
+        checked_events = 0;
+        checked_ui_frames = 0;
+        checked_serial_frames = 0;
+        full_fifo_replacements = 0;
+        cycle_count = 0;
+        regression_passed = 1'b0;
+        regression_failed = 1'b0;
+        fast_done = 1'b0;
+        default_done = 1'b0;
+        repeat (8) @(negedge clk_sys);
+        rst_n = 2'b11;
+        wait (!first_frame[FAST]);
+        main_scans(2);
+
+        main_phase = 1;
+        // 初始按住K3，释放未达到消抖阈值前状态应保持。
+        physical_pressed[FAST] = 8'd0;
+        main_scans(3);
+        if (last_pressed[FAST] !== 8'h04) fail("release debounce accepted a short pulse");
+        expect_event(8'd0, 8'd0, 8'd0);
+        main_scans(1);
+        wait_events;
+        for (lane = 0; lane < 8; lane = lane + 1)
+        begin
+            rotate_main(lane, 1'b1, 1'b1);
+            rotate_main(lane, 1'b0, 1'b1);
+        end
+        wait_events;
+
+        main_phase = 2;
+        // 八个编码器在同一组扫描内同时完成一步；K8反向参数独立生效。
+        expect_event(8'hFF, 8'h7F, 8'd0);
+        physical_a[FAST] = 8'hFF; physical_b[FAST] = 8'h00; main_scans(1);
+        physical_a[FAST] = 8'h00; physical_b[FAST] = 8'h00; main_scans(1);
+        physical_a[FAST] = 8'h00; physical_b[FAST] = 8'hFF; main_scans(1);
+        physical_a[FAST] = 8'hFF; physical_b[FAST] = 8'hFF; main_scans(1);
+        wait_events;
+
+        main_phase = 3;
+        // 相邻状态弹跳会相互抵消，只在真正完成四相后产生一步。
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b11);
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b00);
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b00); set_main_ab(0, 2'b01);
+        expect_event(8'h01, 8'h01, 8'd0);
+        set_main_ab(0, 2'b11);
+        wait_events;
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b00);
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b11);
+        // 双位跳变丢弃未完成的位移，后续从新位置重新建立完整周期。
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b01);
+        set_main_ab(0, 2'b11); set_main_ab(0, 2'b10); set_main_ab(0, 2'b00);
+        expect_event(8'h01, 8'h01, 8'd0);
+        set_main_ab(0, 2'b01);
+        set_main_ab(0, 2'b11);
+        wait_events;
+
+        main_phase = 4;
+        // 逐键检查SW平面映射；分别验证按下、释放的不同消抖阈值。
+        for (lane = 0; lane < 8; lane = lane + 1)
+        begin
+            physical_pressed[FAST] = 8'd1 << lane;
+            main_scans(2);
+            if (last_pressed[FAST] !== 8'd0) fail("press debounce accepted before two intervals");
+            expect_event(8'd0, 8'd0, 8'd1 << lane);
+            main_scans(1); wait_events;
+            physical_pressed[FAST] = 8'd0;
+            main_scans(3);
+            if (last_pressed[FAST] !== (8'd1 << lane)) fail("release debounce accepted before three intervals");
+            expect_event(8'd0, 8'd0, 8'd0);
+            main_scans(1); wait_events;
+        end
+
+        main_phase = 5;
+        // 真正阻塞UI输出，让消费者自身的ready回压驱动；恢复后不能丢步或重播。
+        main_scans(1);
+        @(negedge clk_sys); ui_out_ready = 1'b0;
+        rotate_main(4, 1'b1, 1'b1);
+        rotate_main(4, 1'b0, 1'b1);
+        if (!ui_out_valid)
+            fail("UI did not retain a pending output while its receiver stalled");
+        @(negedge clk_sys); ui_out_ready = 1'b1;
+        wait_events;
+        main_scans(2);
+
+        // 正向、反向及按下/松开必须完整排队，不能用净步数或最新状态抵消。
+        main_scans(1);
+        @(negedge clk_sys); manual_ready = 1'b0;
+        saved_loads = loaded_frames[FAST];
+        rotate_main(1, 1'b1, 1'b1);
+        rotate_main(1, 1'b0, 1'b1);
+        expect_event(8'd0, 8'd0, 8'h20);
+        physical_pressed[FAST] = 8'h20; main_scans(3);
+        expect_event(8'd0, 8'd0, 8'd0);
+        physical_pressed[FAST] = 8'd0; main_scans(4);
+        if (overflow[FAST]) fail("four pending event frames must fit the configured FIFO");
+        if (loaded_frames[FAST] - saved_loads < 15) fail("scanning stopped under output backpressure");
+        // 队满时，在第五个事件入队的同一拍接收旧输出，必须允许出队腾位。
+        expect_event(8'h08, 8'h08, 8'd0);
+        set_main_ab(3, 2'b10); set_main_ab(3, 2'b00); set_main_ab(3, 2'b01);
+        @(negedge clk_sys);
+        physical_a[FAST][3] = 1'b1; physical_b[FAST][3] = 1'b1;
+        fork
+            scan_once(FAST);
+            begin
+                wait (knob_driver_u1.important_frame);
+                @(negedge clk_sys); manual_ready = 1'b1;
+            end
+        join
+        if (full_fifo_replacements < 1 || overflow[FAST])
+            fail("simultaneous pop/push at full capacity lost the replacement frame");
+        wait_events;
+
+        main_phase = 6;
+        // FIFO已满后丢弃新转动并报警；空间恢复后补交最新按钮状态。
+        main_scans(1);
+        @(negedge clk_sys); manual_ready = 1'b0;
+        repeat (4) rotate_main(2, 1'b1, 1'b1);
+        allow_overflow = 1'b1;
+        rotate_main(2, 1'b0, 1'b0);
+        if (!overflow[FAST]) fail("FIFO full must raise sticky overflow for the dropped new event");
+        expect_event(8'd0, 8'd0, 8'h02);
+        physical_pressed[FAST] = 8'h02; main_scans(4);
+        @(negedge clk_sys); manual_ready = 1'b1;
+        wait_events;
+        main_scans(2);
+        if (!overflow[FAST]) fail("overflow must remain asserted until reset");
+
+        main_phase = 7;
+        // 漏掉扫描tick后不拼接旧的半步；扫描错误保持到复位。
+        set_main_ab(0, 2'b10); set_main_ab(0, 2'b00);
+        @(negedge clk_sys); allow_scan_error = 1'b1; fast_tick_enable = 1'b0;
+        repeat (FAST_SCAN_CYCLES * 3) @(negedge clk_sys);
+        if (!scan_error[FAST]) fail("missing scan tick must raise scan_error");
+        physical_a[FAST][0] = 1'b1; physical_b[FAST][0] = 1'b1;
+        fast_tick_enable = 1'b1;
+        main_scans(4);
+        rotate_main(0, 1'b1, 1'b1);
+        wait_events;
+        // 扫描忙时额外tick：当前帧应丢弃，之后从完整扫描恢复。
+        @(negedge load_n[FAST]);
+        repeat (10) @(negedge clk_sys);
+        fast_extra_tick = 1'b1;
+        #1;
+        if (!knob_driver_u1.history_break) fail("busy scan did not reject a reentrant tick");
+        @(negedge clk_sys); fast_extra_tick = 1'b0;
+        main_scans(4);
+        rotate_main(0, 1'b1, 1'b1); wait_events;
+        // 扫描已经空闲但周期尚未届满时的早tick，也必须清除历史。
+        main_scans(1);
+        @(negedge clk_sys); fast_extra_tick = 1'b1;
+        #1;
+        if (!knob_driver_u1.history_break) fail("early idle tick did not invalidate scan history");
+        @(negedge clk_sys); fast_extra_tick = 1'b0;
+        main_scans(4);
+        rotate_main(0, 1'b1, 1'b1); wait_events;
+
+        main_phase = 8;
+        // 在装载/移位过程中异步复位，丢弃未完成帧，清FIFO与错误。
+        @(posedge shift_clk[FAST]);
+        @(negedge clk_sys); rst_n[FAST] = 1'b0;
+        #1;
+        if (load_n[FAST] !== 1'b1 || shift_clk[FAST] !== 1'b0 || out_valid[FAST] !== 1'b0 ||
+            overflow[FAST] !== 1'b0 || scan_error[FAST] !== 1'b0)
+            fail("asynchronous reset did not immediately restore safe pins and clear diagnostics");
+        physical_a[FAST] = 8'hFF; physical_b[FAST] = 8'hFF;
+        physical_pressed[FAST] = 8'h80; first_expected_pressed = 8'h80;
+        allow_overflow = 1'b0; allow_scan_error = 1'b0;
+        repeat (8) @(negedge clk_sys);
+        rst_n[FAST] = 1'b1;
+        wait (!first_frame[FAST]);
+        main_scans(2);
+        rotate_main(7, 1'b1, 1'b1);
+        wait_events;
+        fast_done = 1'b1;
+    end
+
+    initial
+    begin
+        wait (rst_n[DEFAULT]);
+        wait (!first_frame[DEFAULT]);
+        scan_once(DEFAULT);
+        physical_pressed[DEFAULT] = 8'd0;
+        repeat (12) scan_once(DEFAULT);
+        if (last_pressed[DEFAULT] !== 8'h01)
+            fail("default release debounce accepted earlier than 98304 system cycles");
+        scan_once(DEFAULT);
+        if (last_pressed[DEFAULT] !== 8'd0)
+            fail("default release debounce did not accept after 98304 system cycles");
+        saved_count = positive_steps[DEFAULT];
+        physical_b[DEFAULT][2] = 1'b0; scan_once(DEFAULT);
+        physical_a[DEFAULT][2] = 1'b0; scan_once(DEFAULT);
+        physical_b[DEFAULT][2] = 1'b1; scan_once(DEFAULT);
+        physical_a[DEFAULT][2] = 1'b1; scan_once(DEFAULT);
+        if (positive_steps[DEFAULT] != saved_count + 1)
+            fail("default 12kHz scan did not decode one complete positive cycle");
+        default_done = 1'b1;
+    end
+
+    initial
+    begin
+        wait (fast_done && default_done && variant_one_done && variant_two_done);
+        repeat (32) @(negedge clk_sys);
+        if (regression_failed || expected_read != expected_write || ui_read != ui_write)
+        begin
+            fail("previous failure or outstanding driver/UI reference frames remain");
+        end
+        else
+        begin
+            regression_passed = 1'b1;
+            $display("PASS: knob_driver_tb checked %0d event frames, %0d UI handshakes, %0d serial scans and %0d full-FIFO replacements",
+                     checked_events, checked_ui_frames, checked_serial_frames, full_fifo_replacements);
+            $stop;
+        end
+    end
+
+    initial
+    begin
+        repeat (5000000) @(posedge clk_sys);
+        fail("simulation watchdog expired");
+    end
+endmodule
+
+/** 单路参数边界实例：零消抖、高有效按键、1/2跳变模式和方向反转。 */
+module knob_driver_variant_tb
+#(
+    parameter TRANSITIONS = 1,
+    parameter INVERT_DIRECTION = 1'b0
+)(
+    input clk_sys,
+    output done
+);
+    reg rst_n;
+    reg tick;
+    integer tick_count;
+    reg [23:0] physical;
+    reg [23:0] serial;
+    wire serial_data = serial[23];
+    wire load_n;
+    wire shift_clk;
+    wire states;
+    wire dirs;
+    wire pressed;
+    wire valid;
+    wire overflow;
+    wire scan_error;
+    reg done_r;
+    reg baseline_seen;
+    integer step_count;
+    integer input_count;
+    assign done = done_r;
+
+    knob_driver #(
+        .KNOB_NUM(1), .SCAN_HZ(192000), .DEBOUNCE_TICKS(0), .RELEASE_TICKS(0),
+        .SHIFT_HALF_CYCLES(4), .LOAD_CYCLES(4), .TRANSITIONS_PER_STEP(TRANSITIONS),
+        .DIRECTION_INVERT(INVERT_DIRECTION), .PRESSED_ACTIVE_LOW(0), .EVENT_FIFO_DEPTH(2)
+    ) knob_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(tick),
+        .serial_data(serial_data), .out_ready(1'b1), .load_n(load_n), .shift_clk(shift_clk),
+        .knob_states(states), .knob_dirs(dirs), .knob_pressed(pressed),
+        .out_valid(valid), .overflow(overflow), .scan_error(scan_error)
+    );
+
+    always @(negedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            tick_count <= 0;
+            tick <= 1'b0;
+        end
+        else if (tick_count == 511)
+        begin
+            tick_count <= 0;
+            tick <= 1'b1;
+        end
+        else
+        begin
+            tick_count <= tick_count + 1;
+            tick <= 1'b0;
+        end
+    end
+
+    always @(negedge load_n or posedge shift_clk or negedge rst_n)
+    begin
+        if (!rst_n) serial = 24'hFFFF00;
+        else if (!load_n) serial = physical;
+        else serial = {serial[22:0], 1'b0};
+    end
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            baseline_seen = 1'b0;
+            step_count = 0;
+            input_count = 0;
+        end
+        else
+        begin
+            if (overflow || scan_error)
+            begin
+                $display("FAIL: variant %0d reported a queue/scan fault", TRANSITIONS);
+                knob_driver_tb.fail("knob_driver_variant_tb failed");
+            end
+            if (valid)
+            begin
+                input_count = input_count + 1;
+                if (!baseline_seen)
+                begin
+                    if (states !== 1'b0 || pressed !== 1'b0)
+                    begin
+                        $display("FAIL: variant baseline is not idle"); knob_driver_tb.fail("knob_driver_variant_tb failed");
+                    end
+                    baseline_seen = 1'b1;
+                end
+                if (states)
+                begin
+                    if (dirs !== !INVERT_DIRECTION)
+                    begin
+                        $display("FAIL: variant direction parameter did not apply"); knob_driver_tb.fail("knob_driver_variant_tb failed");
+                    end
+                    step_count = step_count + 1;
+                end
+            end
+        end
+    end
+
+    task automatic sample;
+        begin
+            @(negedge load_n); @(posedge load_n);
+            repeat (260) @(negedge clk_sys);
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0; tick = 1'b0; tick_count = 0;
+        physical = 24'hFFFF00;
+        done_r = 1'b0;
+        repeat (8) @(negedge clk_sys);
+        rst_n = 1'b1;
+        wait (baseline_seen);
+        physical[8] = 1'b0; sample;
+        physical[16] = 1'b0; sample;
+        physical[8] = 1'b1; sample;
+        physical[16] = 1'b1; sample;
+        if (step_count != 4 / TRANSITIONS)
+        begin
+            $display("FAIL: variant %0d counted %0d steps for four legal transitions", TRANSITIONS, step_count);
+            knob_driver_tb.fail("knob_driver_variant_tb failed");
+        end
+        physical[0] = 1'b1; sample;
+        if (pressed !== 1'b1)
+        begin
+            $display("FAIL: high-active zero-debounce button did not assert"); knob_driver_tb.fail("knob_driver_variant_tb failed");
+        end
+        physical[0] = 1'b0; sample;
+        if (pressed !== 1'b0)
+        begin
+            $display("FAIL: high-active zero-debounce button did not release"); knob_driver_tb.fail("knob_driver_variant_tb failed");
+        end
+        done_r = 1'b1;
+    end
+endmodule

@@ -1,0 +1,308 @@
+`timescale 1ns/1ps
+/** 测试 S1 具名端口、原子帧、模式／微调／恢复默认控制，以及音符
+ * 空键盘静音、tick 发布、背压稳定性、溢出锁存及复位。键盘演奏另有整链 TB。
+ * 新增：采样沿版本保存、分组装载、交付与新采样同沿、准备期间异步复位取消。
+ * 预期数值为独立计算的 UI／Q 格式常量。
+ */
+module user_interface_tb;
+    localparam KEY_NUM = 24;
+    localparam KNOB_NUM = 8;
+    localparam BEND_NUM = 1;
+    localparam MAX_POLYPHONY = 32;
+    localparam CHANNEL_NUM = 1;
+    reg clk_sys;
+    reg rst_n;
+    reg scan_tick_up;
+    reg [KEY_NUM-1:0] key_states;
+    reg [15:0] key_velocity [KEY_NUM-1:0];
+    reg [KNOB_NUM-1:0] knob_states;
+    reg [KNOB_NUM-1:0] knob_dirs;
+    reg [KNOB_NUM-1:0] knob_pressed;
+    reg [15:0] bend_value [BEND_NUM-1:0];
+    reg [MAX_POLYPHONY-1:0] note_busy;
+    wire [MAX_POLYPHONY-1:0] note_on;
+    wire [MAX_POLYPHONY-1:0] note_off;
+    wire [31:0] note_freq [MAX_POLYPHONY-1:0];
+    wire [15:0] note_velocity [MAX_POLYPHONY-1:0];
+    wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
+    wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
+    wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
+    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
+    wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
+    wire [15:0] sustain_level [CHANNEL_NUM-1:0];
+    wire [19:0] release_ticks [CHANNEL_NUM-1:0];
+    reg out_ready;
+    reg in_valid;
+    wire out_valid;
+    wire in_ready;
+    reg [3:0] button_states;
+    reg smp_tick_up;
+    wire [15:0] master_volume;
+    wire [15:0] reverb_mix;
+    wire [15:0] delay_mix;
+    wire [15:0] distortion_mix;
+    wire [15:0] chorus_mix;
+    wire configuration_error;
+    wire sample_overrun;
+    integer i;
+    integer accepted_frames = 0;
+    reg [195:0] held_parameters;
+    reg [195:0] stalled_parameters;
+    reg previous_stall = 1'b0;
+    integer output_transfers = 0;
+    integer capture_checks = 0;
+    wire [195:0] parameters;
+    assign parameters = {chorus_mix, distortion_mix, delay_mix, reverb_mix,
+        master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
+        attack_ticks[0], init_phase[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+    user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        // 存储未接入的旧测试：新增输入明确接零，输出留空。
+        .storage_out_valid(),
+        .storage_out_ready(1'b0),
+        .storage_out_write(),
+        .storage_out_slot(),
+        .storage_out_data(),
+        .storage_in_valid(1'b0),
+        .storage_in_ready(),
+        .storage_in_status(3'd0),
+        .storage_in_data(512'd0),
+        .menu_page(),
+        .menu_selection(),
+        .menu_slot(),
+        .menu_save(),
+        .menu_result_status(),
+        .storage_catalog_valid(1'b0),
+        .storage_slot_present(16'd0),
+        .menu_slot_known(),
+        .menu_slot_present(),
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .scan_tick_up(scan_tick_up),
+        .key_states(key_states),
+        .key_velocity(key_velocity),
+        .knob_states(knob_states),
+        .knob_dirs(knob_dirs),
+        .knob_pressed(knob_pressed),
+        .bend_value(bend_value),
+        .note_busy(note_busy),
+        .note_on(note_on),
+        .note_off(note_off),
+        .note_freq(note_freq),
+        .note_velocity(note_velocity),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .wavetable_interp(wavetable_interp),
+        .init_phase(init_phase),
+        .attack_ticks(attack_ticks),
+        .decay_ticks(decay_ticks),
+        .sustain_level(sustain_level),
+        .release_ticks(release_ticks),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready),
+        .button_states(button_states),
+        .smp_tick_up(smp_tick_up),
+        .master_volume(master_volume), .balance_volume(),
+        .reverb_mix(reverb_mix),
+        .delay_mix(delay_mix),
+        .distortion_mix(distortion_mix),
+        .chorus_mix(chorus_mix),
+        .configuration_error(configuration_error),
+        .sample_overrun(sample_overrun)
+    );
+    initial clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            if (configuration_error) $fatal(1, "Unexpected configuration/protocol error");
+            if (note_on !== 32'd0 || note_off !== 32'd0) $fatal(1, "Non-silent placeholder");
+            for (i=0;i<MAX_POLYPHONY;i=i+1)
+                if (note_freq[i] !== 32'd0 || note_velocity[i] !== 16'd0)
+                    $fatal(1, "Non-silent voice field");
+            if (in_valid && in_ready) accepted_frames = accepted_frames + 1;
+        end
+    end
+    // 只观察公开端口：背压期间整组参数和valid必须保持，包括ready重新拉高的交付沿。
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+            previous_stall = 1'b0;
+        else
+        begin
+            if (previous_stall && (!out_valid || parameters !== stalled_parameters))
+                $fatal(1, "Stalled transaction changed before acceptance");
+            previous_stall = out_valid && !out_ready;
+            stalled_parameters = parameters;
+            if (out_valid && out_ready) output_transfers = output_transfers + 1;
+        end
+    end
+    task send_frame;
+        input [3:0] buttons;
+        input [7:0] turns;
+        input [7:0] presses;
+        begin
+            @(negedge clk_sys);
+            button_states = buttons;
+            knob_states = turns;
+            knob_dirs = 8'hff;
+            knob_pressed = presses;
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            while (!in_ready) @(posedge clk_sys);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+        end
+    endtask
+    task tick;
+        reg [195:0] before_tick;
+        begin
+            @(negedge clk_sys);
+            before_tick = parameters;
+            smp_tick_up = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (parameters !== before_tick) $fatal(1, "Parameters changed before local capture stage");
+            capture_checks = capture_checks + 1;
+            @(negedge clk_sys);
+            smp_tick_up = 1'b0;
+            while (!out_valid) @(negedge clk_sys);
+        end
+    endtask
+    task settle_and_sample;
+        input [15:0] volume;
+        input [15:0] reverb;
+        begin
+            repeat (100) @(negedge clk_sys);
+            if (out_valid) $fatal(1, "Output without sample enable");
+            out_ready = 1'b0;
+            tick;
+            if (!out_valid || master_volume !== volume || reverb_mix !== reverb)
+                $fatal(1, "Sample values volume=%0d reverb=%0d expected=%0d/%0d", master_volume,reverb_mix,volume,reverb);
+            if (delay_mix !== 16'd0 || distortion_mix !== 16'd0 || chorus_mix !== 16'd0)
+                $fatal(1, "Unchanged mixes modified");
+            held_parameters = parameters;
+            repeat (8)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || parameters !== held_parameters) $fatal(1, "Backpressure corrupted payload");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            if (out_valid) $fatal(1, "Duplicate delivery");
+        end
+    endtask
+    initial
+    begin
+        rst_n = 1'b0;
+        scan_tick_up = 1'b0;
+        smp_tick_up = 1'b0;
+        key_states = 24'd0;
+        note_busy = 32'd0;
+        bend_value[0] = 16'hffff;
+        for (i=0;i<KEY_NUM;i=i+1) key_velocity[i] = 16'hffff;
+        knob_states = 8'd0;
+        knob_dirs = 8'd0;
+        knob_pressed = 8'd0;
+        button_states = 4'd0;
+        in_valid = 1'b0;
+        out_ready = 1'b1;
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        settle_and_sample(16'd19661,16'd0);
+        if (wavetable_0[0] !== 4'd0 || wavetable_1[0] !== 4'd1 ||
+            wavetable_interp[0] !== 16'd0 || init_phase[0] !== 16'd0 ||
+            attack_ticks[0] !== 20'd240 || decay_ticks[0] !== 20'd7200 ||
+            sustain_level[0] !== 16'd45875 || release_ticks[0] !== 20'd9600)
+            $fatal(1, "Default S1 audio fields");
+        send_frame(4'd0,8'd0,8'd0);
+        send_frame(4'd0,8'h04,8'd0);
+        settle_and_sample(16'd22938,16'd0);
+        // 先由 B2 切换模式，再应用同帧 K5 事件。
+        send_frame(4'h2,8'h10,8'd0);
+        settle_and_sample(16'd22938,16'd3277);
+        send_frame(4'h8,8'h04,8'd0);
+        settle_and_sample(16'd23593,16'd3277);
+        // 按压优先于同拍旋转；持续按住不再产生新的按下边沿。
+        send_frame(4'd0,8'h04,8'h04);
+        settle_and_sample(16'd19661,16'd3277);
+        send_frame(4'd0,8'h04,8'h04);
+        settle_and_sample(16'd22938,16'd3277);
+        // 保持一个未接收样本，同时处理新输入帧并触发一次采样超期。
+        out_ready = 1'b0;
+        tick;
+        held_parameters = parameters;
+        send_frame(4'd0,8'h04,8'd0);
+        repeat (100) @(negedge clk_sys);
+        tick;
+        if (!sample_overrun || !out_valid || parameters !== held_parameters)
+            $fatal(1, "Overrun must preserve pending transaction");
+        out_ready = 1'b1;
+        @(negedge clk_sys);
+        settle_and_sample(16'd26214,16'd3277);
+        if (!sample_overrun) $fatal(1, "Overrun is not sticky");
+        // 新编码版本与 tick 同拍时，发布沿前的完整版本。
+        send_frame(4'd0,8'h04,8'd0);
+        while (!user_interface_u.pipeline_valid) @(negedge clk_sys);
+        out_ready = 1'b0;
+        smp_tick_up = 1'b1;
+        @(negedge clk_sys);
+        smp_tick_up = 1'b0;
+        @(negedge clk_sys);
+        if (master_volume !== 16'd26214) $fatal(1, "New latest value leaked into captured sample");
+        while (!out_valid) @(negedge clk_sys);
+        if (!out_valid || master_volume !== 16'd26214) $fatal(1, "Tick/version edge ordering");
+        // 同一时钟沿接收旧事务并发布最新版本。
+        out_ready = 1'b1;
+        smp_tick_up = 1'b1;
+        @(negedge clk_sys);
+        smp_tick_up = 1'b0;
+        out_ready = 1'b0;
+        if (out_valid || master_volume !== 16'd26214) $fatal(1, "Old acceptance/new sample boundary");
+        @(negedge clk_sys);
+        if (master_volume !== 16'd29491) $fatal(1, "Deferred capture lost next sample parameters");
+        while (!out_valid) @(negedge clk_sys);
+        if (!out_valid || master_volume !== 16'd29491) $fatal(1, "Consume/publish same edge");
+        rst_n = 1'b0;
+        #1;
+        if (out_valid || sample_overrun) $fatal(1, "Reset pending output/error");
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        out_ready = 1'b1;
+        settle_and_sample(16'd19661,16'd0);
+        // E0之后、E1之前异步复位：取消已预约的装载，恢复后不能重放旧输出。
+        @(negedge clk_sys);
+        out_ready = 1'b0;
+        smp_tick_up = 1'b1;
+        @(posedge clk_sys);
+        #1;
+        rst_n = 1'b0;
+        #1;
+        if (out_valid || sample_overrun) $fatal(1, "Reset did not cancel pending capture");
+        @(negedge clk_sys);
+        smp_tick_up = 1'b0;
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        repeat (200)
+        begin
+            @(negedge clk_sys);
+            if (out_valid) $fatal(1, "Cancelled sample replayed after reset");
+        end
+        out_ready = 1'b1;
+        settle_and_sample(16'd19661,16'd0);
+        // 共11次成功交付；背压中复位的输出和准备中取消的采样均不计入。
+        if (output_transfers != 11) $fatal(1, "Output lost/duplicated: %0d", output_transfers);
+        $display("USER_INTERFACE_SAMPLE_CAPTURE_PASS checks=%0d transfers=%0d version_collision consume_and_tick reset_before_load", capture_checks, output_transfers);
+        if (accepted_frames != 8) $fatal(1, "Input lost/duplicated: %0d", accepted_frames);
+        $display("USER_INTERFACE_PASS frames=%0d", accepted_frames);
+        $finish;
+    end
+    initial
+    begin
+        #1000000;
+        $fatal(1, "Public top timeout");
+    end
+endmodule

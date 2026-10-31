@@ -1,0 +1,118 @@
+`timescale 1ns/1ps
+/** NOR 命令层：识别前禁写、非法地址/长度/跨页拒绝、编程/读取/擦除及忙超时。
+ * 逐拍核对原计时规则，保证缩短控制路径不改变唤醒等待和超时周期。
+ */
+module spi_nor_flash_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    reg [1:0] operation = 2'd0;
+    reg [23:0] address = 24'd0;
+    reg [6:0] length = 7'd0;
+    reg [639:0] data = 640'd0;
+    wire out_valid;
+    reg out_ready = 1'b0;
+    wire [2:0] status;
+    wire [639:0] result;
+    wire [23:0] jedec_id;
+    wire cs_n, sck, mosi;
+    tri1 miso;
+    reg test_passed = 1'b0;
+    integer n, count_before;
+    reg [639:0] expected;
+    always #5 clk_sys = ~clk_sys;
+    spi_nor_flash #(.HALF_PERIOD_CYCLES(4), .BUSY_TIMEOUT_CYCLES(20000), .RELEASE_WAIT_CYCLES(10)) spi_nor_flash_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .in_operation(operation), .in_address(address), .in_length(length), .in_data(data),
+        .out_valid(out_valid), .out_ready(out_ready), .out_status(status), .out_data(result),
+        .jedec_id(jedec_id), .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso)
+    );
+    spi_nor_model flash_u (.clk_sys(clk_sys), .cs_n(cs_n), .sck(sck), .mosi(mosi), .miso(miso));
+    reg [31:0] expected_timer;
+    integer timer_checks = 0;
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            expected_timer = spi_nor_flash_u.timer_r;
+            // 独立保留旧状态转移规则作为周期等价参考，不复用新清零条件。
+            if ((spi_nor_flash_u.current_state != spi_nor_flash_u.next_state)
+                && ((spi_nor_flash_u.next_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd18)))
+                expected_timer = 32'd0;
+            else if ((spi_nor_flash_u.current_state == 5'd4)
+                || (spi_nor_flash_u.current_state == 5'd5)
+                || (spi_nor_flash_u.current_state == 5'd6))
+            begin
+                if (expected_timer != 32'hffffffff) expected_timer = expected_timer + 32'd1;
+            end
+            #1;
+            if (spi_nor_flash_u.timer_r !== expected_timer) $fatal(1, "Timer cycle equivalence failed");
+            timer_checks = timer_checks + 1;
+        end
+    end
+    task execute;
+        input [1:0] op;
+        input [23:0] addr;
+        input [6:0] len;
+        input [2:0] expected_status;
+        begin
+            @(negedge clk_sys);
+            operation = op;
+            address = addr;
+            length = len;
+            in_valid = 1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            wait (out_valid);
+            repeat (9)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || status !== expected_status || in_ready) $fatal(1, "NOR response/backpressure");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+        end
+    endtask
+    initial
+    begin
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+        execute(2'd1, 24'hfe0000, 7'd80, 3'd3);
+        if (flash_u.command_count != 0) $fatal(1, "Access before probe");
+        execute(2'd3, 24'd0, 7'd0, 3'd0);
+        if (jedec_id != 24'hef4018) $fatal(1, "JEDEC byte order");
+        count_before = flash_u.command_count;
+        execute(2'd1, 24'h000000, 7'd80, 3'd6);
+        execute(2'd2, 24'hfdf000, 7'd80, 3'd6);
+        execute(2'd2, 24'hfe0001, 7'd80, 3'd6);
+        execute(2'd1, 24'hfffff0, 7'd80, 3'd6);
+        execute(2'd1, 24'hfe0000, 7'd0, 3'd6);
+        execute(2'd0, 24'hfe0000, 7'd81, 3'd6);
+        if (flash_u.command_count != count_before) $fatal(1, "Invalid request touched pins");
+        for (n = 0; n < 80; n = n + 1) expected[n*8 +: 8] = n*7+3;
+        data = expected;
+        execute(2'd1, 24'hffffb0, 7'd80, 3'd0);
+        execute(2'd0, 24'hffffb0, 7'd80, 3'd0);
+        if (result !== expected) $fatal(1, "Last page readback");
+        execute(2'd2, 24'hfff000, 7'd0, 3'd0);
+        execute(2'd0, 24'hffffb0, 7'd80, 3'd0);
+        if (result !== {640{1'b1}}) $fatal(1, "Erase readback");
+        flash_u.stuck_busy = 1'b1;
+        execute(2'd3, 24'd0, 7'd0, 3'd2);
+        flash_u.stuck_busy = 1'b0;
+        execute(2'd3, 24'd0, 7'd0, 3'd0);
+        $display("SPI_NOR_FLASH_PASS timer_equivalence_cycles=%0d busy_timeout recovery", timer_checks);
+        test_passed = 1'b1;
+        $finish;
+    end
+    initial
+    begin
+        #10000000;
+        $fatal(1, "NOR watchdog");
+    end
+endmodule

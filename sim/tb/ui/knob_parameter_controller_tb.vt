@@ -1,0 +1,493 @@
+`timescale 1ns/1ps
+/** knob_parameter_controller 自检：复位、握手背压及数据语义。
+ * 参考向量使用整数物理单位独立计算。
+ * 新增：预约后 ready 撤回、快照装载同拍读取新音色、预约阶段复位取消。
+ * 复位期间同时给出音色和旋钮请求；释放后确认音色优先且只处理一次。
+ * 音色准备阶段不得提前生效；连续事务、忙时背压及准备后复位按公开握手检查。
+ */
+module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter STALL_SNAPSHOT=1);
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    integer index;
+    integer cycle;
+    integer count;
+    integer file_handle;
+    integer scan_count;
+    string assets;
+    string file_path;
+    initial
+    begin
+        if (!$value$plusargs("ASSETS=%s", assets)) $fatal(1, "Missing ASSETS");
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Watchdog timeout");
+    end
+    reg signed [1:0] knob_delta [7:0];
+    reg [7:0] knob_pressed_event = 8'd0;
+    reg [1:0] mode = 2'd0;
+    reg fine_adjust = 1'b0;
+    reg edit_enable = 1'b1;
+    reg edit_target = 1'b0;
+    reg clear_wave_progress = 1'b0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    wire frame_done_valid;
+    reg frame_done_ready = 1'b0;
+    wire configuration_error;
+    wire signed [15:0] wave_progress;
+    wire parameter_valid;
+    reg parameter_ready = 1'b1;
+    reg preset_load_valid = 1'b0;
+    wire preset_load_ready;
+    reg [191:0] preset_load_parameters = 192'd0;
+    integer snapshot_accepts = 0;
+    wire [191:0] snapshot_parameters;
+    wire [191:0] current_parameters;
+    reg check_preset_atomic = 1'b0;
+    reg [191:0] expected_current_parameters;
+    integer preset_handshakes = 0;
+    localparam [191:0] PRESET_A = {16'd44,16'd33,16'd22,16'd11,16'd333,16'd66,16'd222,16'd111,16'd90,16'd25,16'd2,16'd1};
+    localparam [191:0] PRESET_B = {16'd55,16'd44,16'd33,16'd22,16'd444,16'd77,16'd333,16'd222,16'd180,16'd75,16'd1,16'd3};
+    integer value [0:20];
+    integer latest [0:12];
+    integer held_snapshot [0:12];
+    reg stalled = 1'b0;
+    integer monitor_index;
+    integer completions = 0;
+    wire [3:0] wavetable_0 [0:0];
+    wire [3:0] wavetable_1 [0:0];
+    wire [6:0] interp_percent [0:0];
+    wire [8:0] phase_degrees [0:0];
+    wire [10:0] attack_ms [0:0];
+    wire [10:0] decay_ms [0:0];
+    wire [6:0] sustain_percent [0:0];
+    wire [12:0] release_ms [0:0];
+    wire [15:0] master_gain;
+    wire [6:0] reverb_mix_percent;
+    wire [6:0] delay_mix_percent;
+    wire [6:0] distortion_mix_percent;
+    wire [6:0] chorus_mix_percent;
+    knob_parameter_controller #(
+        .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
+    ) knob_parameter_controller_u (
+        .effect_select(2'd0), .effect_reset(1'b0), .preset_load_advanced(128'h001840008000100090002ee02800b000), .preset_current_advanced(), .advanced_parameters(),
+        .preset_load_valid(preset_load_valid),
+        .preset_load_ready(preset_load_ready),
+        .preset_load_parameters(preset_load_parameters),
+        .preset_load_balance_gain(16'd32768), .preset_current_balance_gain(), .balance_gain(),
+        .preset_current_parameters(current_parameters),
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .knob_delta(knob_delta),
+        .knob_pressed_event(knob_pressed_event),
+        .mode(mode),
+        .fine_adjust(fine_adjust),
+        .edit_enable(edit_enable),
+        .edit_target(edit_target),
+        .clear_wave_progress(clear_wave_progress),
+        .in_valid(in_valid),
+        .in_ready(in_ready),
+        .frame_done_valid(frame_done_valid),
+        .frame_done_ready(frame_done_ready),
+        .configuration_error(configuration_error),
+        .wave_progress(wave_progress),
+        .parameter_valid(parameter_valid),
+        .parameter_ready(parameter_ready),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .interp_percent(interp_percent),
+        .phase_degrees(phase_degrees),
+        .attack_ms(attack_ms),
+        .decay_ms(decay_ms),
+        .sustain_percent(sustain_percent),
+        .release_ms(release_ms),
+        .master_gain(master_gain),
+        .reverb_mix_percent(reverb_mix_percent),
+        .delay_mix_percent(delay_mix_percent),
+        .distortion_mix_percent(distortion_mix_percent),
+        .chorus_mix_percent(chorus_mix_percent)
+    );
+
+    // 由公开字段重组，与直接指定的两组音色逐字段对比，不读内部寄存器。
+    assign snapshot_parameters = {
+        {9'd0,chorus_mix_percent}, {9'd0,distortion_mix_percent},
+        {9'd0,delay_mix_percent}, {9'd0,reverb_mix_percent},
+        {3'd0,release_ms[0]}, {9'd0,sustain_percent[0]},
+        {5'd0,decay_ms[0]}, {5'd0,attack_ms[0]},
+        {7'd0,phase_degrees[0]}, {9'd0,interp_percent[0]},
+        {12'd0,wavetable_1[0]}, {12'd0,wavetable_0[0]}
+    };
+
+    task load_preset;
+        input [191:0] parameters;
+        begin
+            @(negedge clk_sys);
+            preset_load_parameters = parameters;
+            preset_load_valid = 1'b1;
+            do @(posedge clk_sys); while (!preset_load_ready);
+            @(negedge clk_sys);
+            preset_load_valid = 1'b0;
+        end
+    endtask
+
+    task check_snapshot_overlap;
+        integer accepted_before;
+        begin
+            parameter_ready = 1'b0;
+            reset_dut;
+            repeat (4) @(negedge clk_sys);
+            if (!parameter_valid || master_gain != 16'h8000)
+                $fatal(1,"No default snapshot without ready");
+            load_preset(PRESET_A);
+            accepted_before = snapshot_accepts;
+            // B 提前一拍准备，实际握手仍与 A 快照装载同拍。
+            preset_load_parameters = PRESET_B;
+            preset_load_valid = 1'b1;
+            // 接收旧快照只预约下一组；下一拍撤回 ready，仍须生成有效数据。
+            parameter_ready = 1'b1;
+            @(negedge clk_sys);
+            if (parameter_valid || snapshot_accepts != accepted_before + 1)
+                $fatal(1,"Old snapshot acceptance/reservation mismatch");
+            parameter_ready = 1'b0;
+            // A 快照装载与 B 音色读取同拍，必须先保留 A，再交付 B。
+            if (!preset_load_ready) $fatal(1,"Preset B unexpectedly blocked");
+            @(negedge clk_sys);
+            preset_load_valid = 1'b0;
+            if (!parameter_valid || snapshot_parameters !== PRESET_A || master_gain != 16'h8000)
+                $fatal(1,"Snapshot A lost or mixed with simultaneous preset B");
+            repeat (3) @(negedge clk_sys);
+            parameter_ready = 1'b1;
+            @(negedge clk_sys);
+            parameter_ready = 1'b0;
+            if (parameter_valid) $fatal(1,"No gap before loading B");
+            @(negedge clk_sys);
+            if (!parameter_valid || snapshot_parameters !== PRESET_B || master_gain != 16'h8000)
+                $fatal(1,"Simultaneous preset B update lost");
+            repeat (3) @(negedge clk_sys);
+            parameter_ready = 1'b1;
+            @(negedge clk_sys);
+            if (snapshot_accepts != accepted_before + 3)
+                $fatal(1,"Snapshot delivered more or less than once");
+            repeat (5) @(negedge clk_sys);
+            if (parameter_valid || snapshot_accepts != accepted_before + 3)
+                $fatal(1,"Unexpected duplicate snapshot");
+            // 在已预约、尚未装载的间隙复位，旧音色不能在复位后再次发布。
+            parameter_ready = 1'b0;
+            load_preset(PRESET_A);
+            @(negedge clk_sys);
+            if (parameter_valid) $fatal(1,"Expected pending load before reset");
+            rst_n = 1'b0;
+            #1;
+            if (parameter_valid) $fatal(1,"Reset did not cancel pending snapshot");
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            repeat (4) @(negedge clk_sys);
+            if (!parameter_valid || attack_ms[0] != 11'd5 || wavetable_0[0] != 4'd0 || master_gain != 16'h8000)
+                $fatal(1,"Pending preset survived reset");
+            parameter_ready = 1'b1;
+            repeat (4) @(negedge clk_sys);
+            $display("KNOB_SNAPSHOT_OVERLAP_PASS ready_withdraw preset_same_cycle reset_pending");
+        end
+    endtask
+
+    task check_reset_and_preset_priority;
+        integer completed_before;
+        begin
+            completed_before = completions;
+            @(negedge clk_sys);
+            #1;
+            rst_n = 1'b0;
+            in_valid = 1'b1;
+            preset_load_valid = 1'b1;
+            preset_load_parameters = PRESET_A;
+            parameter_ready = 1'b0;
+            repeat (3)
+            begin
+                #1;
+                if (in_ready !== 1'b0 || preset_load_ready !== 1'b0 ||
+                    frame_done_valid !== 1'b0 || parameter_valid !== 1'b0)
+                    $fatal(1,"复位期间错误交付旋钮或音色事务");
+                @(negedge clk_sys);
+            end
+            rst_n = 1'b1;
+            #1;
+            if (preset_load_ready || in_ready)
+                $fatal(1,"复位后未保留准备拍或旋钮抢先接收");
+            do @(posedge clk_sys); while (!preset_load_ready);
+            @(negedge clk_sys);
+            preset_load_valid = 1'b0;
+            in_valid = 1'b0;
+            parameter_ready = 1'b1;
+            repeat (6) @(negedge clk_sys);
+            if (current_parameters !== PRESET_A || snapshot_parameters !== PRESET_A || master_gain != 16'h8000)
+                $fatal(1,"复位后音色装载错误或混入旋钮编辑");
+            parameter_ready = 1'b1;
+            repeat (6) @(negedge clk_sys);
+            if (frame_done_valid || completions != completed_before || parameter_valid)
+                $fatal(1,"复位后出现未接收的旋钮事件或重复快照");
+            $display("KNOB_RESET_PRIORITY_PASS reset_high_valid preset_first no_phantom_event");
+        end
+    endtask
+
+    // 此计分板只在无旋钮数值编辑的专项中启用，以握手沿的输入独立计算整组预期。
+    always @(posedge clk_sys)
+    begin
+        if (rst_n && check_preset_atomic)
+        begin
+            expected_current_parameters = current_parameters;
+            if (preset_load_valid && preset_load_ready)
+            begin
+                expected_current_parameters = preset_load_parameters;
+                preset_handshakes = preset_handshakes + 1;
+            end
+            #1;
+            if (rst_n && current_parameters !== expected_current_parameters)
+                $fatal(1,"音色提前生效、漏装载或分组数据不一致");
+        end
+    end
+
+    task check_preset_prepare;
+        integer transaction;
+        integer accepts_before;
+        integer completed_before;
+        begin
+            in_valid = 1'b0;
+            preset_load_valid = 1'b0;
+            parameter_ready = 1'b1;
+            frame_done_ready = 1'b0;
+            edit_enable = 1'b0;
+            reset_dut;
+            check_preset_atomic = 1'b1;
+            accepts_before = preset_handshakes;
+            completed_before = completions;
+            // 保持旋钮请求，连续交付24组A/B；音色事务之间也不能错误接收旋钮。
+            @(negedge clk_sys);
+            in_valid = 1'b1;
+            preset_load_valid = 1'b1;
+            for (transaction = 0; transaction < 24; transaction = transaction + 1)
+            begin
+                preset_load_parameters = (transaction % 2 == 0) ? PRESET_A : PRESET_B;
+                do @(posedge clk_sys); while (!preset_load_ready);
+                if (in_ready) $fatal(1,"旋钮与音色被同时接收");
+                @(negedge clk_sys);
+            end
+            preset_load_valid = 1'b0;
+            // 握手后立即扰动输入，已应用的B不能被覆盖。
+            preset_load_parameters = 192'hffffffffffffffffffffffffffffffffffffffffffffffff;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            while (!frame_done_valid) @(negedge clk_sys);
+            if (preset_handshakes != accepts_before + 24 || current_parameters !== PRESET_B)
+                $fatal(1,"连续音色事务丢失、重复或握手后被覆盖");
+            // 旋钮完成确认被阻塞时，音色必须等待，不能提前改参数。
+            preset_load_parameters = PRESET_A;
+            preset_load_valid = 1'b1;
+            repeat (6)
+            begin
+                @(negedge clk_sys);
+                if (preset_load_ready || current_parameters !== PRESET_B)
+                    $fatal(1,"忙时音色请求未保持背压");
+            end
+            frame_done_ready = 1'b1;
+            do @(posedge clk_sys); while (!preset_load_ready);
+            @(negedge clk_sys);
+            preset_load_valid = 1'b0;
+            repeat (5) @(negedge clk_sys);
+            if (preset_handshakes != accepts_before + 25 || completions != completed_before + 1 ||
+                current_parameters !== PRESET_A)
+                $fatal(1,"忙后事务顺序或计数错误");
+            // 已准备但尚未握手时异步复位；只能取消，不能在复位后装载B。
+            preset_load_parameters = PRESET_B;
+            preset_load_valid = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (!preset_load_ready || current_parameters !== PRESET_A)
+                $fatal(1,"准备阶段提前改变了参数");
+            #1;
+            rst_n = 1'b0;
+            #1;
+            if (preset_load_ready || parameter_valid || frame_done_valid)
+                $fatal(1,"复位未取消已准备事务");
+            repeat (3) @(negedge clk_sys);
+            preset_load_valid = 1'b0;
+            rst_n = 1'b1;
+            repeat (6) @(negedge clk_sys);
+            if (current_parameters !== {16'd0,16'd0,16'd0,16'd0,16'd200,16'd70,16'd150,16'd5,16'd0,16'd0,16'd1,16'd0} ||
+                preset_handshakes != accepts_before + 25)
+                $fatal(1,"复位后存在旧音色或额外握手");
+            check_preset_atomic = 1'b0;
+            $display("KNOB_PRESET_PREPARE_PASS transactions=25 atomic_commit busy_stall reset_before_handshake");
+        end
+    endtask
+
+    task reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+            #1;
+        end
+    endtask
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n) stalled = 1'b0;
+        else
+        begin
+            if (stalled)
+            begin
+                if (!parameter_valid) $fatal(1,"Snapshot valid withdrawn");
+                if (wavetable_0[0] !== held_snapshot[0][3:0]) $fatal(1,"Stalled wavetable_0 changed");
+                if (wavetable_1[0] !== held_snapshot[1][3:0]) $fatal(1,"Stalled wavetable_1 changed");
+                if (interp_percent[0] !== held_snapshot[2][6:0]) $fatal(1,"Stalled interp_percent changed");
+                if (phase_degrees[0] !== held_snapshot[3][8:0]) $fatal(1,"Stalled phase_degrees changed");
+                if (attack_ms[0] !== held_snapshot[4][10:0]) $fatal(1,"Stalled attack_ms changed");
+                if (decay_ms[0] !== held_snapshot[5][10:0]) $fatal(1,"Stalled decay_ms changed");
+                if (sustain_percent[0] !== held_snapshot[6][6:0]) $fatal(1,"Stalled sustain_percent changed");
+                if (release_ms[0] !== held_snapshot[7][12:0]) $fatal(1,"Stalled release_ms changed");
+                if (master_gain !== held_snapshot[8][15:0]) $fatal(1,"Stalled master_gain changed");
+                if (reverb_mix_percent !== held_snapshot[9][6:0]) $fatal(1,"Stalled reverb_mix_percent changed");
+                if (delay_mix_percent !== held_snapshot[10][6:0]) $fatal(1,"Stalled delay_mix_percent changed");
+                if (distortion_mix_percent !== held_snapshot[11][6:0]) $fatal(1,"Stalled distortion_mix_percent changed");
+                if (chorus_mix_percent !== held_snapshot[12][6:0]) $fatal(1,"Stalled chorus_mix_percent changed");
+            end
+            stalled = parameter_valid && !parameter_ready;
+            if (parameter_valid)
+            begin
+                held_snapshot[0] = wavetable_0[0];
+                held_snapshot[1] = wavetable_1[0];
+                held_snapshot[2] = interp_percent[0];
+                held_snapshot[3] = phase_degrees[0];
+                held_snapshot[4] = attack_ms[0];
+                held_snapshot[5] = decay_ms[0];
+                held_snapshot[6] = sustain_percent[0];
+                held_snapshot[7] = release_ms[0];
+                held_snapshot[8] = master_gain;
+                held_snapshot[9] = reverb_mix_percent;
+                held_snapshot[10] = delay_mix_percent;
+                held_snapshot[11] = distortion_mix_percent;
+                held_snapshot[12] = chorus_mix_percent;
+            end
+            if (parameter_valid && parameter_ready)
+            begin
+                snapshot_accepts = snapshot_accepts + 1;
+                latest[0] = wavetable_0[0];
+                latest[1] = wavetable_1[0];
+                latest[2] = interp_percent[0];
+                latest[3] = phase_degrees[0];
+                latest[4] = attack_ms[0];
+                latest[5] = decay_ms[0];
+                latest[6] = sustain_percent[0];
+                latest[7] = release_ms[0];
+                latest[8] = master_gain;
+                latest[9] = reverb_mix_percent;
+                latest[10] = delay_mix_percent;
+                latest[11] = distortion_mix_percent;
+                latest[12] = chorus_mix_percent;
+            end
+            if (frame_done_valid && frame_done_ready) completions = completions + 1;
+        end
+    end
+    initial
+    begin
+        for (index=0;index<8;index=index+1) knob_delta[index]=2'sd0;
+        #1;
+        if ((WAVE_SELECT_STEPS<1) || (WAVE_SELECT_STEPS>32767))
+        begin
+            reset_dut;
+            in_valid=1'b1;
+            repeat (10) @(negedge clk_sys);
+            if (!configuration_error || in_ready || frame_done_valid)
+                $fatal(1,"Invalid threshold was silently accepted");
+            $display("KNOB_PARAMETER_CONTROLLER_CONFIG_PASS steps=%0d",WAVE_SELECT_STEPS);
+            $finish;
+        end
+        file_path=$sformatf("%s/bank_%0d.txt",assets,WAVE_SELECT_STEPS);
+        file_handle=$fopen(file_path,"r");
+        if (!file_handle) $fatal(1,"Missing bank vectors");
+        reset_dut;
+        repeat (6) @(negedge clk_sys);
+        if (latest[0] != 0) $fatal(1,"Startup default wavetable_0");
+        if (latest[1] != 1) $fatal(1,"Startup default wavetable_1");
+        if (latest[2] != 0) $fatal(1,"Startup default interp_percent");
+        if (latest[3] != 0) $fatal(1,"Startup default phase_degrees");
+        if (latest[4] != 5) $fatal(1,"Startup default attack_ms");
+        if (latest[5] != 150) $fatal(1,"Startup default decay_ms");
+        if (latest[6] != 70) $fatal(1,"Startup default sustain_percent");
+        if (latest[7] != 200) $fatal(1,"Startup default release_ms");
+        if (latest[8] != 32768) $fatal(1,"Startup default master_gain");
+        if (latest[9] != 0) $fatal(1,"Startup default reverb_mix_percent");
+        if (latest[10] != 0) $fatal(1,"Startup default delay_mix_percent");
+        if (latest[11] != 0) $fatal(1,"Startup default distortion_mix_percent");
+        if (latest[12] != 0) $fatal(1,"Startup default chorus_mix_percent");
+        for (index=0;index<4800;index=index+1)
+        begin
+            scan_count=$fscanf(file_handle,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",value[0],value[1],value[2],value[3],value[4],value[5],value[6],value[7],value[8],value[9],value[10],value[11],value[12],value[13],value[14],value[15],value[16],value[17],value[18],value[19],value[20]);
+            if (scan_count != 21) $fatal(1,"Bad bank vector %0d",index);
+            @(negedge clk_sys);
+            // 使用十帧突发验证编码器阻塞时仍能完成本地提交。
+            parameter_ready=!STALL_SNAPSHOT || (index%10==9);
+            mode=value[0];fine_adjust=value[1];edit_enable=value[2];edit_target=value[3];
+            clear_wave_progress=value[4];knob_pressed_event=value[5];
+            for (cycle=0;cycle<8;cycle=cycle+1) knob_delta[cycle]=(value[6]>>(2*cycle));
+            in_valid=1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid=1'b0;
+            while (!frame_done_valid) @(negedge clk_sys);
+            if (configuration_error || !frame_done_valid || $signed(wave_progress) != value[20])
+                $fatal(1,"Bank completion/progress mismatch frame %0d",index);
+            for (cycle=0;cycle<index%4;cycle=cycle+1)
+            begin
+                @(negedge clk_sys);
+                if (!frame_done_valid || in_ready) $fatal(1,"Done not held");
+            end
+            frame_done_ready=1'b1;
+            @(negedge clk_sys);
+            frame_done_ready=1'b0;
+            if (frame_done_valid) $fatal(1,"Duplicate done");
+            if (parameter_ready)
+            begin
+                repeat (5) @(negedge clk_sys);
+                for (cycle=0;cycle<13;cycle=cycle+1)
+                    if (latest[cycle] !== value[cycle+7])
+                        $fatal(1,"Bank value frame %0d field %0d expected %0d got %0d",index,cycle,value[cycle+7],latest[cycle]);
+            end
+        end
+        if (completions != 4800) $fatal(1,"Completion count %0d",completions);
+        // 复位取消未确认的本地完成应答和被阻塞的快照。
+        parameter_ready=1'b0;
+        in_valid=1'b1;
+        do @(posedge clk_sys); while (!in_ready);
+        @(negedge clk_sys);
+        in_valid=1'b0;
+        while (!frame_done_valid) @(negedge clk_sys);
+        if (!frame_done_valid) $fatal(1,"No pending completion for reset test");
+        reset_dut;
+        if (frame_done_valid) $fatal(1,"Reset did not cancel completion");
+        parameter_ready=1'b1;
+        repeat (6) @(negedge clk_sys);
+        if (latest[0] != 0) $fatal(1,"Reset default wavetable_0");
+        if (latest[1] != 1) $fatal(1,"Reset default wavetable_1");
+        if (latest[2] != 0) $fatal(1,"Reset default interp_percent");
+        if (latest[3] != 0) $fatal(1,"Reset default phase_degrees");
+        if (latest[4] != 5) $fatal(1,"Reset default attack_ms");
+        if (latest[5] != 150) $fatal(1,"Reset default decay_ms");
+        if (latest[6] != 70) $fatal(1,"Reset default sustain_percent");
+        if (latest[7] != 200) $fatal(1,"Reset default release_ms");
+        if (latest[8] != 32768) $fatal(1,"Reset default master_gain");
+        if (latest[9] != 0) $fatal(1,"Reset default reverb_mix_percent");
+        if (latest[10] != 0) $fatal(1,"Reset default delay_mix_percent");
+        if (latest[11] != 0) $fatal(1,"Reset default distortion_mix_percent");
+        if (latest[12] != 0) $fatal(1,"Reset default chorus_mix_percent");
+        check_snapshot_overlap;
+        check_reset_and_preset_priority;
+        check_preset_prepare;
+        $display("KNOB_PARAMETER_CONTROLLER_PASS steps=%0d stalled=%0d frames=4800",WAVE_SELECT_STEPS,STALL_SNAPSHOT);
+        $finish;
+    end
+endmodule

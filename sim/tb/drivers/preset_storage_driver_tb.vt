@@ -1,0 +1,329 @@
+`timescale 1ns/1ps
+/**
+ * 存储驱动引脚级自检：16 槽、覆盖、目录、背压、重启、双副本 CRC 恢复。
+ * 注入擦除/正文/提交时掉电、WEL 拒绝、WIP 超时、识别异常及写后损坏。
+ * 使用独立 Flash 模型和软件形式 CRC32 参考，不以 DUT 内部数据作为期望值。
+ * 时序优化回归：代号相等、A/B 先后、符号边界及写入时 FFFFFFFF 回绕。
+ */
+module preset_storage_driver_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg in_valid = 1'b0;
+    wire in_ready;
+    reg in_write = 1'b0;
+    reg [3:0] in_slot = 4'd0;
+    reg [511:0] in_data = 512'd0;
+    wire out_valid;
+    reg out_ready = 1'b0;
+    wire [2:0] out_status;
+    wire [511:0] out_data;
+    wire catalog_valid;
+    wire [15:0] slot_present;
+    wire [23:0] jedec_id;
+    wire flash_cs_n, flash_clk, flash_mosi, flash_wp_n, flash_hold_n;
+    tri1 flash_miso;
+    reg test_passed = 1'b0;
+    reg [511:0] expected [0:15];
+    reg [511:0] candidate;
+    reg [511:0] held_data;
+    reg [2:0] held_status;
+    integer n, k, saved_erase_count, saved_program_count;
+    integer completed_transactions = 0;
+    always #5 clk_sys = ~clk_sys;
+
+    preset_storage_driver #(
+        .HALF_PERIOD_CYCLES(4), .POWER_UP_CYCLES(10),
+        .BUSY_TIMEOUT_CYCLES(20000), .RELEASE_WAIT_CYCLES(10)
+    ) preset_storage_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .in_write(in_write), .in_slot(in_slot), .in_data(in_data),
+        .out_valid(out_valid), .out_ready(out_ready), .out_status(out_status), .out_data(out_data),
+        .catalog_valid(catalog_valid), .slot_present(slot_present), .jedec_id(jedec_id),
+        .flash_cs_n(flash_cs_n), .flash_clk(flash_clk), .flash_mosi(flash_mosi), .flash_miso(flash_miso),
+        .flash_wp_n(flash_wp_n), .flash_hold_n(flash_hold_n)
+    );
+    spi_nor_model flash_u (.clk_sys(clk_sys), .cs_n(flash_cs_n), .sck(flash_clk), .mosi(flash_mosi), .miso(flash_miso));
+
+    function [511:0] pattern;
+        input integer seed;
+        integer j;
+        begin
+            for (j = 0; j < 64; j = j + 1)
+                pattern[j*8 +: 8] = (seed*73 + j*29) ^ (j >> 1);
+        end
+    endfunction
+
+    function [31:0] stored_crc;
+        input integer base;
+        reg [31:0] c;
+        integer a, b;
+        begin
+            c = 32'hffffffff;
+            for (a = 0; a < 72; a = a + 1)
+            begin
+                c = c ^ flash_u.memory[base+a];
+                for (b = 0; b < 8; b = b + 1)
+                    c = (c & 1) ? ((c >> 1) ^ 32'hedb88320) : (c >> 1);
+            end
+            stored_crc = ~c;
+        end
+    endfunction
+
+    task reset_driver;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            out_ready = 1'b0;
+            repeat (5) @(negedge clk_sys);
+            if (flash_cs_n !== 1'b1 || flash_clk !== 1'b0 || out_valid !== 1'b0 || catalog_valid !== 1'b0)
+                $fatal(1, "Reset outputs not safe");
+            rst_n = 1'b1;
+            wait (in_ready);
+            @(negedge clk_sys);
+        end
+    endtask
+
+    task send_request;
+        input wr;
+        input [3:0] slot;
+        input [511:0] data;
+        begin
+            @(negedge clk_sys);
+            in_valid = 1'b1;
+            in_write = wr;
+            in_slot = slot;
+            in_data = data;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            in_data = ~data;
+            in_slot = ~slot;
+        end
+    endtask
+
+    task receive_result;
+        input [2:0] status;
+        input check_data;
+        input [511:0] data;
+        begin
+            wait (out_valid);
+            @(negedge clk_sys);
+            if (out_status !== status || (check_data && out_data !== data))
+                $fatal(1, "Response mismatch got status=%d expected=%d data=%h expected=%h", out_status, status, out_data, data);
+            held_data = out_data;
+            held_status = out_status;
+            repeat (17)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || out_data !== held_data || out_status !== held_status || in_ready)
+                    $fatal(1, "Response changed under backpressure");
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+            completed_transactions = completed_transactions + 1;
+        end
+    endtask
+
+    task read_slot;
+        input [3:0] slot;
+        input [511:0] data;
+        begin
+            send_request(1'b0, slot, 512'd0);
+            receive_result(3'd0, 1'b1, data);
+        end
+    endtask
+
+    task set_generation;
+        input integer base;
+        input [31:0] value;
+        reg [31:0] check;
+        integer j;
+        begin
+            for (j = 0; j < 4; j = j + 1) flash_u.memory[base+4+j] = value >> (j*8);
+            check = stored_crc(base);
+            for (j = 0; j < 4; j = j + 1) flash_u.memory[base+72+j] = check >> (j*8);
+        end
+    endtask
+
+    initial
+    begin
+        #300000000;
+        $fatal(1, "Watchdog: driver did not complete");
+    end
+
+    initial
+    begin
+        reset_driver;
+        if (!catalog_valid || slot_present != 0 || jedec_id != 24'hef4018
+            || flash_u.erase_count != 0 || flash_u.program_commands != 0)
+            $fatal(1, "Empty boot/catalog/probe incorrect");
+        send_request(1'b0, 4'd0, 512'd0);
+        receive_result(3'd1, 1'b0, 512'd0);
+        for (n = 0; n < 16; n = n + 1)
+        begin
+            expected[n] = pattern(n);
+            send_request(1'b1, n, expected[n]);
+            receive_result(3'd0, 1'b0, 512'd0);
+            read_slot(n, expected[n]);
+            if ({flash_u.memory[n*8192+75],flash_u.memory[n*8192+74],flash_u.memory[n*8192+73],flash_u.memory[n*8192+72]} !== stored_crc(n*8192))
+                $fatal(1, "Independent on-flash CRC check failed");
+        end
+        if (slot_present != 16'hffff) $fatal(1, "Directory bits missing");
+        expected[15] = pattern(59);
+        send_request(1'b1, 4'd15, expected[15]);
+        receive_result(3'd0, 1'b0, 512'd0);
+        saved_erase_count = flash_u.erase_count;
+        saved_program_count = flash_u.program_commands;
+        reset_driver;
+        if (slot_present != 16'hffff || flash_u.erase_count != saved_erase_count || flash_u.program_commands != saved_program_count)
+            $fatal(1, "Restart wrote flash or lost directory");
+        for (n = 0; n < 16; n = n + 1) read_slot(n, expected[n]);
+        $display("PASS: 16 slots, byte order, CRC, overwrite, reboot, response backpressure");
+
+        // Valid generations wrap from FFFFFFFF to 0; select the latter after reboot.
+        expected[1] = pattern(333);
+        send_request(1'b1, 4'd1, expected[1]);
+        receive_result(3'd0, 1'b0, 512'd0);
+        set_generation(8192, 32'hffffffff);
+        set_generation(8192+4096, 32'd0);
+        reset_driver;
+        read_slot(4'd1, expected[1]);
+        $display("PASS: generation wrap-around");
+
+        // 相同代号优先 B；A 比 B 新时选择 A，半范围边界保持原判定规则。
+        send_request(1'b1, 4'd2, pattern(302));
+        receive_result(3'd0, 1'b0, 512'd0);
+        set_generation(2*8192, 32'd7);
+        set_generation(2*8192+4096, 32'd7);
+        read_slot(4'd2, pattern(302));
+        set_generation(2*8192, 32'd8);
+        read_slot(4'd2, pattern(2));
+        set_generation(2*8192, 32'h80000007);
+        read_slot(4'd2, pattern(2));
+        set_generation(2*8192, 32'd0);
+        set_generation(2*8192+4096, 32'hffffffff);
+        read_slot(4'd2, pattern(2));
+        // 写入选择 B=FFFFFFFF 后，新 A 的代号必须回绕为零且重启仍可读取。
+        set_generation(2*8192, 32'hfffffffe);
+        send_request(1'b1, 4'd2, pattern(303));
+        receive_result(3'd0, 1'b0, 512'd0);
+        if ({flash_u.memory[2*8192+7], flash_u.memory[2*8192+6],
+             flash_u.memory[2*8192+5], flash_u.memory[2*8192+4]} !== 32'd0)
+            $fatal(1, "Saved generation did not wrap to zero");
+        reset_driver;
+        read_slot(4'd2, pattern(303));
+        $display("PASS: generation tie, A newer, half-range boundary, write wrap and restart");
+
+        // The newer B copy is corrupt: recover A. Both corrupt must report damage, not empty.
+        flash_u.memory[15*8192+4096+20] = flash_u.memory[15*8192+4096+20] ^ 8'h01;
+        reset_driver;
+        read_slot(4'd15, pattern(15));
+        flash_u.memory[15*8192+20] = flash_u.memory[15*8192+20] ^ 8'h01;
+        reset_driver;
+        send_request(1'b0, 4'd15, 512'd0);
+        receive_result(3'd4, 1'b0, 512'd0);
+        $display("PASS: corrupt latest fallback, both copies corrupt");
+
+        flash_u.program_cycles = 10000;
+        flash_u.erase_cycles = 10000;
+        // Cut power during erase, body program, and each incomplete commit prefix.
+        for (k = 0; k < 6; k = k + 1)
+        begin
+            candidate = pattern(100+k);
+            send_request(1'b1, 4'd0, candidate);
+            if (k == 0) wait (flash_u.pending_kind == 2);
+            else if (k == 1) wait (flash_u.pending_kind == 1 && flash_u.pending_count == 76);
+            else wait (flash_u.pending_kind == 1 && flash_u.pending_count == 4);
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            flash_u.power_cut((k == 0) ? 29 : ((k == 1) ? 37 : k-2));
+            reset_driver;
+            read_slot(4'd0, expected[0]);
+        end
+        // FPGA reset after commit launch: Flash finishes independently; restart waits WIP.
+        candidate = pattern(199);
+        send_request(1'b1, 4'd0, candidate);
+        wait (flash_u.pending_kind == 1 && flash_u.pending_count == 4);
+        reset_driver;
+        expected[0] = candidate;
+        read_slot(4'd0, expected[0]);
+        $display("PASS: erase/body/partial-commit power loss and FPGA reset while Flash busy");
+
+        flash_u.program_cycles = 200;
+        flash_u.erase_cycles = 400;
+        // 每个 32 位比较组都注入错误；交替检查正文/最终提交回读。
+        // 同时覆盖组内最低/最高字节，失败后重启仍必须读取旧有效副本。
+        for (k = 0; k < 40; k = k + 1)
+        begin
+            send_request(1'b1, 4'd0, pattern(400+k));
+            if (k < 20) wait (preset_storage_driver_u.current_state == 5'd15);
+            else wait (preset_storage_driver_u.current_state == 5'd19);
+            @(negedge clk_sys);
+            flash_u.memory[preset_storage_driver_u.bank_r*4096 + (k%20)*4 + ((k < 20) ? 0 : 3)] =
+                flash_u.memory[preset_storage_driver_u.bank_r*4096 + (k%20)*4 + ((k < 20) ? 0 : 3)]
+                ^ ((k < 20) ? 8'h01 : 8'h80);
+            receive_result(3'd4, 1'b0, 512'd0);
+            if (catalog_valid) $fatal(1, "Segment mismatch incorrectly accepted");
+            reset_driver;
+            read_slot(4'd0, expected[0]);
+        end
+        $display("PASS: all 20 compare groups, body/final readback, first/last bit, old-copy recovery");
+
+        flash_u.reject_wren = 1'b1;
+        saved_erase_count = flash_u.erase_count;
+        send_request(1'b1, 4'd0, pattern(250));
+        receive_result(3'd5, 1'b0, 512'd0);
+        if (catalog_valid || flash_u.erase_count != saved_erase_count) $fatal(1, "WEL failure not contained");
+        send_request(1'b0, 4'd0, 512'd0);
+        receive_result(3'd5, 1'b0, 512'd0);
+        flash_u.reject_wren = 1'b0;
+        reset_driver;
+        read_slot(4'd0, expected[0]);
+
+        flash_u.corrupt_program = 1'b1;
+        send_request(1'b1, 4'd0, pattern(251));
+        receive_result(3'd4, 1'b0, 512'd0);
+        flash_u.corrupt_program = 1'b0;
+        reset_driver;
+        read_slot(4'd0, expected[0]);
+        flash_u.stuck_busy = 1'b1;
+        reset_driver;
+        if (catalog_valid) $fatal(1, "Busy timeout marked catalog known");
+        send_request(1'b0, 4'd0, 512'd0);
+        receive_result(3'd2, 1'b0, 512'd0);
+        flash_u.stuck_busy = 1'b0;
+        flash_u.bad_id = 1'b1;
+        reset_driver;
+        send_request(1'b1, 4'd0, pattern(252));
+        receive_result(3'd3, 1'b0, 512'd0);
+        flash_u.bad_id = 1'b0;
+        flash_u.bad_sfdp = 1'b1;
+        reset_driver;
+        send_request(1'b1, 4'd0, pattern(253));
+        receive_result(3'd3, 1'b0, 512'd0);
+        flash_u.bad_sfdp = 1'b0;
+        flash_u.address_mode = 2'd1;
+        reset_driver;
+        send_request(1'b1, 4'd0, pattern(254));
+        receive_result(3'd3, 1'b0, 512'd0);
+        flash_u.address_mode = 2'd0;
+        flash_u.page_exponent = 4'd9;
+        reset_driver;
+        send_request(1'b1, 4'd0, pattern(254));
+        receive_result(3'd3, 1'b0, 512'd0);
+        flash_u.page_exponent = 4'd8;
+        flash_u.erase_opcode = 8'hd8;
+        reset_driver;
+        send_request(1'b1, 4'd0, pattern(254));
+        receive_result(3'd3, 1'b0, 512'd0);
+        flash_u.erase_opcode = 8'h20;
+        reset_driver;
+        read_slot(4'd0, expected[0]);
+        $display("PASS: WEL, readback failure, timeout, JEDEC/SFDP refusal, fail-stop recovery");
+        $display("PRESET_STORAGE_DRIVER_PASS transactions=%0d", completed_transactions);
+        test_passed = 1'b1;
+        $finish;
+    end
+endmodule
