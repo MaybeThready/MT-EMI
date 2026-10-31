@@ -1,5 +1,5 @@
 /**
- * 测试板载ADC请求/完成协议、弯音位置标定、回中/平滑、双路、背压及超时复位。
+ * 测试J4默认通道、双路轮询/旧通道残留丢弃、标定、回中、平滑、背压及超时复位。
  * 同时串联单音频率换算，0/0.5/1V应得到-200/0/+200音分；正确后打印PASS。
  * ADCLRC为本文件的协议行为模型，不仿真模拟精度，不能与厂商同名空壳一起编译。
  */
@@ -61,7 +61,7 @@ module pitch_bend_driver_tb();
     wire variant_error;
     pitch_bend_driver
     #(
-        .BEND_NUM(2), .DEBOUNCE_TICKS(0), .ADC_STARTUP_TICKS(128),
+        .BEND_NUM(2), .DEBOUNCE_TICKS(0), .ADC_STARTUP_TICKS(128), .ADC_FIRST_CHANNEL(0),
         .FILTER_SHIFT(0), .ADC_MIN_CODE(128), .ADC_CENTER_CODE(1024),
         .ADC_MAX_CODE(1920), .CENTER_DEADBAND(4), .DIRECTION_INVERT(2'b10)
     ) variant_u
@@ -139,7 +139,7 @@ module pitch_bend_driver_tb();
                      variant_bend[1] === expected_1))
             begin
                 @(negedge clk_sys);
-                if (variant_u.adc_u.completed_count - start_completed > 8)
+                if (variant_u.adc_u.completed_count - start_completed > 16)
                 begin
                     $display("variant expected=%h/%h, actual=%h/%h", expected_0,
                              expected_1, variant_bend[0], variant_bend[1]);
@@ -174,15 +174,16 @@ module pitch_bend_driver_tb();
         end
     end
 
-    always @(posedge dut_u.adc_u.ADCREQI or negedge rst_n)
+    // 一组包含丢弃/保留两次转换；1ms约束用于组开始，不能用于同组内部的第二次请求。
+    always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
             previous_request_time = 0.0;
-        else
+        else if (dut_u.stc == dut_u.S_WAIT_SCAN && scan_tick_up && dut_u.interval_elapsed)
         begin
             if (previous_request_time != 0.0 &&
                 $realtime - previous_request_time < 999999.9)
-                fail("default acquisition requests violated the minimum 1ms interval");
+                fail("default acquisition groups violated the minimum 1ms interval");
             previous_request_time = $realtime;
         end
     end
@@ -229,8 +230,10 @@ module pitch_bend_driver_tb();
                 frequency_read = frequency_read + 1;
                 checked_frequencies = checked_frequencies + 1;
             end
-            if (variant_valid && variant_u.adc_u.completed_count < 2)
-                fail("dual-channel driver published before both ADC channels completed");
+            if (variant_valid && variant_u.adc_u.completed_count < 4)
+                fail("dual-channel driver published before both channels discarded and retained results");
+            if (dut_u.adc_u.ADCREQI && dut_u.adc_u.VSENCTL !== 3'd1)
+                fail("default mono driver did not select J4 ADCT");
             if (variant_error)
                 fail("dual-channel nominal test reported ADC timeout");
         end
@@ -257,26 +260,30 @@ module pitch_bend_driver_tb();
         phase = 1;
         wait_main_position(16'h8000);
         if (adc_error) fail("nominal first conversion timed out");
-        if (dut_u.adc_u.completed_count < 1)
-            fail("driver published a valid frame before the first ADC result");
+        if (dut_u.adc_u.completed_count < 2)
+            fail("driver published a valid frame before discarding and retaining ADC results");
         // 中心死区应吸收小范围抖动，不能把回中噪声变成音高改变。
         for (i = 0; i < 4; i = i + 1)
         begin
             @(negedge clk_sys);
-            dut_u.adc_u.voltage_code[0] = (i[0] ? 14'd1018 : 14'd1030);
+            dut_u.adc_u.voltage_code[1] = (i[0] ? 14'd1018 : 14'd1030);
             count_before = dut_u.adc_u.completed_count;
             wait (dut_u.adc_u.completed_count >= count_before + 2);
             wait_main_position(16'h8000);
         end
 
         phase = 2;
-        @(negedge clk_sys); dut_u.adc_u.voltage_code[0] = 14'd0;
+        @(negedge clk_sys); dut_u.adc_u.voltage_code[1] = 14'd0;
         wait_main_position(16'h0000);
-        @(negedge clk_sys); dut_u.adc_u.voltage_code[0] = 14'd2048;
+        @(negedge clk_sys); dut_u.adc_u.voltage_code[1] = 14'd2048;
         count_before = dut_u.adc_u.completed_count;
         wait (dut_u.adc_u.completed_count >= count_before + 2);
-        if (!(bend_value[0] > 16'h0000 && bend_value[0] < 16'hFFFF))
-            fail("IIR must smooth a full-range step instead of jumping immediately");
+        while (!(out_valid && bend_value[0] > 16'h0000 && bend_value[0] < 16'hFFFF))
+        begin
+            @(negedge clk_sys);
+            if (dut_u.adc_u.completed_count > count_before + 8)
+                fail("IIR must smooth a full-range step instead of jumping immediately");
+        end
         wait_main_position(16'hFFFF);
 
         phase = 3;
@@ -286,7 +293,7 @@ module pitch_bend_driver_tb();
         @(negedge clk_sys);
         held_bend = bend_value[0];
         main_requests_before_stall = dut_u.adc_u.request_count;
-        dut_u.adc_u.voltage_code[0] = 14'd0;
+        dut_u.adc_u.voltage_code[1] = 14'd0;
         count_before = dut_u.adc_u.completed_count;
         wait (dut_u.adc_u.completed_count >= count_before + 36);
         if (bend_value[0] !== held_bend || !out_valid)
@@ -301,14 +308,14 @@ module pitch_bend_driver_tb();
         for (i = 1; i <= 12; i = i + 1)
         begin
             @(negedge clk_sys);
-            dut_u.adc_u.voltage_code[0] = i * 160;
+            dut_u.adc_u.voltage_code[1] = i * 160;
             count_before = dut_u.adc_u.completed_count;
             wait (dut_u.adc_u.completed_count >= count_before + 1);
         end
         repeat (2) @(negedge clk_sys);
         if (bend_value[0] <= 16'h4000)
             fail("continuously moving wheel became stuck waiting for stable ADC code");
-        @(negedge clk_sys); dut_u.adc_u.voltage_code[0] = 14'd1024;
+        @(negedge clk_sys); dut_u.adc_u.voltage_code[1] = 14'd1024;
         wait_main_position(16'h8000);
 
         phase = 5;
@@ -316,7 +323,7 @@ module pitch_bend_driver_tb();
         wait (!dut_u.adc_u.busy);
         @(negedge clk_sys);
         dut_u.adc_u.hold_old_ready = 1'b1;
-        dut_u.adc_u.voltage_code[0] = 14'd2048;
+        dut_u.adc_u.voltage_code[1] = 14'd2048;
         wait (adc_error);
         if (bend_value[0] !== 16'h8000)
             fail("old RDY high was mistaken for completion of a new conversion");
@@ -329,20 +336,20 @@ module pitch_bend_driver_tb();
         wait (!dut_u.adc_u.busy);
         @(negedge clk_sys);
         dut_u.adc_u.suppress_ready = 1'b1;
-        dut_u.adc_u.voltage_code[0] = 14'd0;
+        dut_u.adc_u.voltage_code[1] = 14'd0;
         @(negedge dut_u.adc_u.DRSTN);
         if (!rst_n || bend_value[0] !== 16'hFFFF)
             fail("unfinished conversion must be canceled without replacing the last good position");
         @(negedge clk_sys);
         dut_u.adc_u.suppress_ready = 1'b0;
-        dut_u.adc_u.voltage_code[0] = 14'd1024;
+        dut_u.adc_u.voltage_code[1] = 14'd1024;
         wait_main_position(16'h8000);
 
         phase = 7;
         // 在下一次转换和输出事务进行中复位；中断旧事务并清除错误。
         wait (dut_u.adc_u.busy);
         @(negedge clk_sys); rst_n = 1'b0;
-        dut_u.adc_u.voltage_code[0] = 14'd1024;
+        dut_u.adc_u.voltage_code[1] = 14'd1024;
         repeat (8) @(negedge clk_sys);
         if (out_valid || adc_error || bend_value[0] !== 16'h8000)
             fail("reset did not cancel pending output and clear timeout");
@@ -406,7 +413,7 @@ endmodule
 
 /**
  * ADCLRC协议模型：外部模拟脚不经过HDL端口，通过voltage_code设置Q3.11电压码。
- * RDY会保持至下次REQ，REQ后4个ADC时钟变低，1024个ADC时钟后重新升高。
+ * RDY保持至下次REQ，完成延迟由SAMPLE_CNT_SEL决定；切换通道的首转换注入旧结果。
  * 仅验证数字交互，不模拟量化噪声、校准误差、模拟建立时间或芯片内部实现。
  */
 module ADCLRC
@@ -447,6 +454,9 @@ module ADCLRC
     reg busy;
     reg [13:0] captured_code;
     reg [2:0] captured_channel;
+    reg [2:0] previous_channel;
+    reg [13:0] previous_code;
+    reg previous_channel_valid;
     integer cycles_remaining;
     integer deassert_delay;
     integer request_count;
@@ -466,7 +476,7 @@ module ADCLRC
         request_count = 0;
         completed_count = 0;
         if (ADC_MODE != 1'b1 || CLK_SEL != 1'b1 || DIV_CTL != 2'd0 ||
-            VSEN_CTL_SEL != 1'b1 || SAMPLE_CNT_SEL != 3'd4 || RATE_CHANGE_CTRL != 3'd5 ||
+            VSEN_CTL_SEL != 1'b1 || SAMPLE_CNT_SEL != 1 || RATE_CHANGE_CTRL != 2 ||
             BUF_BK2_EN != 0 || BUF_BK3_EN != 0 || BUF_BK4_EN != 0 || BUF_BK5_EN != 0 ||
             BUF_BK10_EN != 0 || BUF_BK11_EN != 0 || BUF_SERDES_Q1_EN != 0)
             pitch_bend_driver_tb.fail("ADCLRC must select dedicated voltage pins and documented conversion configuration");
@@ -483,6 +493,9 @@ module ADCLRC
             busy <= 1'b0;
             captured_code <= 14'd0;
             captured_channel <= 3'd0;
+            previous_channel <= 3'd0;
+            previous_code <= 14'd0;
+            previous_channel_valid <= 1'b0;
             cycles_remaining <= 0;
             deassert_delay <= 0;
             // ADC恢复复位取消旧转换；统计仅在整个平台复位时清零。
@@ -518,9 +531,16 @@ module ADCLRC
                 busy <= 1'b1;
                 request_count <= request_count + 1;
                 captured_channel <= VSENCTL;
-                captured_code <= voltage_code[VSENCTL];
+                // 模拟CIC在通道切换后的首个结果仍含旧通道；驱动必须丢弃它。
+                if (!previous_channel_valid || previous_channel != VSENCTL)
+                    captured_code <= previous_code;
+                else
+                    captured_code <= voltage_code[VSENCTL];
+                previous_code <= voltage_code[VSENCTL];
+                previous_channel <= VSENCTL;
+                previous_channel_valid <= 1'b1;
                 deassert_delay <= 4;
-                cycles_remaining <= 1024;
+                cycles_remaining <= (64 << SAMPLE_CNT_SEL);
             end
             else if (busy && !hold_old_ready)
             begin

@@ -5,7 +5,10 @@ add wave -group clocks sim:/pitch_bend_driver_tb/scan_tick_up
 add wave -group adc sim:/pitch_bend_driver_tb/dut_u/adc_u/CLK
 add wave -group adc sim:/pitch_bend_driver_tb/dut_u/adc_u/ADCREQI
 add wave -group adc sim:/pitch_bend_driver_tb/dut_u/adc_u/ADCRDY
+add wave -group adc -radix unsigned sim:/pitch_bend_driver_tb/dut_u/adc_u/VSENCTL
 add wave -group adc -radix unsigned sim:/pitch_bend_driver_tb/dut_u/adc_u/ADCVALUE
+add wave -group adc sim:/pitch_bend_driver_tb/dut_u/busy_seen_r
+add wave -group adc -radix unsigned sim:/pitch_bend_driver_tb/dut_u/discarded_r
 add wave -group position -radix hexadecimal sim:/pitch_bend_driver_tb/bend_value
 add wave -group position sim:/pitch_bend_driver_tb/out_valid
 add wave -group position sim:/pitch_bend_driver_tb/out_ready
