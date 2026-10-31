@@ -12,7 +12,7 @@
  * chorus_rate: 三角 LFO 频率，UQ2.14 Hz；0 时相位保持
  * chorus_depth: 延迟调制深度，单位为 smp_tick；0 时固定延迟 256 个采样
  * in_valid/in_ready、out_valid/out_ready: 每个采样各进行一次 valid-ready 握手
- * ram_read_en/ram_read_addr: 同步读取历史值；数据在下一时钟沿后有效
+ * ram_read_en/ram_read_addr: 向共享 RAM 发起同步读取；预留两拍供 mixer 寄存地址和数据
  * ram_write_en/ram_write_addr/ram_write_data: 在时钟上升沿写入当前采样
  * ram_read_data/ram_write_data: 外部 81920 x 24 SDP RAM 的数据端口，
  *                               两端口均接 clk_sys，输出使能常开
@@ -49,19 +49,21 @@ module chorus
         (64'd281474976710656 + SAMPLE_RATE * 64'd8192) /
         (SAMPLE_RATE * 64'd16384);
 
-    localparam WF_RECV = 4'd0, LFO_CALC = 4'd1,
-               ADDR_CALC = 4'd2, RAM_READ_NEW = 4'd3,
-               RAM_WAIT_NEW = 4'd4, RAM_READ_OLD = 4'd5,
-               RAM_WAIT_OLD = 4'd6, RAM_WRITE = 4'd7,
-               INTERP_SETUP = 4'd8, INTERP_MULT = 4'd9,
-               INTERP_APPLY = 4'd10, MIX_SETUP = 4'd11,
-               MIX_MULT = 4'd12, MIX_APPLY = 4'd13,
-               WF_SEND = 4'd14;
+    localparam WF_RECV = 5'd0, LFO_CALC = 5'd1,
+               ADDR_CALC = 5'd2, RAM_READ_NEW = 5'd3,
+               RAM_WAIT_NEW_1 = 5'd4, RAM_WAIT_NEW_2 = 5'd5,
+               RAM_WAIT_NEW = 5'd6, RAM_READ_OLD = 5'd7,
+               RAM_WAIT_OLD_1 = 5'd8, RAM_WAIT_OLD_2 = 5'd9,
+               RAM_WAIT_OLD = 5'd10, RAM_WRITE = 5'd11,
+               INTERP_SETUP = 5'd12, INTERP_MULT = 5'd13,
+               INTERP_APPLY = 5'd14, MIX_SETUP = 5'd15,
+               MIX_MULT = 5'd16, MIX_APPLY = 5'd17,
+               WF_SEND = 5'd18;
 
-    wire [3:0] stc;
-    reg [3:0] stn;
+    wire [4:0] stc;
+    reg [4:0] stn;
     fsm #(
-        .W(4),
+        .W(5),
         .INITIAL_STATE(WF_RECV)
     ) fsm_u (
         .clk(clk_sys), .rst_n(rst_n),
@@ -84,7 +86,8 @@ module chorus
 
     assign ram_read_en = (stc == RAM_READ_NEW || stc == RAM_READ_OLD);
     assign ram_read_addr = RAM_BASE_ADDR +
-        {7'd0, (stc == RAM_READ_OLD || stc == RAM_WAIT_OLD) ?
+        {7'd0, (stc == RAM_READ_OLD || stc == RAM_WAIT_OLD_1 ||
+                stc == RAM_WAIT_OLD_2 || stc == RAM_WAIT_OLD) ?
                 read_old_ptr_r : read_new_ptr_r};
     assign ram_write_en = (stc == RAM_WRITE);
     assign ram_write_addr = RAM_BASE_ADDR + {7'd0, write_ptr_r};
@@ -120,9 +123,13 @@ module chorus
             WF_RECV: stn = in_valid ? LFO_CALC : WF_RECV;
             LFO_CALC: stn = ADDR_CALC;
             ADDR_CALC: stn = RAM_READ_NEW;
-            RAM_READ_NEW: stn = RAM_WAIT_NEW;
+            RAM_READ_NEW: stn = RAM_WAIT_NEW_1;
+            RAM_WAIT_NEW_1: stn = RAM_WAIT_NEW_2;
+            RAM_WAIT_NEW_2: stn = RAM_WAIT_NEW;
             RAM_WAIT_NEW: stn = RAM_READ_OLD;
-            RAM_READ_OLD: stn = RAM_WAIT_OLD;
+            RAM_READ_OLD: stn = RAM_WAIT_OLD_1;
+            RAM_WAIT_OLD_1: stn = RAM_WAIT_OLD_2;
+            RAM_WAIT_OLD_2: stn = RAM_WAIT_OLD;
             RAM_WAIT_OLD: stn = RAM_WRITE;
             RAM_WRITE: stn = INTERP_SETUP;
             INTERP_SETUP: stn = INTERP_MULT;

@@ -16,7 +16,7 @@
  * reverb_damping: 反馈路径的一阶低通系数，UQ0.16；越大高频衰减越强，
  *                 内部限至 0.9375，避免滤波状态接近冻结
  * in_valid/in_ready、out_valid/out_ready: 每个采样点各进行一次 valid-ready 握手
- * ram_read_en/ram_read_addr: 发起一次同步读；读数据在下一个时钟沿后有效
+ * ram_read_en/ram_read_addr: 发起一次同步读；预留两拍供 mixer 寄存地址和数据
  * ram_write_en/ram_write_addr/ram_write_data: 在时钟上升沿写入一个字
  * ram_read_data/ram_write_data: 24 位有符号历史值，SQ9.15；外部 SDP RAM
  *                               为 81920 x 24，读写时钟都接 clk_sys，输出使能常开
@@ -64,18 +64,19 @@ module reverb
     localparam [16:0] ALLPASS_0_BASE = COMB_3_BASE + COMB_3_LEN;
     localparam [16:0] ALLPASS_1_BASE = ALLPASS_0_BASE + ALLPASS_0_LEN;
 
-    localparam WF_RECV = 4'd0, RAM_READ = 4'd1, RAM_WAIT = 4'd2,
-               DAMP_SETUP = 4'd3, DAMP_MULT = 4'd4, DAMP_APPLY = 4'd5,
-               FEEDBACK_SETUP = 4'd6, FEEDBACK_MULT = 4'd7,
-               FEEDBACK_APPLY = 4'd8, ALLPASS_CALC = 4'd9,
-               RAM_WRITE = 4'd10, MIX_SETUP = 4'd11,
-               MIX_MULT = 4'd12, MIX_APPLY = 4'd13, WF_SEND = 4'd14,
-               ADDR_SETUP = 4'd15;
+    localparam WF_RECV = 5'd0, ADDR_SETUP = 5'd1,
+               RAM_READ = 5'd2, RAM_WAIT_1 = 5'd3,
+               RAM_WAIT_2 = 5'd4, RAM_WAIT = 5'd5,
+               DAMP_SETUP = 5'd6, DAMP_MULT = 5'd7, DAMP_APPLY = 5'd8,
+               FEEDBACK_SETUP = 5'd9, FEEDBACK_MULT = 5'd10,
+               FEEDBACK_APPLY = 5'd11, ALLPASS_CALC = 5'd12,
+               RAM_WRITE = 5'd13, MIX_SETUP = 5'd14,
+               MIX_MULT = 5'd15, MIX_APPLY = 5'd16, WF_SEND = 5'd17;
 
-    wire [3:0] stc;
-    reg [3:0] stn;
+    wire [4:0] stc;
+    reg [4:0] stn;
     fsm #(
-        .W(4),
+        .W(5),
         .INITIAL_STATE(WF_RECV)
     ) fsm_u (
         .clk(clk_sys),
@@ -90,6 +91,7 @@ module reverb
     reg [11:0] valid_count [0:5];
     reg signed [PROCESS_W-1:0] filter_state [0:3];
     reg signed [PROCESS_W-1:0] audio_in_r, delayed_r, damped_r;
+    reg signed [PROCESS_W-1:0] filter_sample_r, delayed_sample_r;
     reg signed [PROCESS_W-1:0] stage_input_r, wet_r, audio_out_r;
     reg signed [PROCESS_W-1:0] ram_write_data_r;
     reg signed [PROCESS_W+1:0] comb_sum_r;
@@ -225,7 +227,9 @@ module reverb
         case (stc)
             WF_RECV: stn = in_valid ? ADDR_SETUP : WF_RECV;
             ADDR_SETUP: stn = RAM_READ;
-            RAM_READ: stn = RAM_WAIT;
+            RAM_READ: stn = RAM_WAIT_1;
+            RAM_WAIT_1: stn = RAM_WAIT_2;
+            RAM_WAIT_2: stn = RAM_WAIT;
             RAM_WAIT: stn = stage_index < 3'd4 ? DAMP_SETUP : ALLPASS_CALC;
             DAMP_SETUP: stn = DAMP_MULT;
             DAMP_MULT: stn = DAMP_APPLY;
@@ -301,9 +305,9 @@ module reverb
 
                 DAMP_SETUP:
                 begin
-                    mult_a_r <= $signed({filter_state[stage_index][PROCESS_W-1],
-                                         filter_state[stage_index]}) -
-                                $signed({delayed_r[PROCESS_W-1], delayed_r});
+                    mult_a_r <= $signed({filter_sample_r[PROCESS_W-1],
+                                         filter_sample_r}) -
+                                $signed({delayed_sample_r[PROCESS_W-1], delayed_sample_r});
                     mult_b_r <= $signed({1'b0, damping_r});
                 end
 
@@ -364,6 +368,18 @@ module reverb
 
                 MIX_APPLY: audio_out_r <= mix_sat;
             endcase
+        end
+    end
+
+    // RAM_WAIT 已有一拍：在此锁存滤波操作数，断开复位到乘法器的长减法路径。
+    // 两个寄存器在 DAMP_SETUP 前必经 RAM_WAIT，无需单独复位。
+    always @(posedge clk_sys)
+    begin
+        if (stc == RAM_WAIT)
+        begin
+            filter_sample_r <= filter_state[stage_index];
+            delayed_sample_r <= valid_count[stage_index] == stage_len ?
+                                delayed_data : '0;
         end
     end
 

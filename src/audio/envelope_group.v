@@ -43,6 +43,7 @@ module envelope_group
     reg [19:0] attack_ticks_r, decay_ticks_r, release_ticks_r;
     reg [15:0] sustain_level_r;
     reg [ENVELOPE_NUM-1:0] note_on_r, note_off_r;
+    reg [ENVELOPE_NUM-1:0] release_update_r;
     reg [19:0] release_ticks_lane [ENVELOPE_NUM-1:0];
 
     wire [19:0] attack_ticks_w = attack_ticks == 0 ? 20'd1 : attack_ticks;
@@ -189,6 +190,7 @@ module envelope_group
             sustain_level_r <= 16'd0;
             note_on_r <= '0;
             note_off_r <= '0;
+            release_update_r <= '0;
             divisor <= 20'd1;
             inv_a <= 32'd0;
             inv_d <= 32'd0;
@@ -205,6 +207,13 @@ module envelope_group
         end
         else
         begin
+            // 将各声部的 release 更新时间与输入握手分开，减少单拍控制扇出。
+            release_update_r <= '0;
+            for (j = 0; j < ENVELOPE_NUM; j = j + 1)
+            begin
+                if (release_update_r[j])
+                    release_ticks_lane[j] <= release_ticks_r;
+            end
             case (stc)
                 WF_RECV:
                 begin
@@ -216,14 +225,10 @@ module envelope_group
                         sustain_level_r <= sustain_level;
                         note_on_r <= note_on;
                         note_off_r <= note_off_w;
+                        release_update_r <= note_off_w;
                         divisor <= attack_ticks_w;
                         div_wait_count <= '0;
                         lane_index <= '0;
-                        for (j = 0; j < ENVELOPE_NUM; j = j + 1)
-                        begin
-                            if (note_off_w[j])
-                                release_ticks_lane[j] <= release_ticks_w;
-                        end
                     end
                 end
 

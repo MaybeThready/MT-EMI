@@ -48,7 +48,7 @@ module channel_rack
                WF_GROUP_SEND = 4'd2, MULT = 4'd3,
                GET_MULT = 4'd4, SEND_SYNTH = 4'd5,
                WF_SYNTH_SEND = 4'd6, WF_SEND = 4'd7,
-               WF_SYNTH_READY = 4'd8;
+               WF_SYNTH_READY = 4'd8, MULT_EXEC = 4'd9;
 
     wire [3:0] stc;
     reg [3:0] stn;
@@ -66,6 +66,7 @@ module channel_rack
     wire [15:0] envelope_volume [MAX_POLYPHONY-1:0];
     reg [15:0] velocity_r [MAX_POLYPHONY-1:0];
     reg [15:0] volume_r [MAX_POLYPHONY-1:0];
+    reg [15:0] volume_mult_a_r, volume_mult_b_r;
     reg [3:0] wavetable_0_r, wavetable_1_r;
     reg [15:0] wavetable_interp_r;
     reg [IDX_W-1:0] lane_index;
@@ -117,6 +118,7 @@ module channel_rack
     );
 
     // 一份乘法器依次计算各声部的 包络音量 × 音符力度。
+    // MULT 锁存当前声部操作数，MULT_EXEC 完成乘法，GET_MULT 收取结果。
     wire [15:0] volume_mult_result;
     unsigned_fp_mult #(
         .QII_A(0),
@@ -128,8 +130,8 @@ module channel_rack
     ) volume_mult_u (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .in_a(envelope_volume[lane_index]),
-        .in_b(velocity_r[lane_index]),
+        .in_a(volume_mult_a_r),
+        .in_b(volume_mult_b_r),
         .out(volume_mult_result)
     );
 
@@ -158,7 +160,8 @@ module channel_rack
             WF_TICK: stn = smp_tick_up ? WF_RECV : WF_TICK;
             WF_RECV: stn = group_in_valid ? WF_GROUP_SEND : WF_RECV;
             WF_GROUP_SEND: stn = (phase_out_valid && envelope_out_valid) ? MULT : WF_GROUP_SEND;
-            MULT: stn = GET_MULT;
+            MULT: stn = MULT_EXEC;
+            MULT_EXEC: stn = GET_MULT;
             GET_MULT: stn = lane_index == MAX_POLYPHONY - 1 ? WF_SYNTH_READY : MULT;
             WF_SYNTH_READY: stn = (phase_out_valid && envelope_out_valid &&
                                    synth_in_ready) ? SEND_SYNTH : WF_SYNTH_READY;
@@ -178,6 +181,8 @@ module channel_rack
             wavetable_1_r <= '0;
             wavetable_interp_r <= '0;
             lane_index <= '0;
+            volume_mult_a_r <= '0;
+            volume_mult_b_r <= '0;
             for (i = 0; i < MAX_POLYPHONY; i = i + 1)
             begin
                 velocity_r[i] <= '0;
@@ -198,6 +203,12 @@ module channel_rack
                         for (i = 0; i < MAX_POLYPHONY; i = i + 1)
                             velocity_r[i] <= note_velocity[i];
                     end
+                end
+
+                MULT:
+                begin
+                    volume_mult_a_r <= envelope_volume[lane_index];
+                    volume_mult_b_r <= velocity_r[lane_index];
                 end
 
                 GET_MULT:

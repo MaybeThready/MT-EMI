@@ -76,42 +76,42 @@ module mixer_tb();
         if (rst_n)
         begin
             clock_count <= clock_count + 1;
-            if (mixer_u.ram_read_en && mixer_u.ram_write_en)
+            if (mixer_u.ram_read_en_r && mixer_u.ram_write_en_r)
                 $fatal(1, "RAM read and write overlap at sample %0d", sample_index);
-            if (mixer_u.ram_read_en || mixer_u.ram_write_en)
+            if (mixer_u.ram_read_en_r || mixer_u.ram_write_en_r)
             begin
                 case (mixer_u.stc)
                     mixer_u.SEND_CHORUS, mixer_u.WAIT_CHORUS:
                     begin
-                        if ((mixer_u.ram_read_en &&
-                             (mixer_u.ram_read_addr < 17'd73728 ||
-                              mixer_u.ram_read_addr >= 17'd74752)) ||
-                            (mixer_u.ram_write_en &&
-                             (mixer_u.ram_write_addr < 17'd73728 ||
-                              mixer_u.ram_write_addr >= 17'd74752)))
+                        if ((mixer_u.ram_read_en_r &&
+                             (mixer_u.ram_read_addr_r < 17'd73728 ||
+                              mixer_u.ram_read_addr_r >= 17'd74752)) ||
+                            (mixer_u.ram_write_en_r &&
+                             (mixer_u.ram_write_addr_r < 17'd73728 ||
+                              mixer_u.ram_write_addr_r >= 17'd74752)))
                             $fatal(1, "Chorus RAM address out of range");
-                        if (mixer_u.ram_read_en) read_count[0] <= read_count[0] + 1;
-                        if (mixer_u.ram_write_en) write_count[0] <= write_count[0] + 1;
+                        if (mixer_u.ram_read_en_r) read_count[0] <= read_count[0] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[0] <= write_count[0] + 1;
                     end
                     mixer_u.SEND_DELAY, mixer_u.WAIT_DELAY:
                     begin
-                        if ((mixer_u.ram_read_en &&
-                             (mixer_u.ram_read_addr < 17'd8192 ||
-                              mixer_u.ram_read_addr >= 17'd73728)) ||
-                            (mixer_u.ram_write_en &&
-                             (mixer_u.ram_write_addr < 17'd8192 ||
-                              mixer_u.ram_write_addr >= 17'd73728)))
+                        if ((mixer_u.ram_read_en_r &&
+                             (mixer_u.ram_read_addr_r < 17'd8192 ||
+                              mixer_u.ram_read_addr_r >= 17'd73728)) ||
+                            (mixer_u.ram_write_en_r &&
+                             (mixer_u.ram_write_addr_r < 17'd8192 ||
+                              mixer_u.ram_write_addr_r >= 17'd73728)))
                             $fatal(1, "Delay RAM address out of range");
-                        if (mixer_u.ram_read_en) read_count[1] <= read_count[1] + 1;
-                        if (mixer_u.ram_write_en) write_count[1] <= write_count[1] + 1;
+                        if (mixer_u.ram_read_en_r) read_count[1] <= read_count[1] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[1] <= write_count[1] + 1;
                     end
                     mixer_u.SEND_REVERB, mixer_u.WAIT_REVERB:
                     begin
-                        if ((mixer_u.ram_read_en && mixer_u.ram_read_addr >= 17'd7494) ||
-                            (mixer_u.ram_write_en && mixer_u.ram_write_addr >= 17'd7494))
+                        if ((mixer_u.ram_read_en_r && mixer_u.ram_read_addr_r >= 17'd7494) ||
+                            (mixer_u.ram_write_en_r && mixer_u.ram_write_addr_r >= 17'd7494))
                             $fatal(1, "Reverb RAM address out of range");
-                        if (mixer_u.ram_read_en) read_count[2] <= read_count[2] + 1;
-                        if (mixer_u.ram_write_en) write_count[2] <= write_count[2] + 1;
+                        if (mixer_u.ram_read_en_r) read_count[2] <= read_count[2] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[2] <= write_count[2] + 1;
                     end
                     default: $fatal(1, "RAM active outside RAM-owning effect");
                 endcase

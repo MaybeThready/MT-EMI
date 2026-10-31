@@ -84,10 +84,14 @@ module mixer #(
     wire [16:0] delay_read_addr, delay_write_addr;
     wire [16:0] reverb_read_addr, reverb_write_addr;
     wire signed [23:0] chorus_write_data, delay_write_data, reverb_write_data;
-    wire signed [23:0] ram_read_data;
+    wire signed [23:0] ram_read_data_raw;
+    reg signed [23:0] ram_read_data_r;
     reg ram_read_en, ram_write_en;
     reg [16:0] ram_read_addr, ram_write_addr;
     reg signed [23:0] ram_write_data;
+    reg ram_read_en_r, ram_write_en_r;
+    reg [16:0] ram_read_addr_r, ram_write_addr_r;
+    reg signed [23:0] ram_write_data_r;
 
     distortion distortion_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .audio_in(sample_r),
@@ -104,7 +108,7 @@ module mixer #(
         .in_valid(stc == SEND_CHORUS), .in_ready(chorus_ready),
         .out_valid(chorus_valid), .out_ready(stc == WAIT_CHORUS),
         .ram_read_en(chorus_read_en), .ram_read_addr(chorus_read_addr),
-        .ram_read_data(ram_read_data),
+        .ram_read_data(ram_read_data_r),
         .ram_write_en(chorus_write_en), .ram_write_addr(chorus_write_addr),
         .ram_write_data(chorus_write_data)
     );
@@ -116,7 +120,7 @@ module mixer #(
         .in_valid(stc == SEND_DELAY), .in_ready(delay_ready),
         .out_valid(delay_valid), .out_ready(stc == WAIT_DELAY),
         .ram_read_en(delay_read_en), .ram_read_addr(delay_read_addr),
-        .ram_read_data(ram_read_data),
+        .ram_read_data(ram_read_data_r),
         .ram_write_en(delay_write_en), .ram_write_addr(delay_write_addr),
         .ram_write_data(delay_write_data)
     );
@@ -130,7 +134,7 @@ module mixer #(
         .in_valid(stc == SEND_REVERB), .in_ready(reverb_ready),
         .out_valid(reverb_valid), .out_ready(stc == WAIT_REVERB),
         .ram_read_en(reverb_read_en), .ram_read_addr(reverb_read_addr),
-        .ram_read_data(ram_read_data),
+        .ram_read_data(ram_read_data_r),
         .ram_write_en(reverb_write_en), .ram_write_addr(reverb_write_addr),
         .ram_write_data(reverb_write_data)
     );
@@ -170,11 +174,39 @@ module mixer #(
         endcase
     end
 
+    // 在共享 RAM 两侧各加一级寄存器，切断状态机到 RAM 地址端和
+    // RAM 输出多级选择器到效果器寄存器的组合路径。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            ram_read_en_r <= 1'b0;
+            ram_write_en_r <= 1'b0;
+            ram_read_addr_r <= 17'd0;
+            ram_write_addr_r <= 17'd0;
+            ram_write_data_r <= 24'sd0;
+            ram_read_data_r <= 24'sd0;
+        end
+        else
+        begin
+            ram_read_en_r <= ram_read_en;
+            ram_write_en_r <= ram_write_en;
+            if (ram_read_en)
+                ram_read_addr_r <= ram_read_addr;
+            if (ram_write_en)
+            begin
+                ram_write_addr_r <= ram_write_addr;
+                ram_write_data_r <= ram_write_data;
+            end
+            ram_read_data_r <= ram_read_data_raw;
+        end
+    end
+
     audio_mix_buffer ram_u (
-        .dout(ram_read_data),
-        .clka(clk_sys), .cea(ram_write_en), .ada(ram_write_addr),
-        .din(ram_write_data),
-        .clkb(clk_sys), .ceb(ram_read_en), .adb(ram_read_addr),
+        .dout(ram_read_data_raw),
+        .clka(clk_sys), .cea(ram_write_en_r), .ada(ram_write_addr_r),
+        .din(ram_write_data_r),
+        .clkb(clk_sys), .ceb(ram_read_en_r), .adb(ram_read_addr_r),
         .oce(1'b1), .reset(~rst_n)
     );
 
