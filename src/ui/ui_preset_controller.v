@@ -1,14 +1,17 @@
 /**
- * ui_preset_controller 模块 v2
+ * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
+ * ui_preset_controller 模块 v3
+ * v3：存储请求 valid 直接由非复位状态产生，隔离复位到驱动数据 CE 的路径。
  * v2 版本修改：装载 valid 由复位后无效的状态产生，去掉重复复位门控。
  * 执行一次音色保存或读取，复用记录校验模块；最多有一笔未完成事务。
+ * current_advanced/apply_advanced与基础参数和音色增益共用握手，保持原子性。
  * command_write=1 保存当前参数，=0 读取；命令握手时锁存槽号及参数。
  * storage_in_status: 0 成功、1 空槽、其余为失败。
  * 保存成功响应必须表示已可靠写入；复位时驱动须同时取消旧事务。
  * apply_* 仅在读取且格式、CRC、参数范围全部正确后有效，整组原子装载。
  * result_status: 0 成功、1 空槽、2 驱动错误、3 CRC、4 格式、5 范围、6 扩展。
  * 所有接口以 clk_sys 上升沿 valid && ready 交付，等待时保持内容不变。
- * TODO: 本轮不含实际存储驱动和清音；无超时猜测，驱动必须返回明确结果。
+ * TODO: 本轮已通过系统顶层接入实际存储驱动，清音仍待后续；无超时猜测，驱动必须返回明确结果。
  */
 module ui_preset_controller
 (
@@ -18,7 +21,10 @@ module ui_preset_controller
     output command_ready,
     input command_write,
     input [3:0] command_slot,
+    input [127:0] current_advanced,  // 8项音频编码，随command握手快照
+    output [127:0] apply_advanced,  // 随apply握手原子装载
     input [191:0] current_parameters,
+    input [15:0] current_balance_gain,  // 音色增益，随命令与参数同时锁存；不是 master_volume
     output storage_out_valid,
     input storage_out_ready,
     output storage_out_write,
@@ -31,6 +37,7 @@ module ui_preset_controller
     output apply_valid,
     input apply_ready,
     output [191:0] apply_parameters,
+    output [15:0] apply_balance_gain,  // 与 apply_valid/ready 同拍装载
     output result_valid,
     input result_ready,
     output [3:0] result_status
@@ -46,7 +53,12 @@ module ui_preset_controller
     reg [3:0] next_state;
     reg write_r;
     reg [3:0] slot_r;
+    reg [127:0] advanced_r;
+    wire [127:0] codec_advanced;
+    assign apply_advanced = advanced_r;
     reg [191:0] parameters_r;
+    reg [15:0] balance_gain_r;
+    wire [15:0] codec_balance_gain;
     reg [511:0] record_r;
     reg [3:0] status_r;
     wire codec_ready;
@@ -56,7 +68,8 @@ module ui_preset_controller
     wire [191:0] codec_parameters;
 
     assign command_ready = rst_n && (current_state == STATE_WAIT_COMMAND);
-    assign storage_out_valid = rst_n && (current_state == STATE_SEND_STORAGE_REQUEST);
+    // 异步复位到 WAIT_COMMAND 时自然无效；不额外让 rst_n 参与整组数据使能。
+    assign storage_out_valid = (current_state == STATE_SEND_STORAGE_REQUEST);
     assign storage_out_write = write_r;
     assign storage_out_slot = slot_r;
     assign storage_out_data = record_r;
@@ -64,6 +77,7 @@ module ui_preset_controller
     // 状态机异步复位到等待命令，装载状态本身已排除复位。
     assign apply_valid = (current_state == STATE_APPLY_LOADED_PARAMETERS);
     assign apply_parameters = parameters_r;
+    assign apply_balance_gain = balance_gain_r;
     assign result_valid = rst_n && (current_state == STATE_REPORT_RESULT);
     assign result_status = status_r;
 
@@ -72,7 +86,9 @@ module ui_preset_controller
     );
     preset_record_codec preset_record_codec_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .decode(!write_r), .slot(slot_r),
-        .parameters(parameters_r), .record_in(record_r),
+        .advanced_parameters(advanced_r), .advanced_parameters_out(codec_advanced),
+        .parameters(parameters_r), .balance_gain(balance_gain_r),
+        .balance_gain_out(codec_balance_gain), .record_in(record_r),
         .in_valid(current_state == STATE_START_RECORD_CODEC), .in_ready(codec_ready),
         .record_out(codec_record), .parameters_out(codec_parameters), .status(codec_status),
         .out_valid(codec_valid), .out_ready(current_state == STATE_WAIT_RECORD_CODEC)
@@ -116,6 +132,8 @@ module ui_preset_controller
             write_r <= 1'b0;
             slot_r <= 4'd0;
             parameters_r <= 192'd0;
+            advanced_r <= 128'h001840008000100090002ee02800b000;
+            balance_gain_r <= 16'h8000;
             record_r <= 512'd0;
             status_r <= 4'd0;
         end
@@ -127,6 +145,8 @@ module ui_preset_controller
                 write_r <= command_write;
                 slot_r <= command_slot;
                 parameters_r <= current_parameters;
+                advanced_r <= current_advanced;
+                balance_gain_r <= current_balance_gain;
                 record_r <= 512'd0;
                 status_r <= 4'd0;
             end
@@ -134,6 +154,8 @@ module ui_preset_controller
             begin
                 record_r <= codec_record;
                 parameters_r <= codec_parameters;
+                advanced_r <= codec_advanced;
+                balance_gain_r <= codec_balance_gain;
                 if (codec_status != 3'd0) status_r <= {1'b0, codec_status} + 4'd2;
             end
             if (storage_in_valid && (current_state == STATE_WAIT_STORAGE_RESPONSE))

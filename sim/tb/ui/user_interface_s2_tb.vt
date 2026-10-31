@@ -1,0 +1,522 @@
+`timescale 1ns/1ps
+/**
+ * 公开 UI 音色自检：真实采样节拍下测试菜单、16 槽、覆盖、取消、错误和复位。
+ * 独立计算保存记录和音频参数；读取时保持旧输出，验证键盘继续工作。
+ * 同按按钮的优先级、槽号边界、模式及总音量保持也在此检查。
+ * 弯音补充：升音时保存、降音时读取；记录内容不含轮子位置，加载后仍使用当前位置。
+ */
+module user_interface_s2_tb;
+    reg feedback_valid = 1'b0;
+    reg test_passed = 1'b0;
+    parameter BALANCE_ONLY = 0;  // 1只运行音色增益专项，0完整16槽回归
+    localparam KEY_NUM = 24;
+    localparam KNOB_NUM = 8;
+    localparam BEND_NUM = 1;
+    localparam MAX_POLYPHONY = 32;
+    localparam CHANNEL_NUM = 1;
+    reg clk_sys;
+    reg rst_n;
+    reg scan_tick_up;
+    reg [KEY_NUM-1:0] key_states;
+    reg [15:0] key_velocity [KEY_NUM-1:0];
+    reg [KNOB_NUM-1:0] knob_states;
+    reg [KNOB_NUM-1:0] knob_dirs;
+    reg [KNOB_NUM-1:0] knob_pressed;
+    reg [15:0] bend_value [BEND_NUM-1:0];
+    reg [MAX_POLYPHONY-1:0] note_busy;
+    wire [MAX_POLYPHONY-1:0] note_on;
+    wire [MAX_POLYPHONY-1:0] note_off;
+    wire [31:0] note_freq [MAX_POLYPHONY-1:0];
+    wire [15:0] note_velocity [MAX_POLYPHONY-1:0];
+    wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
+    wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
+    wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
+    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
+    wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
+    wire [15:0] sustain_level [CHANNEL_NUM-1:0];
+    wire [19:0] release_ticks [CHANNEL_NUM-1:0];
+    reg out_ready;
+    reg in_valid;
+    wire out_valid;
+    wire in_ready;
+    reg [3:0] button_states;
+    reg smp_tick_up;
+    wire [15:0] master_volume;
+    wire [15:0] balance_volume;
+    reg [15:0] balance_gain = 32768;
+    reg [127:0] expected_advanced = 128'h001840008000100090002ee02800b000;
+    reg [7:0] turn_dirs = 8'hff;
+    wire [127:0] menu_advanced_parameters;
+    wire [1:0] menu_effect;
+    wire menu_effect_reset;
+    wire [15:0] reverb_feedback,reverb_damping,delay_time,delay_feedback,distortion_gain,distortion_tone,chorus_rate;
+    wire [7:0] chorus_depth;
+    wire [15:0] reverb_mix;
+    wire [15:0] delay_mix;
+    wire [15:0] distortion_mix;
+    wire [15:0] chorus_mix;
+    wire configuration_error;
+    wire sample_overrun;
+    integer i;
+    integer accepted_frames = 0;
+    reg [331:0] held_parameters;
+    wire [331:0] parameters;
+    assign parameters = {chorus_depth,chorus_rate,distortion_tone,distortion_gain,delay_feedback,delay_time,reverb_damping,reverb_feedback,balance_volume, chorus_mix, distortion_mix, delay_mix, reverb_mix,
+        master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
+        attack_ticks[0], init_phase[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+
+    wire storage_out_valid, storage_out_write, storage_in_ready;
+    reg storage_out_ready = 1'b0;
+    wire [3:0] storage_out_slot;
+    wire [511:0] storage_out_data;
+    reg storage_in_valid = 1'b0;
+    reg [2:0] storage_in_status = 3'd0;
+    reg [511:0] storage_in_data = 512'd0;
+    wire [2:0] menu_page;
+    wire [1:0] menu_selection;
+    wire [3:0] menu_slot, menu_result_status;
+    wire menu_save, menu_slot_known, menu_slot_present;
+    reg storage_catalog_valid = 1'b1;
+    reg [15:0] storage_slot_present = 16'd0;
+    user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .menu_effect(menu_effect), .menu_effect_reset(menu_effect_reset), .menu_advanced_parameters(menu_advanced_parameters),
+        .reverb_feedback(reverb_feedback),
+        .reverb_damping(reverb_damping),
+        .delay_time(delay_time),
+        .delay_feedback(delay_feedback),
+        .distortion_gain(distortion_gain),
+        .distortion_tone(distortion_tone),
+        .chorus_rate(chorus_rate),
+        .chorus_depth(chorus_depth),
+
+        .storage_out_valid(storage_out_valid),
+        .storage_out_write(storage_out_write),
+        .storage_in_ready(storage_in_ready),
+        .storage_out_ready(storage_out_ready),
+        .storage_out_slot(storage_out_slot),
+        .storage_out_data(storage_out_data),
+        .storage_in_valid(storage_in_valid),
+        .storage_in_status(storage_in_status),
+        .storage_in_data(storage_in_data),
+        .menu_page(menu_page),
+        .menu_selection(menu_selection),
+        .menu_slot(menu_slot),
+        .menu_result_status(menu_result_status),
+        .menu_save(menu_save),
+        .menu_slot_known(menu_slot_known),
+        .menu_slot_present(menu_slot_present),
+        .storage_catalog_valid(storage_catalog_valid),
+        .storage_slot_present(storage_slot_present),
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .scan_tick_up(scan_tick_up),
+        .key_states(key_states),
+        .key_velocity(key_velocity),
+        .knob_states(knob_states),
+        .knob_dirs(knob_dirs),
+        .knob_pressed(knob_pressed),
+        .bend_value(bend_value),
+        .note_busy(note_busy), .note_busy_valid(feedback_valid),
+        .note_on(note_on),
+        .note_off(note_off),
+        .note_freq(note_freq),
+        .note_velocity(note_velocity),
+        .wavetable_0(wavetable_0),
+        .wavetable_1(wavetable_1),
+        .wavetable_interp(wavetable_interp),
+        .init_phase(init_phase),
+        .attack_ticks(attack_ticks),
+        .decay_ticks(decay_ticks),
+        .sustain_level(sustain_level),
+        .release_ticks(release_ticks),
+        .out_ready(out_ready),
+        .in_valid(in_valid),
+        .out_valid(out_valid),
+        .in_ready(in_ready),
+        .button_states(button_states),
+        .smp_tick_up(smp_tick_up),
+        .master_volume(master_volume), .balance_volume(balance_volume),
+        .reverb_mix(reverb_mix),
+        .delay_mix(delay_mix),
+        .distortion_mix(distortion_mix),
+        .chorus_mix(chorus_mix),
+        .configuration_error(configuration_error),
+        .sample_overrun(sample_overrun)
+    );
+
+    // 近似实际 PLL 周期；smp/scan 分别为 2048/8192 个系统周期。
+    initial clk_sys = 1'b0;
+    always #5.089286 clk_sys = ~clk_sys;
+    integer cycle = 0;
+    always @(negedge clk_sys)
+    begin
+        cycle = cycle + 1;
+        smp_tick_up = rst_n && ((cycle % 2048) == 0);
+        scan_tick_up = rst_n && ((cycle % 8192) == 0);
+    end
+    integer expected [0:11];
+    integer saved [0:15][0:11];
+    reg [15:0] master_gain = 32768;
+    integer slot_index, field_index;
+    reg [511:0] memory [0:15];
+    integer request_count = 0;
+    integer write_count = 0;
+    integer response_delay = 0;
+    integer fault_mode = 0;
+    reg pending = 1'b0;
+    reg [511:0] held_request;
+    reg [4:0] held_request_control;
+    reg stalled_request = 1'b0;
+    // 协议模型：输入握手后延迟一拍返回结果；不替代真实机架联合仿真。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n) feedback_valid <= 1'b0;
+        else feedback_valid <= out_valid && out_ready;
+    end
+    reg stalled_audio = 1'b0;
+    reg [331:0] held_audio;
+    reg [511:0] generated_record;
+    reg [511:0] held_memory;
+    integer start_count;
+    integer note_on_count = 0;
+    integer note_off_count = 0;
+    integer audio_stall_remaining = 0;
+    integer audio_stall_observed = 0;
+    integer load_result_stall_observed = 0;
+    reg exercise_load_stall = 1'b0;
+
+    function [15:0] reference_crc;
+        input [495:0] data;
+        reg [15:0] value;
+        integer byte_index, bit_index;
+        begin
+            value = 16'hffff;
+            for (byte_index = 61; byte_index >= 0; byte_index = byte_index - 1)
+            begin
+                value = value ^ {data[byte_index * 8 +: 8], 8'd0};
+                for (bit_index = 0; bit_index < 8; bit_index = bit_index + 1)
+                    value = value[15] ? (value << 1) ^ 16'h1021 : value << 1;
+            end
+            reference_crc = value;
+        end
+    endfunction
+    function [511:0] expected_record;
+        input [3:0] slot;
+        reg [511:0] value;
+        integer n;
+        begin
+            value = 512'd0;
+            value[15:0] = 16'h5549;
+            value[31:16] = 16'd5;
+            value[47:32] = {12'd0, slot};
+            value[63:48] = 16'd21;
+            value[383:256] = expected_advanced;
+            value[399:384] = balance_gain;
+            for (n=0; n<12; n=n+1) value[64 + n*16 +: 16] = expected[n];
+            value[511:496] = reference_crc(value[495:0]);
+            expected_record = value;
+        end
+    endfunction
+    function [15:0] gain;
+        input integer percent;
+        integer value;
+        begin
+            value = (percent * 65536 + 50) / 100;
+            gain = (value > 65535) ? 16'hffff : value[15:0];
+        end
+    endfunction
+
+    // 仅仿真使用的非易失介质替身：DUT 复位不清除已写内容。
+    // 真实掉电、擦写原子性与寿命必须由后续存储驱动验证。
+    always @(negedge clk_sys)
+    begin
+        storage_out_ready = rst_n && !pending && !storage_in_valid && ((cycle % 23) == 0);
+        out_ready = rst_n && (audio_stall_remaining == 0) && ((cycle % 17) != 0);
+    end
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            pending <= 1'b0;
+            response_delay <= 0;
+            storage_in_valid <= 1'b0;
+            stalled_request <= 1'b0;
+            stalled_audio <= 1'b0;
+            audio_stall_remaining <= 0;
+            note_busy <= 32'd0;
+        end
+        else
+        begin
+            if (configuration_error || sample_overrun)
+                $fatal(1, "配置或采样超期 cycle=%0d phase=%0d", cycle, cycle % 2048);
+            if (stalled_request && (!storage_out_valid || held_request !== storage_out_data ||
+                held_request_control !== {storage_out_write,storage_out_slot}))
+                $fatal(1, "存储请求背压不稳定");
+            stalled_request <= storage_out_valid && !storage_out_ready;
+            held_request <= storage_out_data;
+            held_request_control <= {storage_out_write,storage_out_slot};
+            if (stalled_audio && (!out_valid || held_audio !== parameters)) $fatal(1, "音频参数背压不稳定");
+            stalled_audio <= out_valid && !out_ready;
+            held_audio <= parameters;
+            if (audio_stall_remaining > 0) audio_stall_remaining <= audio_stall_remaining - 1;
+            if (stalled_audio && exercise_load_stall) audio_stall_observed = audio_stall_observed + 1;
+            if (stalled_audio && exercise_load_stall && menu_page == 3'd5)
+                load_result_stall_observed = load_result_stall_observed + 1;
+            if (out_valid && out_ready)
+            begin
+                if (note_on != 32'd0)
+                begin
+                    if (note_on !== 32'd1 || note_freq[0] !== 32'd28835840)
+                        $fatal(1, "菜单期间 A4 起音或声部分配错误");
+                    note_on_count = note_on_count + 1;
+                    note_busy <= note_busy | note_on;
+                end
+                if (note_off != 32'd0)
+                begin
+                    if (note_off !== 32'd1) $fatal(1, "菜单期间松键通知错误");
+                    note_off_count = note_off_count + 1;
+                    note_busy <= note_busy & ~note_off;
+                end
+            end
+            if (storage_in_valid && storage_in_ready) storage_in_valid <= 1'b0;
+            if (pending)
+            begin
+                if (response_delay == 0)
+                begin
+                    storage_in_valid <= 1'b1;
+                    pending <= 1'b0;
+                end
+                else response_delay <= response_delay - 1;
+            end
+            if (storage_out_valid && storage_out_ready)
+            begin
+                request_count = request_count + 1;
+                pending <= 1'b1;
+                response_delay <= 400 + (request_count % 127);
+                // 新弯音需要 105 拍；请求可能早于本次输出，不能再阻塞 2800 拍。
+                // 300 拍返回后进行 CRC/装载；1400 拍解除背压，仍早于下一采样。
+                if (exercise_load_stall && !storage_out_write)
+                begin
+                    response_delay <= 300;
+                    audio_stall_remaining <= 1400;
+                end
+                storage_in_status <= 3'd0;
+                storage_in_data <= 512'd0;
+                if (fault_mode == 3) storage_in_status <= 3'd2;
+                else if (storage_out_write)
+                begin
+                    generated_record = expected_record(storage_out_slot);
+                    if (storage_out_data !== generated_record)
+                        $fatal(1, "保存内容错误 slot=%0d got=%h expected=%h", storage_out_slot, storage_out_data, generated_record);
+                    memory[storage_out_slot] <= storage_out_data;
+                    storage_slot_present[storage_out_slot] <= 1'b1;
+                    write_count = write_count + 1;
+                end
+                else if (!storage_slot_present[storage_out_slot]) storage_in_status <= 3'd1;
+                else
+                begin
+                    generated_record = memory[storage_out_slot];
+                    if (fault_mode == 1) generated_record[100] = ~generated_record[100];
+                    if (fault_mode == 2)
+                    begin
+                        generated_record[31:16] = 16'd99;
+                        generated_record[511:496] = reference_crc(generated_record[495:0]);
+                    end
+                    storage_in_data <= generated_record;
+                end
+            end
+        end
+    end
+
+    task send_frame;
+        input [3:0] buttons;
+        input [7:0] turns;
+        begin
+            // 扫描启动后隔 32 拍送来已准备好的输入，证明无需与 scan_tick 同拍。
+            @(negedge clk_sys);
+            while ((cycle % 128) != 32) @(negedge clk_sys);
+            button_states = buttons;
+            knob_states = turns;
+            knob_dirs = turn_dirs;
+            in_valid = 1'b1;
+            @(posedge clk_sys);
+            while (!in_ready) @(posedge clk_sys);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+        end
+    endtask
+    task press_button;
+        input [3:0] buttons;
+        begin
+            send_frame(buttons,8'd0);
+            send_frame(4'd0,8'd0);
+            repeat (150) @(negedge clk_sys);
+        end
+    endtask
+    task check_parameters;
+        integer n;
+        reg [331:0] wanted;
+        reg [15:0] interpolation, phase_value;
+        reg [19:0] attack_value, decay_value, release_value;
+        real bend_cents, expected_frequency, frequency_error;
+        begin
+            interpolation = (expected[2] * 32768 + 50) / 100;
+            phase_value = (expected[3] * 65536 + 180) / 360;
+            attack_value = expected[4] * 48;
+            decay_value = expected[5] * 48;
+            release_value = expected[7] * 48;
+            wanted = {expected_advanced[119:0],balance_gain,gain(expected[11]),gain(expected[10]),gain(expected[9]),gain(expected[8]),
+                master_gain,release_value,gain(expected[6]),decay_value,attack_value,
+                phase_value,interpolation,expected[1][3:0],expected[0][3:0]};
+            repeat (4200) @(negedge clk_sys);
+            while (!out_valid) @(negedge clk_sys);
+            if (parameters !== wanted) $fatal(1, "音频参数错误 got=%h expected=%h",parameters,wanted);
+            if (note_freq[0] != 32'd0)
+            begin
+                bend_cents = (bend_value[0] <= 16'h8000) ?
+                    200.0 * (int'(bend_value[0]) - 32768) / 32768.0 :
+                    200.0 * (int'(bend_value[0]) - 32768) / 32767.0;
+                expected_frequency = 440.0 * (2.0 ** (bend_cents / 1200.0));
+                frequency_error = 1200.0 * $ln((note_freq[0] / 65536.0) / expected_frequency) / $ln(2.0);
+                if (frequency_error < -0.1 || frequency_error > 0.1)
+                    $fatal(1, "音色操作改变了轮子位置或使用过期弯音");
+            end
+        end
+    endtask
+    task return_to_play;
+        begin
+            if (menu_page == 3'd7) press_button(4'h8);
+            if (menu_page == 3'd6) press_button(4'h8);
+            if (menu_page == 3'd5) press_button(4'h8);
+            if (menu_page == 3'd3) press_button(4'h8);
+            if (menu_page == 3'd2) press_button(4'h8);
+            if (menu_page == 3'd1) press_button(4'h8);
+            if (menu_page !== 3'd0) $fatal(1,"未返回演奏界面");
+        end
+    endtask
+    task open_slots;
+        input save_mode;
+        begin
+            return_to_play;
+            press_button(4'h1);
+            press_button(4'h4);
+            if (save_mode) press_button(4'h4);
+            press_button(4'h1);
+            if (menu_page !== 3'd2 || menu_save !== save_mode) $fatal(1,"菜单选择错误");
+        end
+    endtask
+    task select_slot;
+        input [3:0] slot;
+        begin
+            while (menu_slot < slot) press_button(4'h4);
+            while (menu_slot > slot) press_button(4'h2);
+        end
+    endtask
+    task execute_operation;
+        input [3:0] status;
+        begin
+            press_button(4'h1);
+            if (menu_page !== 3'd3) $fatal(1,"缺少确认页");
+            press_button(4'h1);
+            while (menu_page == 3'd4) @(negedge clk_sys);
+            if (menu_page !== 3'd5 || menu_result_status !== status)
+                $fatal(1,"操作结果错误 page=%0d status=%0d expected=%0d",menu_page,menu_result_status,status);
+        end
+    endtask
+    initial
+    begin
+        rst_n=1'b0; scan_tick_up=1'b0; smp_tick_up=1'b0;
+        key_states=24'd0; note_busy=32'd0; bend_value[0]=16'h8000;
+        knob_states=8'd0; knob_dirs=8'd0; knob_pressed=8'd0;
+        button_states=4'd0; in_valid=1'b0; out_ready=1'b0;
+        for (i=0;i<24;i=i+1) key_velocity[i]=16'h8000;
+        expected[0]=0; expected[1]=1; expected[2]=0; expected[3]=0;
+        expected[4]=5; expected[5]=150; expected[6]=70; expected[7]=200;
+        for (i=8;i<12;i=i+1) expected[i]=0;
+        repeat (5) @(negedge clk_sys);
+        rst_n=1'b1;
+        send_frame(4'd0,8'd0);
+        check_parameters;
+        // K3/K4 independent coarse/fine, reset, mode0/1 and range clamps.
+        turn_dirs=8'h00; send_frame(0,8'h08); balance_gain=31130; check_parameters;
+        send_frame(4'h8,8'h08); balance_gain=30802; check_parameters;
+        send_frame(0,0); turn_dirs=8'hff;
+        send_frame(0,8'h04); master_gain=34406; check_parameters;
+        knob_pressed=8'h08; send_frame(0,0); balance_gain=32768; check_parameters;
+        knob_pressed=0; send_frame(0,0);
+        press_button(4'h2); // mode1
+        turn_dirs=0;
+        repeat(21) send_frame(0,8'h08);
+        balance_gain=0; check_parameters;
+        turn_dirs=8'hff; repeat(41) send_frame(0,8'h08);
+        balance_gain=65535; check_parameters;
+        knob_pressed=8'h08; send_frame(0,0); balance_gain=32768; check_parameters;
+        knob_pressed=0; send_frame(0,0);
+        // All four effect pages; K1/K2 only affect the selected effect.
+        for (slot_index=0;slot_index<4;slot_index=slot_index+1)
+        begin
+            return_to_play;
+            press_button(1); repeat(3) press_button(4); press_button(1);
+            if(menu_page!=6) $fatal(1,"Effect directory missing");
+            while(menu_effect<slot_index) press_button(4);
+            press_button(1);
+            if(menu_page!=7 || menu_effect_reset) $fatal(1,"Effect edit missing");
+            send_frame(0,8'h03);
+            case(slot_index)
+                0: begin expected_advanced[15:0]=16'hb400; expected_advanced[31:16]=16'h2c00; end
+                1: begin expected_advanced[47:32]=16'd12480; expected_advanced[63:48]=16'h9400; end
+                2: begin expected_advanced[79:64]=16'h1100; expected_advanced[95:80]=16'h8400; end
+                3: begin expected_advanced[111:96]=16'h4400; expected_advanced[127:112]=16'd25; end
+            endcase
+            check_parameters;
+            if(menu_advanced_parameters!==expected_advanced) $fatal(1,"Display parameter snapshot mismatch");
+        end
+        return_to_play;
+        // Original mode1 is restored: K5 changes mix, not attack.
+        send_frame(0,8'h10); expected[8]=5;
+        turn_dirs=0; send_frame(0,8'h08); balance_gain=31130; turn_dirs=8'hff;
+        check_parameters;
+        open_slots(1); select_slot(3); execute_operation(0);
+        if(memory[3][31:16]!=5 || memory[3][63:48]!=21 || memory[3][383:256]!==expected_advanced)
+            $fatal(1,"Full S2 record mismatch");
+        return_to_play;
+        // Reset current effect including mix; other effect values and both gains survive.
+        press_button(1); repeat(3) press_button(4); press_button(1);
+        while(menu_effect>0) press_button(2);
+        press_button(1); press_button(4);
+        if(!menu_effect_reset) $fatal(1,"Reset item missing");
+        send_frame(0,8'h03); check_parameters; // turns disabled on reset item
+        press_button(1); expected_advanced[31:0]=32'h2800b000; expected[8]=0;
+        check_parameters; return_to_play;
+        // Change only live master. Loading restores the tone but preserves master.
+        send_frame(0,8'h04); master_gain=36044;
+        expected_advanced=memory[3][383:256]; expected[8]=5;
+        open_slots(0); select_slot(3); execute_operation(0); check_parameters;
+        return_to_play;
+        // CRC/format/driver failure must not change any of the 21 tone fields.
+        open_slots(0); fault_mode=1; execute_operation(3); check_parameters; fault_mode=0;
+        press_button(8); fault_mode=2; execute_operation(4); check_parameters; fault_mode=0;
+        press_button(8); fault_mode=3; execute_operation(2); check_parameters; fault_mode=0;
+        // Reset leaves simulated nonvolatile medium intact; never auto-writes.
+        @(negedge clk_sys); rst_n=0; repeat(5) @(negedge clk_sys); rst_n=1;
+        master_gain=32768; balance_gain=32768; expected[8]=0;
+        expected_advanced=128'h001840008000100090002ee02800b000;
+        send_frame(0,0); check_parameters;
+        expected_advanced=memory[3][383:256]; expected[8]=5; balance_gain=31130;
+        open_slots(0); select_slot(3); execute_operation(0); check_parameters;
+        if(write_count!=1) $fatal(1,"Unexpected write count");
+        return_to_play;
+        // Legacy stage2 record3 loads its gain and supplies explicit advanced defaults.
+        memory[4]=memory[3]; memory[4][31:16]=3; memory[4][47:32]=4;
+        memory[4][63:48]=13; memory[4][383:256]=0;
+        memory[4][399:384]=95; balance_gain=31130;
+        memory[4][511:496]=reference_crc(memory[4][495:0]); storage_slot_present[4]=1;
+        expected_advanced=128'h001840008000100090002ee02800b000;
+        open_slots(0); select_slot(4); execute_operation(0); check_parameters;
+        test_passed=1;
+        $display("UI_S2_PASS K4_coarse_fine_clamp_reset master_preserved four_effects defaults store reboot legacy errors backpressure");
+        $finish;
+    end
+    initial begin #50000000; $fatal(1,"S2 UI timeout"); end
+endmodule

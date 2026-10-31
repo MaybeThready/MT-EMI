@@ -5,8 +5,9 @@
  * occupied/held/key_id: 声部是否分配、琴键是否按住、对应键号。
  * out_ready: 本组音符已交给音频模块；等待时所有输出保持不变。
  * NOTE: 同一声部被新音替换时只发 note_on，音频端须重新起音。
- * TODO: note_busy 协议待确认；当前在交付时或之后观察到低→高→低，
- * 且琴键已松开，才允许下一次处理输入时回收。未满足时保留分配，但仍可替换。
+ * note_busy_valid：上层已确认属于刚交付命令的反馈，锁存后分拍回收。
+ * feedback_done：所有声部检查完成的单拍脉冲；上层此后才允许下一组分配。
+ * 时序优化：音符事件寄存独立更新，反馈接收不再参与note_on/off清零使能。
  * 复位须与音频协调；此处不处理读取音色时的强制停音。
  */
 module keyboard_voice_allocator
@@ -20,6 +21,8 @@ module keyboard_voice_allocator
     input [KEY_NUM-1:0] press_event,
     input [KEY_NUM-1:0] release_event,
     input [MAX_POLYPHONY-1:0] note_busy,
+    input note_busy_valid,
+    output feedback_done,
     input in_valid,
     output in_ready,
     output [MAX_POLYPHONY-1:0] note_on,
@@ -31,17 +34,21 @@ module keyboard_voice_allocator
     input out_ready
 );
     localparam VOICE_WIDTH = (MAX_POLYPHONY > 1) ? $clog2(MAX_POLYPHONY) : 1;
-    localparam STATE_WAIT_EVENT_FRAME = 3'd0;
-    localparam STATE_RELEASE_OLD_KEYS = 3'd1;
-    localparam STATE_CHECK_NEXT_KEY = 3'd2;
-    localparam STATE_SEARCH_VOICE = 3'd3;
-    localparam STATE_ASSIGN_NEW_KEY = 3'd4;
-    localparam STATE_CAPTURE_RESULT = 3'd5;
-    localparam STATE_WAIT_AUDIO_ACCEPT = 3'd6;
+    localparam STATE_WAIT_EVENT_FRAME = 4'd0;
+    localparam STATE_RELEASE_OLD_KEYS = 4'd1;
+    localparam STATE_CHECK_NEXT_KEY = 4'd2;
+    localparam STATE_SEARCH_VOICE = 4'd3;
+    localparam STATE_ASSIGN_NEW_KEY = 4'd4;
+    localparam STATE_CAPTURE_RESULT = 4'd5;
+    localparam STATE_WAIT_AUDIO_ACCEPT = 4'd6;
     // 前一拍已经读取最后声部，当前状态只比较它，不能提前提交旧的胜者。
-    localparam STATE_COMPARE_LAST_VOICE = 3'd7;
-    wire [2:0] current_state;
-    reg [2:0] next_state;
+    localparam STATE_COMPARE_LAST_VOICE = 4'd7;
+    localparam STATE_RECLAIM = 4'd8;
+    reg [MAX_POLYPHONY-1:0] busy_snapshot_r;
+    reg feedback_done_r;
+    assign feedback_done = feedback_done_r;
+    wire [3:0] current_state;
+    reg [3:0] next_state;
     reg [KEY_NUM-1:0] press_r;
     reg [KEY_NUM-1:0] release_r;
     reg [KEY_ID_WIDTH-1:0] key_index_r;
@@ -54,10 +61,6 @@ module keyboard_voice_allocator
     reg [VOICE_WIDTH-1:0] age_r [MAX_POLYPHONY-1:0];
     reg [MAX_POLYPHONY-1:0] allocated_r;
     reg [MAX_POLYPHONY-1:0] held_r;
-    reg [MAX_POLYPHONY-1:0] delivered_r;
-    reg [MAX_POLYPHONY-1:0] busy_low_seen_r;
-    reg [MAX_POLYPHONY-1:0] busy_high_seen_r;
-    reg [MAX_POLYPHONY-1:0] completed_r;
     reg [MAX_POLYPHONY-1:0] note_on_r;
     reg [MAX_POLYPHONY-1:0] note_off_r;
     reg [MAX_POLYPHONY-1:0] occupied_out_r;
@@ -71,7 +74,7 @@ module keyboard_voice_allocator
     integer voice;
     genvar output_voice;
 
-    assign in_ready = rst_n && (current_state == STATE_WAIT_EVENT_FRAME);
+    assign in_ready = rst_n && (current_state == STATE_WAIT_EVENT_FRAME) && !note_busy_valid;
     // 异步复位进入等待输入状态，valid 自然为零，避免复位网进入握手组合链。
     assign out_valid = (current_state == STATE_WAIT_AUDIO_ACCEPT);
     assign note_on = note_on_r;
@@ -84,7 +87,7 @@ module keyboard_voice_allocator
             assign key_id[output_voice] = key_id_out_r[output_voice];
         end
     endgenerate
-    fsm #(.W(3), .INITIAL_STATE(STATE_WAIT_EVENT_FRAME)) fsm_u (
+    fsm #(.W(4), .INITIAL_STATE(STATE_WAIT_EVENT_FRAME)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
 
@@ -92,7 +95,7 @@ module keyboard_voice_allocator
     // 读取多路器不再与年龄比较串联，仍保持每拍读取一个声部。
     always @(*)
     begin
-        if (!allocated_r[voice_index_r] && !note_busy[voice_index_r])
+        if (!allocated_r[voice_index_r])
             candidate_class = 2'd0;
         else if (allocated_r[voice_index_r] && !held_r[voice_index_r])
             candidate_class = 2'd1;
@@ -105,7 +108,10 @@ module keyboard_voice_allocator
         next_state = current_state;
         case (current_state)
             STATE_WAIT_EVENT_FRAME:
-                if (in_valid) next_state = STATE_RELEASE_OLD_KEYS;
+                if (note_busy_valid) next_state = STATE_RECLAIM;
+                else if (in_valid) next_state = STATE_RELEASE_OLD_KEYS;
+            STATE_RECLAIM:
+                if (voice_index_r == MAX_POLYPHONY - 1) next_state = STATE_WAIT_EVENT_FRAME;
             STATE_RELEASE_OLD_KEYS:
                 if (voice_index_r == MAX_POLYPHONY - 1) next_state = STATE_CHECK_NEXT_KEY;
             STATE_CHECK_NEXT_KEY:
@@ -128,6 +134,8 @@ module keyboard_voice_allocator
     begin
         if (!rst_n)
         begin
+            busy_snapshot_r <= '0;
+            feedback_done_r <= 1'b0;
             press_r <= '0;
             release_r <= '0;
             key_index_r <= '0;
@@ -142,12 +150,6 @@ module keyboard_voice_allocator
             candidate_valid_r <= 1'b0;
             allocated_r <= '0;
             held_r <= '0;
-            delivered_r <= '0;
-            busy_low_seen_r <= '0;
-            busy_high_seen_r <= '0;
-            completed_r <= '0;
-            note_on_r <= '0;
-            note_off_r <= '0;
             occupied_out_r <= '0;
             held_out_r <= '0;
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
@@ -159,31 +161,39 @@ module keyboard_voice_allocator
         end
         else
         begin
-            // 捕捉逐系统周期反馈；回收只在下一输入帧处理阶段修改映射。
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-            begin
-                if (allocated_r[voice] && delivered_r[voice])
-                begin
-                    if (!note_busy[voice] && !busy_high_seen_r[voice])
-                        busy_low_seen_r[voice] <= 1'b1;
-                    if (note_busy[voice] && busy_low_seen_r[voice])
-                        busy_high_seen_r[voice] <= 1'b1;
-                    if (!note_busy[voice] && busy_high_seen_r[voice])
-                        completed_r[voice] <= 1'b1;
-                end
-            end
+            feedback_done_r <= 1'b0;
             case (current_state)
                 STATE_WAIT_EVENT_FRAME:
                 begin
-                    if (in_valid && in_ready)
+                    if (note_busy_valid)
+                    begin
+                        busy_snapshot_r <= note_busy;
+                        voice_index_r <= '0;
+                    end
+                    else if (in_valid && in_ready)
                     begin
                         press_r <= press_event;
                         release_r <= release_event;
                         voice_index_r <= '0;
                         key_index_r <= '0;
-                        note_on_r <= '0;
-                        note_off_r <= '0;
                     end
+                end
+                STATE_RECLAIM:
+                begin
+                    for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                    begin
+                        if ((voice_index_r == voice) && allocated_r[voice]
+                            && !held_r[voice] && !busy_snapshot_r[voice])
+                        begin
+                            allocated_r[voice] <= 1'b0;
+                            occupied_out_r[voice] <= 1'b0;
+                            owner_r[voice] <= '0;
+                            key_id_out_r[voice] <= '0;
+                        end
+                    end
+                    if (voice_index_r == MAX_POLYPHONY - 1)
+                        feedback_done_r <= 1'b1;
+                    else voice_index_r <= voice_index_r + 1'b1;
                 end
                 STATE_RELEASE_OLD_KEYS:
                 begin
@@ -193,12 +203,9 @@ module keyboard_voice_allocator
                     begin
                         if ((voice_index_r == voice) && allocated_r[voice])
                         begin
-                            if (!held_r[voice] && completed_r[voice])
-                                allocated_r[voice] <= 1'b0;
                             if (held_r[voice] && release_r[owner_r[voice]])
                             begin
                                 held_r[voice] <= 1'b0;
-                                note_off_r[voice] <= 1'b1;
                             end
                         end
                     end
@@ -244,12 +251,6 @@ module keyboard_voice_allocator
                     owner_r[selected_voice_r] <= key_index_r;
                     allocated_r[selected_voice_r] <= 1'b1;
                     held_r[selected_voice_r] <= 1'b1;
-                    delivered_r[selected_voice_r] <= 1'b0;
-                    busy_low_seen_r[selected_voice_r] <= 1'b0;
-                    busy_high_seen_r[selected_voice_r] <= 1'b0;
-                    completed_r[selected_voice_r] <= 1'b0;
-                    note_on_r[selected_voice_r] <= 1'b1;
-                    note_off_r[selected_voice_r] <= 1'b0;
                     // 年龄为 0..P-1 的排列，0 最新；移动到队首不会溢出。
                     // 搜索已同步保存胜出声部的年龄，搜索到提交之间年龄表不变。
                     // 复用 selected_age_r，省去重新读取 age_r[selected_voice_r] 的多路器。
@@ -270,32 +271,38 @@ module keyboard_voice_allocator
                     for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
                         key_id_out_r[voice] <= owner_r[voice];
                 end
-                STATE_WAIT_AUDIO_ACCEPT:
-                begin
-                    if (out_valid && out_ready)
-                    begin
-                        for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-                        begin
-                            if (note_on_r[voice])
-                            begin
-                                delivered_r[voice] <= 1'b1;
-                                busy_low_seen_r[voice] <= !note_busy[voice];
-                                busy_high_seen_r[voice] <= 1'b0;
-                                completed_r[voice] <= 1'b0;
-                            end
-                        end
-                        note_on_r <= '0;
-                        note_off_r <= '0;
-                    end
-                end
-                default:
-                begin
-                    note_on_r <= '0;
-                    note_off_r <= '0;
-                end
+                default: ;
             endcase
         end
     end
+    // 上次结果确认时已清零，下一帧接收和反馈无需重复清零。
+    // 固定声部下标避免动态位写入与全局清零形成跨声部的使能多路器。
+    generate
+        for (output_voice = 0; output_voice < MAX_POLYPHONY; output_voice = output_voice + 1)
+        begin : voice_events
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n)
+                begin
+                    note_on_r[output_voice] <= 1'b0;
+                    note_off_r[output_voice] <= 1'b0;
+                end
+                else if ((current_state == STATE_WAIT_AUDIO_ACCEPT) && out_ready)
+                begin
+                    note_on_r[output_voice] <= 1'b0;
+                    note_off_r[output_voice] <= 1'b0;
+                end
+                else if ((current_state == STATE_ASSIGN_NEW_KEY) && (selected_voice_r == output_voice))
+                begin
+                    note_on_r[output_voice] <= 1'b1;
+                    note_off_r[output_voice] <= 1'b0;
+                end
+                else if ((current_state == STATE_RELEASE_OLD_KEYS) && (voice_index_r == output_voice)
+                    && allocated_r[output_voice] && held_r[output_voice] && release_r[owner_r[output_voice]])
+                    note_off_r[output_voice] <= 1'b1;
+            end
+        end
+    endgenerate
     // synthesis translate_off
     initial
     begin

@@ -8,8 +8,24 @@
 module top
 (
     input clk_core,
-    input rst_n,
-    output [1:0] status_led
+    input rst_n,  // K16：低有效系统复位，不作为 UI 菜单按钮
+    output flash_cs_n,
+    output flash_clk,
+    output flash_mosi,
+    input flash_miso,
+    output flash_wp_n,
+    output flash_hold_n,
+    output [1:0] status_led,
+    output [1:0] saved_value_led,  // 低有效，LED2/L20、LED3/M25
+    output [1:0] clock_status_led,
+    output lcd_clk,
+    output lcd_en,
+    output [5:0] lcd_r,
+    output [5:0] lcd_g,
+    output [5:0] lcd_b,
+    output lcd_bl,
+    output lcd_hs_n,
+    output lcd_vs_n
 );
     localparam MAX_POLYPHONY = 32;
 
