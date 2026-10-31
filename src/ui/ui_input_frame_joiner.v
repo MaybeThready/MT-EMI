@@ -7,6 +7,7 @@
  * 按钮每批一组且 last=1；旋钮每批至少一组，最后一组 last=1。
  * context_valid: 按钮设置已算好；frame_done_valid: 本组旋钮已处理完。
  * 编号从零开始并按位宽回绕；clear_wave_progress 只用于本批第一组旋钮。
+ * effect_select随context锁存；effect_reset只交付本批第一帧并保持到frame_done握手。
  * NOTE: 编号不匹配时置 protocol_error 并停止，须与输入端一起复位恢复。
  * TODO: 缺少输入或结束标志时没有超时恢复；公开顶层只发送每批一组旋钮。
  */
@@ -36,6 +37,8 @@ module ui_input_frame_joiner
     input context_edit_enable,
     input context_edit_target,
     input context_clear_wave_progress,
+    input [1:0] context_effect_select,
+    input context_effect_reset,
     input context_valid,
     output context_ready,
     output [7:0] handler_knob_states,
@@ -48,6 +51,8 @@ module ui_input_frame_joiner
     output edit_enable,
     output edit_target,
     output clear_wave_progress,
+    output [1:0] effect_select,
+    output effect_reset,  // 恢复命令只交付本批第一组旋钮
     input frame_done_valid,
     output frame_done_ready,
     output protocol_error
@@ -80,6 +85,10 @@ module ui_input_frame_joiner
     reg edit_enable_r;
     reg edit_target_r;
     reg batch_clear_r;
+    reg [1:0] effect_select_r;
+    reg effect_reset_r;
+    assign effect_select = effect_select_r;
+    assign effect_reset = effect_reset_r && first_frame_r;
     // 与错误状态同沿更新，避免状态译码串入下游宽总线的写使能。
     reg protocol_error_r /* synthesis syn_preserve = 1 */;
 
@@ -167,6 +176,8 @@ module ui_input_frame_joiner
             edit_enable_r <= 1'b0;
             edit_target_r <= 1'b0;
             batch_clear_r <= 1'b0;
+            effect_select_r <= 2'd0;
+            effect_reset_r <= 1'b0;
         end
         else
         begin
@@ -214,6 +225,8 @@ module ui_input_frame_joiner
                 edit_enable_r <= context_edit_enable;
                 edit_target_r <= context_edit_target;
                 batch_clear_r <= context_clear_wave_progress;
+                effect_select_r <= context_effect_select;
+                effect_reset_r <= context_effect_reset;
                 first_frame_r <= 1'b1;
             end
             // first_frame 保持到参数存储提交完成；

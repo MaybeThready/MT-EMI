@@ -1,0 +1,299 @@
+`timescale 1ns/1ps
+/**
+ * 使用真实 sys_clocker、PLL 初始化逻辑验证正式 top；默认加载高云原语模型。
+ * CONTROLLED_PLL=1替换模拟PLL包装并缩短恢复监控计时，验证数字功能，不签核时序。
+ * 覆盖锁定前复位、实际输出周期、心跳、串行参数采集、CRC 和运行中复位。
+ * 增加动态弯音帧与背压检查；仅在定向背压阶段强制 UI 接收可用线，不改内部寄存器。
+ * 本轮仅验证UI/Flash集成；保留正式LCD实现，不验收LCD。
+ * Flash: 在待接按钮驱动边界注入状态，检查菜单保存/读取、重启目录及无输入时不写入。
+ * 参数观测总线必须无X/Z，防止未接端口被相同未知值的串行参考掩盖。
+ * 不替代器件抖动和实物电气测试。
+ */
+module top_ui_delivery_tb;
+    GSR GSR (.GSRI(1'b1));
+    parameter CONTROLLED_PLL = 0;
+    // 仅在数字功能仿真中缩短时钟恢复计时；不修改正式时钟模块。
+    defparam top_u.sys_clocker_u.clock_recovery_u.RESET_CYCLES = CONTROLLED_PLL ? 4 : 50000;
+    defparam top_u.sys_clocker_u.clock_recovery_u.STABLE_CYCLES = CONTROLLED_PLL ? 4 : 50000;
+    generate
+        if (CONTROLLED_PLL != 0)
+        begin : accelerate_calibration
+            initial force top_u.sys_clocker_u.gowin_pll_u.u_pll_init.waitcnt = '1;
+        end
+    endgenerate
+    // Digital test accelerates timers only; real-model path retains current project defaults.
+    reg clk_core = 1'b0;
+    reg rst_n = 1'b0;
+    wire [1:0] status_led;
+    wire lcd_clk;
+    wire lcd_en;
+    wire [5:0] lcd_r, lcd_g, lcd_b;
+    wire lcd_bl, lcd_hs_n, lcd_vs_n;
+    reg [3:0] button_states = 4'b0000;
+    wire flash_cs_n, flash_clk, flash_mosi, flash_wp_n, flash_hold_n;
+    tri1 flash_miso;
+    reg [511:0] saved_ui_record;
+    integer storage_writes = 0;
+    integer lcd_samples = 0;
+    reg test_passed = 1'b0;
+    integer lcd_active_samples = 0;
+    time last_lcd_edge = 0;
+    integer bit_count = 0;
+    integer heartbeat_changes = 0;
+    reg last_heartbeat = 1'b0;
+    reg [31:0] expected_crc = 32'hffffffff;
+    realtime first_edge;
+    realtime measured_period;
+    integer system_cycles = 0;
+    integer last_sample_cycle = -1;
+    integer last_scan_cycle = -1;
+    integer captured_frames = 0;
+    integer expected_bits = 0;
+    reg [1939:0] expected_serial = '0;
+    reg [27:0] held_source = '0;
+    reg source_stalled = 1'b0;
+    reg [15:0] held_bend = 16'h8000;
+    integer bend_frames = 0;
+    integer stalled_cycles = 0;
+    reg [3:0] bend_coverage = 4'b0000;
+
+    always #10 clk_core = ~clk_core;
+
+    top #(
+        .STATUS_COUNTER_WIDTH(8), .HEARTBEAT_BIT(0),
+        .FLASH_HALF_PERIOD_CYCLES(4), .FLASH_POWER_UP_CYCLES(10)
+    ) top_u (
+        .clk_core(clk_core), .rst_n(rst_n), .status_led(status_led),
+        .saved_value_led(), .clock_status_led(),
+        .flash_cs_n(flash_cs_n), .flash_clk(flash_clk),
+        .flash_mosi(flash_mosi), .flash_miso(flash_miso), .flash_wp_n(flash_wp_n), .flash_hold_n(flash_hold_n),
+        .lcd_clk(lcd_clk), .lcd_en(lcd_en),
+        .lcd_r(lcd_r), .lcd_g(lcd_g), .lcd_b(lcd_b),
+        .lcd_bl(lcd_bl), .lcd_hs_n(lcd_hs_n), .lcd_vs_n(lcd_vs_n)
+    );
+
+    spi_nor_model flash_u (
+        .clk_sys(top_u.clk_sys), .cs_n(flash_cs_n), .sck(flash_clk), .mosi(flash_mosi), .miso(flash_miso)
+    );
+    always @(posedge top_u.clk_sys)
+    begin
+        if (top_u.rst_sys_n && (^top_u.packed_parameters === 1'bx))
+            $fatal(1, "Top parameter observation has unknown or disconnected bits");
+        if (top_u.rst_sys_n && top_u.storage_out_valid && top_u.storage_out_ready && top_u.storage_out_write)
+        begin
+            saved_ui_record = top_u.storage_out_data;
+            storage_writes = storage_writes + 1;
+        end
+        if (top_u.rst_sys_n && top_u.storage_in_valid && top_u.storage_in_ready
+            && !top_u.storage_out_write && top_u.storage_in_status == 0)
+        begin
+            if (top_u.storage_in_data !== saved_ui_record) $fatal(1, "Full top flash record mismatch");
+        end
+    end
+    // 介质预置不同音色增益，模拟已有音色；独立CRC，不强制UI内部寄存器。
+    task preload_balance;
+        reg [15:0] crc16;
+        reg [31:0] crc32;
+        integer b, k;
+        begin
+            saved_ui_record[399:384] = 16'd12124;
+            crc16 = 16'hffff;
+            for (b = 495; b >= 0; b = b - 1)
+                crc16 = {crc16[14:0],1'b0} ^ ((crc16[15] ^ saved_ui_record[b]) ? 16'h1021 : 16'd0);
+            saved_ui_record[511:496] = crc16;
+            for (b = 0; b < 64; b = b + 1) flash_u.memory[8+b] = saved_ui_record[b*8 +: 8];
+            crc32 = 32'hffffffff;
+            for (b = 0; b < 72; b = b + 1)
+                for (k = 0; k < 8; k = k + 1)
+                    crc32 = (crc32 >> 1) ^ ((crc32[0] ^ flash_u.memory[b][k]) ? 32'hedb88320 : 32'd0);
+            crc32 = ~crc32;
+            for (b = 0; b < 4; b = b + 1) flash_u.memory[72+b] = crc32[b*8 +: 8];
+        end
+    endtask
+
+    task press_button;
+        input integer index;
+        begin
+            @(negedge top_u.clk_sys);
+            button_states[index] = 1'b1;
+            repeat (10000) @(negedge top_u.clk_sys);
+            button_states[index] = 1'b0;
+            repeat (10000) @(negedge top_u.clk_sys);
+        end
+    endtask
+
+    always @(posedge top_u.clk_sys)
+    begin
+        if (top_u.rst_sys_n)
+        begin
+            system_cycles = system_cycles + 1;
+            if (top_u.sample_tick)
+            begin
+                if (last_sample_cycle >= 0 && system_cycles - last_sample_cycle != 2048)
+                    $fatal(1, "Sample tick spacing mismatch");
+                last_sample_cycle = system_cycles;
+            end
+            if (top_u.scan_tick_up)
+            begin
+                if (last_scan_cycle >= 0 && system_cycles - last_scan_cycle != 8192)
+                    $fatal(1, "Scan tick spacing mismatch");
+                last_scan_cycle = system_cycles;
+            end
+            if (source_stalled && (!top_u.source_valid_r || top_u.source_frame_r !== held_source))
+                $fatal(1, "Input changed during backpressure");
+            if (source_stalled && top_u.bend_value[0] !== held_bend)
+                $fatal(1, "Bend changed during backpressure");
+            held_source = top_u.source_frame_r;
+            held_bend = top_u.bend_value[0];
+            source_stalled = top_u.source_valid_r && !top_u.source_ready;
+            if (source_stalled) stalled_cycles = stalled_cycles + 1;
+            if (top_u.source_valid_r && top_u.source_ready)
+            begin
+                case (bend_frames % 4)
+                    0: if (held_bend !== 16'h8000) $fatal(1, "Missing center frame");
+                    1: if (held_bend !== 16'h0000) $fatal(1, "Missing lower frame");
+                    2: if (held_bend !== 16'hffff) $fatal(1, "Missing upper frame");
+                    default: if (^held_bend === 1'bx) $fatal(1, "Unknown random bend");
+                endcase
+                bend_coverage[bend_frames % 4] = 1'b1;
+                bend_frames = bend_frames + 1;
+            end
+            if (top_u.observed_valid)
+            begin
+                if (expected_bits == 0 || top_u.observed_serial !== expected_serial[0])
+                    $fatal(1, "Serial output lost or changed a captured bit");
+                expected_serial = {1'b0, expected_serial[1939:1]};
+                expected_bits = expected_bits - 1;
+                expected_crc = {expected_crc[30:0],1'b0} ^
+                    ((expected_crc[31] ^ top_u.observed_serial) ? 32'h04c11db7 : 32'd0);
+                bit_count = bit_count + 1;
+            end
+            if (top_u.capture_bank[0])
+            begin
+                if (expected_bits != 0)
+                    $fatal(1, "New capture overwrote unfinished serial output");
+                expected_serial = top_u.packed_parameters;
+                expected_bits = 1940;
+                captured_frames = captured_frames + 1;
+            end
+            #0.001;
+            if (top_u.crc_r !== expected_crc)
+                $fatal(1, "CRC mismatch");
+            if (status_led[0] !== last_heartbeat)
+                heartbeat_changes = heartbeat_changes + 1;
+            last_heartbeat = status_led[0];
+            if (top_u.configuration_error || top_u.sample_overrun)
+                $fatal(1, "Unexpected diagnostic error ui=%b overrun=%b pipe=%d rack=%d env=%d synth=%d",
+                    top_u.configuration_error, top_u.sample_overrun,
+                    top_u.user_interface_u.keyboard_note_pipeline_u.current_state,
+                    top_u.channel_rack_u.stc, top_u.channel_rack_u.envelope_group_u.stc,
+                    top_u.channel_rack_u.synth_u.stc);
+        end
+        else
+        begin
+            expected_crc = 32'hffffffff;
+            last_heartbeat = 1'b0;
+            system_cycles = 0;
+            last_sample_cycle = -1;
+            last_scan_cycle = -1;
+            expected_bits = 0;
+            source_stalled = 1'b0;
+            bend_frames = 0;
+        end
+    end
+
+    initial
+    begin
+        #101;
+        rst_n = 1'b1;
+        #1000;
+        if (!CONTROLLED_PLL && top_u.rst_sys_n !== 1'b0)
+            $fatal(1, "System released before PLL initialization");
+        wait (top_u.rst_sys_n === 1'b1);
+        $display("TOP_CLOCK_STARTED controlled_analog=%0d time=%0t", CONTROLLED_PLL, $time);
+        @(posedge top_u.clk_sys);
+        first_edge = $realtime;
+        repeat (1000) @(posedge top_u.clk_sys);
+        measured_period = ($realtime - first_edge) / 1000.0;
+        // 原语模型采用离散时间精度；允许 2 ps 量化误差。
+        if (measured_period < 10.1765 || measured_period > 10.1805)
+            $fatal(1, "Unexpected PLL period: %f ns", measured_period);
+        // 同时阻止 UI 内部接收和向源端声明 ready，覆盖跨两个扫描节拍的背压。
+        @(negedge top_u.clk_sys);
+        force top_u.user_interface_u.input_frame_available = 1'b0;
+        wait (top_u.source_valid_r === 1'b1);
+        repeat (17000) @(negedge top_u.clk_sys);
+        release top_u.user_interface_u.input_frame_available;
+        repeat (80000) @(negedge top_u.clk_sys);
+        if (bit_count < 2000 || heartbeat_changes < 20 || captured_frames < 20)
+            $fatal(1, "Insufficient serial/heartbeat activity");
+        if (bend_coverage !== 4'b1111 || stalled_cycles < 16000 || bend_frames < 8)
+            $fatal(1, "Insufficient dynamic bend/backpressure coverage");
+        $display("DYNAMIC_BEND_SOURCE_PASS frames=%0d stalled_cycles=%0d coverage=%b", bend_frames, stalled_cycles, bend_coverage);
+        wait (top_u.storage_catalog_valid);
+        if (flash_u.erase_count != 0 || flash_u.program_commands != 0 || storage_writes != 0)
+            $fatal(1, "Diagnostic source automatically wrote Flash");
+        if (top_u.button_states !== 4'b0000 || top_u.user_interface_u.menu_page != 0)
+            $fatal(1, "Unconnected button driver must leave menu idle");
+        // 外接按钮驱动尚未实现；仅 TB 注入高有效状态，不覆盖 UI 内部事件寄存器。
+        force top_u.button_states = button_states;
+        press_button(0); // main menu
+        press_button(2); press_button(2); // selection 2 = save
+        press_button(0); // slot
+        press_button(0); // confirm
+        press_button(0); // execute
+        wait (top_u.user_interface_u.menu_page == 5);
+        if (top_u.user_interface_u.menu_result_status != 0 || storage_writes != 1 || top_u.storage_slot_present != 16'h0001)
+            $fatal(1, "UI-button save flow failed");
+        preload_balance;
+        press_button(3); // slot
+        press_button(3); // main
+        press_button(1); // selection 1 = load
+        press_button(0); // slot
+        press_button(0); // confirm
+        press_button(0); // execute
+        wait (top_u.user_interface_u.menu_page == 5);
+        if (top_u.user_interface_u.menu_result_status != 0 || storage_writes != 1)
+            $fatal(1, "UI-button read flow failed");
+        repeat (5000) @(negedge top_u.clk_sys);
+        if (top_u.balance_volume !== 16'd12124) $fatal(1, "Flash37percent to UI output");
+        // 将加载的37%再次通过UI保存到双副本，再复位读取。
+        press_button(3); press_button(3); press_button(2);
+        press_button(0); press_button(0); press_button(0);
+        wait (top_u.user_interface_u.menu_page == 5);
+        if (storage_writes != 2 || saved_ui_record[399:384] != 16'd12124 || top_u.user_interface_u.menu_result_status != 0)
+            $fatal(1, "UI must re-save loaded balance through real Driver");
+        $display("FLASH_TOP_PASS injected_driver_states save read balance37_resave no_auto_write");
+        #2;
+        rst_n = 1'b0;
+        #1;
+        if (top_u.balance_volume !== 16'h8000) $fatal(1, "Reset balance default");
+        if (top_u.rst_sys_n !== 1'b0 || status_led !== 2'b00)
+            $fatal(1, "Asynchronous reset did not clear state");
+        #100;
+        rst_n = 1'b1;
+        wait (top_u.rst_sys_n === 1'b1);
+        wait (top_u.storage_catalog_valid);
+        repeat (3000) @(negedge top_u.clk_sys);
+        if (top_u.storage_slot_present != 16'h0001) $fatal(1, "Full top restart lost preset");
+        // 复位默认值已在复位有效时检查；释放后诊断随机K4可能合法修改增益。
+        press_button(0); press_button(2);
+        press_button(0); press_button(0); press_button(0);
+        wait (top_u.user_interface_u.menu_page == 5);
+        repeat (5000) @(negedge top_u.clk_sys);
+        if (top_u.balance_volume !== 16'd12124 || storage_writes != 2 || top_u.user_interface_u.menu_result_status != 0)
+            $fatal(1, "Reset reload balance from real flash without write");
+        release top_u.button_states;
+        #1;
+        if (top_u.button_states !== 4'b0000) $fatal(1, "Button driver placeholder not idle");
+        test_passed = 1'b1;
+        $display("FORMAL_TOP_PASS controlled_analog=%0d period_ns=%f serial_bits=%0d heartbeat_changes=%0d frames=%0d", CONTROLLED_PLL, measured_period, bit_count, heartbeat_changes, captured_frames);
+        $finish;
+    end
+
+    initial
+    begin
+        #50000000;
+        $fatal(1, "PLL/board validation timeout");
+    end
+endmodule

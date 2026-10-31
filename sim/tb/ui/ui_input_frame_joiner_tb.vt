@@ -55,12 +55,15 @@ module ui_input_frame_joiner_tb;
     wire edit_enable;
     wire edit_target;
     wire clear_wave_progress;
+    wire [1:0] effect_select;
+    wire effect_reset;
     reg frame_done_valid = '0;
     wire frame_done_ready;
     wire protocol_error;
     ui_input_frame_joiner #(
         .BATCH_ID_WIDTH(BATCH_ID_WIDTH)
     ) ui_input_frame_joiner_u (
+        .context_effect_select(2'd2), .context_effect_reset(1'b1), .effect_select(effect_select), .effect_reset(effect_reset),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .button_states(button_states),
@@ -212,13 +215,13 @@ module ui_input_frame_joiner_tb;
                     handler_knob_dirs !== ~expected_frame[7:0] ||
                     handler_knob_pressed !== (expected_batch%16) ||
                     mode !== (expected_batch%2) || fine_adjust !== (expected_batch%2) ||
-                    !edit_enable || edit_target || clear_wave_progress !== (expected_frame==0))
+                    !edit_enable || edit_target || clear_wave_progress !== (expected_frame==0) || effect_select !== 2'd2 || effect_reset !== (expected_frame==0))
                     $fatal(1,"Joiner frame/context mismatch batch %0d frame %0d",expected_batch,expected_frame);
                 frame_in_flight=1'b1;
                 knob_count=knob_count+1;
                 done_delay=5;
             end
-            if (frame_in_flight && clear_wave_progress !== (expected_frame==0))
+            if (frame_in_flight && (clear_wave_progress !== (expected_frame==0) || effect_select !== 2'd2 || effect_reset !== (expected_frame==0)))
                 $fatal(1,"First-frame command changed before commit");
             if (frame_done_valid && frame_done_ready)
             begin

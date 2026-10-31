@@ -40,6 +40,7 @@ module ui_control_state_tb;
     wire [3:0] preset_command_slot;
     integer value [0:5];
     ui_control_state ui_control_state_u (
+        .effect_select(), .effect_reset(), .menu_effect_reset(),
         .preset_command_valid(preset_command_valid),
         .preset_command_ready(preset_command_ready),
         .preset_command_write(preset_command_write),
@@ -86,6 +87,7 @@ module ui_control_state_tb;
         begin
             // B1 主菜单，B3 选保存，三个 B1 依次选槽、确认、执行。
             press_menu_button(4'b0001);
+            press_menu_button(4'b0100);
             press_menu_button(4'b0100);
             press_menu_button(4'b0001);
             press_menu_button(4'b0001);

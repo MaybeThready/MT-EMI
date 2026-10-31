@@ -19,6 +19,8 @@ module keyboard_event_handler
     input [KEY_NUM-1:0] key_states,
     input [15:0] key_velocity [KEY_NUM-1:0],
     input [MAX_POLYPHONY-1:0] note_busy,
+    input note_busy_valid,  // 对应已交付命令的整组状态快照有效
+    output feedback_done,  // 全部声部回收检查完成，单拍
     output [MAX_POLYPHONY-1:0] note_on,
     output [MAX_POLYPHONY-1:0] note_off,
     output [KEY_ID_WIDTH-1:0] key_id [MAX_POLYPHONY-1:0],
@@ -75,7 +77,7 @@ module keyboard_event_handler
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH)
     ) keyboard_voice_allocator_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .press_event(press_event), .release_event(release_event),
-        .note_busy(note_busy), .in_valid(event_valid), .in_ready(event_ready),
+        .note_busy(note_busy), .note_busy_valid(note_busy_valid), .feedback_done(feedback_done), .in_valid(event_valid), .in_ready(event_ready),
         .note_on(note_on), .note_off(note_off), .key_id(key_id), .occupied(occupied), .held(held),
         .out_valid(out_valid), .out_ready(out_ready)
     );
