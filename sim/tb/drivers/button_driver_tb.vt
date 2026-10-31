@@ -1,0 +1,172 @@
+/**
+ * 四键驱动测试：真实 12 kHz 扫描、1 ms 消抖、短时抖动、独立按放、背压与复位。
+ * 保留状态波形，结束时使用 $stop。
+ */
+`timescale 1ns/1ps
+
+module button_driver_tb;
+    localparam integer DEBOUNCE_CYCLES = 98_304;
+    localparam integer SCAN_CYCLES = 8_192;
+
+    reg clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    wire scan_tick_up;
+    reg [3:0] button_pins = 4'd0;
+    reg out_ready = 1'b1;
+    wire [3:0] button_states;
+    wire out_valid;
+    reg check_stall = 1'b0;
+    reg [3:0] stalled_states;
+    integer transfer_count = 0;
+    integer scan_count = 0;
+    integer transfer_count_before_reset;
+    reg test_passed = 1'b0;
+
+    sys_ticker sys_ticker_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .i2s_tick_up(), .i2s_tick_down(),
+        .smp_tick_up(), .smp_tick_down(),
+        .scan_tick_up(scan_tick_up), .scan_tick_down()
+    );
+
+    button_driver button_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
+        .button_pins(button_pins), .out_ready(out_ready),
+        .button_states(button_states), .out_valid(out_valid)
+    );
+
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            if (scan_tick_up) scan_count = scan_count + 1;
+            if (out_valid && out_ready) transfer_count = transfer_count + 1;
+            if (check_stall && (out_valid !== 1'b1 || button_states !== stalled_states))
+                $fatal(1, "Backpressure changed valid or button_states");
+        end
+    end
+
+    task wait_filter;
+        input [3:0] expected;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (button_driver_u.filtered_state_r !== expected && cycles < 2 * SCAN_CYCLES + 8)
+            begin
+                @(negedge clk_sys);
+                cycles = cycles + 1;
+            end
+            if (button_driver_u.filtered_state_r !== expected)
+                $fatal(1, "Debounce timeout: expected=%b actual=%b", expected,
+                       button_driver_u.filtered_state_r);
+        end
+    endtask
+
+    task wait_output;
+        input [3:0] expected;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (button_states !== expected && cycles < 2 * SCAN_CYCLES + 8)
+            begin
+                @(negedge clk_sys);
+                cycles = cycles + 1;
+            end
+            if (button_states !== expected)
+                $fatal(1, "Output timeout: expected=%b actual=%b", expected, button_states);
+        end
+    endtask
+
+    initial
+    begin
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        repeat (2 * SCAN_CYCLES) @(negedge clk_sys);
+        if (button_states !== 4'd0 || transfer_count < 1)
+            $fatal(1, "Initial zero state was not sent");
+
+        // 未满 1 ms 的按键抖动不能改变状态。
+        button_pins[0] = 1'b1;
+        repeat (3_000) @(negedge clk_sys);
+        button_pins[0] = 1'b0;
+        repeat (3_000) @(negedge clk_sys);
+        button_pins[0] = 1'b1;
+        repeat (3_000) @(negedge clk_sys);
+        button_pins[0] = 1'b0;
+        repeat (2 * SCAN_CYCLES) @(negedge clk_sys);
+        if (button_states !== 4'd0 || button_driver_u.filtered_state_r !== 4'd0)
+            $fatal(1, "Short bounce became a key press");
+
+        // 从物理输入拉高起，少于 98304 个系统周期绝不能确认按下。
+        button_pins[0] = 1'b1;
+        repeat (DEBOUNCE_CYCLES - 1) @(negedge clk_sys);
+        if (button_driver_u.filtered_state_r[0] !== 1'b0)
+            $fatal(1, "B1 pressed before 1 ms debounce elapsed");
+        wait_filter(4'b0001);
+        wait_output(4'b0001);
+
+        // UI 停止接收时，已经给出的状态帧必须保持；其余三键照常消抖。
+        @(negedge clk_sys);
+        out_ready = 1'b0;
+        wait (out_valid === 1'b1);
+        @(negedge clk_sys);
+        stalled_states = button_states;
+        check_stall = 1'b1;
+        button_pins = 4'b0110;
+        repeat (DEBOUNCE_CYCLES - 1) @(negedge clk_sys);
+        if (button_driver_u.filtered_state_r !== 4'b0001)
+            $fatal(1, "B1 release or B2/B3 press escaped debounce");
+        wait_filter(4'b0110);
+        repeat (SCAN_CYCLES) @(negedge clk_sys);
+        if (button_states !== stalled_states)
+            $fatal(1, "Stalled frame was overwritten");
+        check_stall = 1'b0;
+        out_ready = 1'b1;
+        wait_output(4'b0110);
+
+        // B4 与其他三键独立，释放也执行同样的 1 ms 消抖。
+        @(negedge clk_sys);
+        button_pins = 4'b1110;
+        repeat (DEBOUNCE_CYCLES - 1) @(negedge clk_sys);
+        if (button_driver_u.filtered_state_r[3] !== 1'b0)
+            $fatal(1, "B4 pressed before debounce elapsed");
+        wait_filter(4'b1110);
+        wait_output(4'b1110);
+        @(negedge clk_sys);
+        button_pins = 4'd0;
+        repeat (DEBOUNCE_CYCLES - 1) @(negedge clk_sys);
+        if (button_driver_u.filtered_state_r !== 4'b1110)
+            $fatal(1, "Release completed before debounce elapsed");
+        wait_filter(4'd0);
+        wait_output(4'd0);
+
+        // 背压中复位立即清除输出，恢复后重新发送初始状态。
+        @(negedge clk_sys);
+        out_ready = 1'b0;
+        wait (out_valid === 1'b1);
+        @(negedge clk_sys);
+        transfer_count_before_reset = transfer_count;
+        rst_n = 1'b0;
+        #1;
+        if (out_valid !== 1'b0 || button_states !== 4'd0)
+            $fatal(1, "Asynchronous reset did not clear output");
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        out_ready = 1'b1;
+        repeat (2 * SCAN_CYCLES) @(negedge clk_sys);
+        if (button_states !== 4'd0 || transfer_count <= transfer_count_before_reset)
+            $fatal(1, "Driver did not resume after reset");
+
+        test_passed = 1'b1;
+        $display("BUTTON_DRIVER_PASS scans=%0d transfers=%0d bounce debounce vr reset",
+                 scan_count, transfer_count);
+        $stop;
+    end
+
+    initial
+    begin
+        #20_000_000;
+        $fatal(1, "button_driver_tb timeout");
+    end
+endmodule
