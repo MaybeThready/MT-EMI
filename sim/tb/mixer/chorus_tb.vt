@@ -272,7 +272,7 @@ module chorus_tb();
 
     initial
     begin
-        repeat (300_000) @(posedge clk_sys);
+        repeat (400_000) @(posedge clk_sys);
         $fatal(1, "Chorus test timed out");
     end
 endmodule

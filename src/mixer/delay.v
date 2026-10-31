@@ -12,7 +12,7 @@
  * delay_time: 延迟采样数，单位为 smp_tick；0 按 1 处理，最大为 65535
  * delay_feedback: 历史样本反馈系数，UQ0.16，内部限制到 0.9375
  * in_valid/in_ready、out_valid/out_ready: 每个采样各进行一次 valid-ready 握手
- * ram_read_en/ram_read_addr: 发起同步读，数据在下一时钟沿后有效
+ * ram_read_en/ram_read_addr: 发起同步读；预留两拍供 mixer 寄存地址和数据
  * ram_write_en/ram_write_addr/ram_write_data: 在时钟上升沿写入一个采样
  * ram_read_data/ram_write_data: 外部 81920 x 24 SDP RAM 的读写端口；
  *                               两端口均接 clk_sys，输出使能常开
@@ -45,11 +45,12 @@ module delay
     localparam [16:0] RAM_WORDS = 17'd65536;
 
     localparam WF_RECV = 4'd0, ADDR_CALC = 4'd1,
-               RAM_READ = 4'd2, RAM_WAIT = 4'd3,
-               FEEDBACK_SETUP = 4'd4, FEEDBACK_MULT = 4'd5,
-               FEEDBACK_APPLY = 4'd6, RAM_WRITE = 4'd7,
-               MIX_SETUP = 4'd8, MIX_MULT = 4'd9,
-               MIX_APPLY = 4'd10, WF_SEND = 4'd11;
+               RAM_READ = 4'd2, RAM_WAIT_1 = 4'd3,
+               RAM_WAIT_2 = 4'd4, RAM_WAIT = 4'd5,
+               FEEDBACK_SETUP = 4'd6, FEEDBACK_MULT = 4'd7,
+               FEEDBACK_APPLY = 4'd8, RAM_WRITE = 4'd9,
+               MIX_SETUP = 4'd10, MIX_MULT = 4'd11,
+               MIX_APPLY = 4'd12, WF_SEND = 4'd13;
 
     wire [3:0] stc;
     reg [3:0] stn;
@@ -107,7 +108,9 @@ module delay
         case (stc)
             WF_RECV: stn = in_valid ? ADDR_CALC : WF_RECV;
             ADDR_CALC: stn = RAM_READ;
-            RAM_READ: stn = RAM_WAIT;
+            RAM_READ: stn = RAM_WAIT_1;
+            RAM_WAIT_1: stn = RAM_WAIT_2;
+            RAM_WAIT_2: stn = RAM_WAIT;
             RAM_WAIT: stn = FEEDBACK_SETUP;
             FEEDBACK_SETUP: stn = FEEDBACK_MULT;
             FEEDBACK_MULT: stn = FEEDBACK_APPLY;

@@ -77,22 +77,31 @@ module reverb_tb();
     reg signed [20:0] impulse;
     reg signed [23:0] observed_audio, held_audio;
     reg first_write_seen;
+    reg [16:0] pending_read_addr;
+    reg pending_read;
 
     always @(posedge clk_sys)
     begin
-        if (rst_n)
+        if (!rst_n)
+            pending_read <= 1'b0;
+        else
         begin
             if (ram_read_en && ram_write_en)
                 $fatal(1, "Simultaneous RAM read and write");
             if (ram_read_en)
             begin
                 read_count <= read_count + 1;
+                pending_read_addr <= ram_read_addr;
+                pending_read <= 1'b1;
                 if (ram_read_addr < RAM_BASE_ADDR || ram_read_addr >= RAM_END_ADDR)
                     $fatal(1, "RAM read address out of reverb region: %0d", ram_read_addr);
             end
             if (ram_write_en)
             begin
                 write_count <= write_count + 1;
+                if (!pending_read || ram_write_addr !== pending_read_addr)
+                    $fatal(1, "Reverb read/write address changed within a stage");
+                pending_read <= 1'b0;
                 if (ram_write_addr < RAM_BASE_ADDR || ram_write_addr >= RAM_END_ADDR)
                     $fatal(1, "RAM write address out of reverb region: %0d", ram_write_addr);
                 if (sample_index == 0 && !first_write_seen)

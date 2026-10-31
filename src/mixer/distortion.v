@@ -32,7 +32,7 @@ module distortion (
                TONE_SETUP = 4'd4, TONE_MULT = 4'd5,
                TONE_APPLY = 4'd6, MIX_SETUP = 4'd7,
                MIX_MULT = 4'd8, MIX_APPLY = 4'd9,
-               WF_SEND = 4'd10;
+               WF_SEND = 4'd10, MIX_SUM = 4'd11;
 
     wire [3:0] stc;
     reg [3:0] stn;
@@ -47,6 +47,7 @@ module distortion (
     );
 
     reg signed [23:0] audio_in_r, audio_out_r;
+    reg signed [29:0] mix_scaled_r;
     reg signed [15:0] clipped_r, tone_state_r;
     reg [15:0] mix_r, gain_r, tone_r;
 
@@ -97,7 +98,7 @@ module distortion (
         $signed({audio_in_r[23], audio_in_r});
     wire signed [30:0] mix_sum =
         $signed({{7{audio_in_r[23]}}, audio_in_r}) +
-        $signed({mult_scaled[29], mult_scaled});
+        $signed({mix_scaled_r[29], mix_scaled_r});
     wire signed [23:0] mix_result;
     signed_fp_norm #(
         .QII(16), .QIF(15),
@@ -118,7 +119,8 @@ module distortion (
             TONE_APPLY: stn = MIX_SETUP;
             MIX_SETUP: stn = MIX_MULT;
             MIX_MULT: stn = MIX_APPLY;
-            MIX_APPLY: stn = WF_SEND;
+            MIX_APPLY: stn = MIX_SUM;
+            MIX_SUM: stn = WF_SEND;
             WF_SEND: stn = out_ready ? WF_RECV : WF_SEND;
             default: stn = WF_RECV;
         endcase
@@ -130,6 +132,7 @@ module distortion (
         begin
             audio_in_r <= '0;
             audio_out_r <= '0;
+            mix_scaled_r <= '0;
             clipped_r <= '0;
             tone_state_r <= '0;
             mix_r <= '0;
@@ -174,7 +177,9 @@ module distortion (
                     mult_b_r <= $signed({5'b0, mix_r});
                 end
 
-                MIX_APPLY: audio_out_r <= mix_result;
+                MIX_APPLY: mix_scaled_r <= mult_scaled;
+
+                MIX_SUM: audio_out_r <= mix_result;
             endcase
         end
     end

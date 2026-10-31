@@ -24,7 +24,14 @@ add wave -radix decimal sim:/mixer_tb/mixer_u/reverb_audio
 add wave -divider {Shared RAM}
 add wave sim:/mixer_tb/mixer_u/ram_read_en
 add wave -radix unsigned sim:/mixer_tb/mixer_u/ram_read_addr
-add wave -radix decimal sim:/mixer_tb/mixer_u/ram_read_data
 add wave sim:/mixer_tb/mixer_u/ram_write_en
 add wave -radix unsigned sim:/mixer_tb/mixer_u/ram_write_addr
 add wave -radix decimal sim:/mixer_tb/mixer_u/ram_write_data
+add wave -divider {Registered RAM interface}
+add wave sim:/mixer_tb/mixer_u/ram_read_en_r
+add wave -radix unsigned sim:/mixer_tb/mixer_u/ram_read_addr_r
+add wave -radix decimal sim:/mixer_tb/mixer_u/ram_read_data_raw
+add wave -radix decimal sim:/mixer_tb/mixer_u/ram_read_data_r
+add wave sim:/mixer_tb/mixer_u/ram_write_en_r
+add wave -radix unsigned sim:/mixer_tb/mixer_u/ram_write_addr_r
+add wave -radix decimal sim:/mixer_tb/mixer_u/ram_write_data_r
