@@ -117,7 +117,7 @@ module user_interface_s2_tb;
         .knob_dirs(knob_dirs),
         .knob_pressed(knob_pressed),
         .bend_value(bend_value),
-        .note_busy(note_busy), .note_busy_valid(feedback_valid),
+        .note_busy(note_busy), .note_busy_valid(feedback_valid), .note_busy_ready(),
         .note_on(note_on),
         .note_off(note_off),
         .note_freq(note_freq),

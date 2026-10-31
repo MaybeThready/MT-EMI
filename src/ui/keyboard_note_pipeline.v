@@ -10,7 +10,7 @@
 /**
  * bend_value: 与琴键同帧的 16 位位置，0000/8000/ffff 对应下端／中心／上端。
  * smp_tick_up: 启动采样计算；最早在其后 3*MAX_POLYPHONY+10 沿交付，32 声部为 106 沿。
- * note_busy_valid: 对应机架结果握手；回收后下一拍开放映射处理窗口，输入可缓存一帧。
+ * note_busy_valid/note_busy_ready: 机架声部状态的独立握手；回收后下一拍开放映射处理窗口。
  * sample_ready: 可启动下一采样；sample_overrun: 尚未完成又来了采样脉冲。
  * VELOCITY_SLEW_STEP: 每次采样的最大力度变化，UQ0.16 编码；无新输入也继续平滑。
  * clk_sys 上升沿 valid && ready 接收或交付；背压时保持整组结果与 valid。
@@ -31,7 +31,8 @@ module keyboard_note_pipeline
     input [15:0] key_velocity [KEY_NUM-1:0],
     input [15:0] bend_value,
     input [MAX_POLYPHONY-1:0] note_busy,
-    input note_busy_valid,  // channel_rack输出握手；不是UI命令接收或采样tick
+    input note_busy_valid,
+    output note_busy_ready,
     input in_valid,
     output in_ready,
     output [MAX_POLYPHONY-1:0] note_on,
@@ -76,6 +77,7 @@ module keyboard_note_pipeline
         && (current_state == STATE_WAIT_SAMPLE_TICK) && !frame_pending_r;
     assign handler_accept = handler_valid && handler_ready;
     assign frame_accept = in_valid && in_ready;
+    assign note_busy_ready = rst_n && (current_state == STATE_WAIT_FEEDBACK) && !feedback_valid_r;
     assign feedback_accept = (current_state == STATE_WAIT_FEEDBACK) && feedback_valid_r;
     // 确认只在真实音频命令握手后产生，延后一拍送往事件模块。
     // 反馈数据和有效标志一起延迟；即使命令后的下一沿立即反馈，
@@ -91,9 +93,8 @@ module keyboard_note_pipeline
         else
         begin
             event_ready_r <= result_accept && sample_has_frame_r;
-            feedback_valid_r <= (current_state == STATE_WAIT_FEEDBACK)
-                && note_busy_valid && !feedback_valid_r;
-            if ((current_state == STATE_WAIT_FEEDBACK) && note_busy_valid && !feedback_valid_r)
+            feedback_valid_r <= note_busy_valid && note_busy_ready;
+            if (note_busy_valid && note_busy_ready)
                 feedback_busy_r <= note_busy;
         end
     end

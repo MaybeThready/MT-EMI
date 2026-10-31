@@ -30,6 +30,8 @@ module channel_rack_tb();
 
     reg [VOICE_NUM-1:0] note_on, note_off;
     wire [VOICE_NUM-1:0] note_busy;
+    wire note_busy_valid;
+    reg note_busy_ready;
     reg [31:0] note_freq [VOICE_NUM-1:0];
     reg [15:0] note_velocity [VOICE_NUM-1:0];
     reg [15:0] init_phase;
@@ -50,6 +52,8 @@ module channel_rack_tb();
         .note_on(note_on),
         .note_off(note_off),
         .note_busy(note_busy),
+        .note_busy_valid(note_busy_valid),
+        .note_busy_ready(note_busy_ready),
         .note_freq(note_freq),
         .note_velocity(note_velocity),
         .init_phase(init_phase),
@@ -166,7 +170,7 @@ module channel_rack_tb();
     endfunction
 
     integer scenario_id, sample_index, sample_count;
-    integer transfer_count, stall_count, error_count;
+    integer transfer_count, feedback_count, stall_count, error_count;
     reg [31:0] expected_phase [VOICE_NUM-1:0];
     reg signed [16:0] observed_audio, expected_audio;
     reg [11:0] observed_phase_0, observed_phase_1;
@@ -176,9 +180,17 @@ module channel_rack_tb();
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
+        begin
             transfer_count <= 0;
-        else if (out_valid && out_ready)
-            transfer_count <= transfer_count + 1;
+            feedback_count <= 0;
+        end
+        else
+        begin
+            if (out_valid && out_ready)
+                transfer_count <= transfer_count + 1;
+            if (note_busy_valid && note_busy_ready)
+                feedback_count <= feedback_count + 1;
+        end
     end
 
     task reset_rack;
@@ -187,6 +199,7 @@ module channel_rack_tb();
             rst_n = 1'b0;
             in_valid = 1'b0;
             out_ready = 1'b1;
+            note_busy_ready = 1'b1;
             note_on = '0;
             note_off = '0;
             repeat (4) @(negedge clk_sys);
@@ -201,8 +214,10 @@ module channel_rack_tb();
         input [31:0] freq_0, freq_1;
         input [15:0] velocity_0, velocity_1;
         input integer input_delay, output_stall;
-        integer wait_cycles, old_transfer_count, expected_sum;
+        integer wait_cycles, old_transfer_count, old_feedback_count, expected_sum;
         integer lane;
+        reg feedback_stall;
+        reg [VOICE_NUM-1:0] held_busy;
         reg [15:0] effective_volume [1:0];
         reg [11:0] phase_code;
         reg signed [15:0] point;
@@ -223,7 +238,10 @@ module channel_rack_tb();
             wave_1 = wavetable_1;
             interp = wavetable_interp;
             out_ready = output_stall == 0;
+            feedback_stall = scenario_id == 3 && sample_index == 32;
+            note_busy_ready = !feedback_stall;
             old_transfer_count = transfer_count;
+            old_feedback_count = feedback_count;
 
             wait_cycles = 0;
             while (in_ready !== 1'b1 && wait_cycles < 32)
@@ -283,6 +301,15 @@ module channel_rack_tb();
             begin
                 $display("FAIL synthesizer input timeout: scenario=%0d sample=%0d", scenario_id, sample_index);
                 $stop;
+            end
+            if (feedback_stall)
+            begin
+                held_busy = note_busy;
+                if (note_busy_valid !== 1'b1 || held_busy !== rack_u.envelope_note_busy)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL feedback snapshot: scenario=%0d sample=%0d", scenario_id, sample_index);
+                end
             end
 
             expected_sum = 0;
@@ -344,6 +371,11 @@ module channel_rack_tb();
                     error_count = error_count + 1;
                     $display("FAIL output stall: scenario=%0d sample=%0d", scenario_id, sample_index);
                 end
+                if (feedback_stall && (note_busy_valid !== 1'b1 || note_busy !== held_busy))
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL feedback stall: scenario=%0d sample=%0d", scenario_id, sample_index);
+                end
             end
             out_ready = 1'b1;
             @(posedge clk_sys);
@@ -352,6 +384,24 @@ module channel_rack_tb();
             begin
                 error_count = error_count + 1;
                 $display("FAIL output handshake: scenario=%0d sample=%0d", scenario_id, sample_index);
+            end
+            if (feedback_stall)
+            begin
+                if (note_busy_valid !== 1'b1 || note_busy !== held_busy ||
+                    feedback_count !== old_feedback_count)
+                begin
+                    error_count = error_count + 1;
+                    $display("FAIL independent feedback: scenario=%0d sample=%0d", scenario_id, sample_index);
+                end
+                @(negedge clk_sys);
+                note_busy_ready = 1'b1;
+                @(posedge clk_sys);
+                #1;
+            end
+            if (note_busy_valid !== 1'b0 || feedback_count !== old_feedback_count + 1)
+            begin
+                error_count = error_count + 1;
+                $display("FAIL feedback handshake: scenario=%0d sample=%0d", scenario_id, sample_index);
             end
             wavetable_0 = wave_0;
             wavetable_1 = wave_1;
@@ -366,6 +416,7 @@ module channel_rack_tb();
         rst_n = 1'b0;
         in_valid = 1'b0;
         out_ready = 1'b1;
+        note_busy_ready = 1'b1;
         note_on = '0;
         note_off = '0;
         note_freq[0] = '0;
@@ -472,8 +523,8 @@ module channel_rack_tb();
         end
         $display("Scenario 3: staggered different-frequency voices and release complete");
 
-        $display("CHANNEL_RACK_TB: %0d samples, %0d stalled cycles, %0d errors",
-                 sample_count, stall_count, error_count);
+        $display("CHANNEL_RACK_TB: %0d samples total, %0d feedback handshakes in final scenario, %0d stalled cycles, %0d errors",
+                 sample_count, feedback_count, stall_count, error_count);
         $stop;  // 留在 ModelSim GUI 中观察三段波形。
     end
 

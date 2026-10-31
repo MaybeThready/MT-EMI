@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 /** 真实channel_rack/包络与键盘流水联合：Release=0、下游背压和无输入回收。
- * 除法IP使用32拍功能模型，波表使用厂商ROM模型；不验证IP物理时序。
+ * 使用厂商除法 IP 与 ROM 仿真模型；不验证 IP 物理时序。
  */
 module keyboard_rack_feedback_tb;
     GSR GSR (.GSRI(1'b1));
@@ -13,24 +13,27 @@ module keyboard_rack_feedback_tb;
     reg [1:0] keys = 0;
     reg [15:0] pressure [1:0];
     reg in_valid = 0;
-    wire in_ready, on_event, off_event, busy, ui_valid, rack_ready, rack_valid, sample_ready, overrun;
+    wire in_ready, on_event, off_event, busy, busy_valid, busy_ready;
+    wire ui_valid, rack_ready, rack_valid, sample_ready, overrun;
     reg consumer_ready = 1;
     wire [31:0] freq [0:0];
     wire [15:0] velocity [0:0];
     wire signed [15:0] audio;
-    integer on_count = 0, off_count = 0, result_count = 0;
+    integer on_count = 0, off_count = 0, result_count = 0, feedback_count = 0;
     reg test_passed = 0;
     keyboard_note_pipeline #(.KEY_NUM(2), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(tick),
         .key_states(keys), .key_velocity(pressure), .bend_value(16'h8000),
-        .note_busy(busy), .note_busy_valid(rack_valid && consumer_ready),
+        .note_busy(busy), .note_busy_valid(busy_valid), .note_busy_ready(busy_ready),
         .in_valid(in_valid), .in_ready(in_ready), .note_on(on_event), .note_off(off_event),
         .note_freq(freq), .note_velocity(velocity), .out_valid(ui_valid), .out_ready(rack_ready),
         .sample_ready(sample_ready), .sample_overrun(overrun)
     );
     channel_rack #(.MAX_POLYPHONY(1)) channel_rack_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(tick),
-        .note_on(on_event), .note_off(off_event), .note_busy(busy), .note_freq(freq), .note_velocity(velocity),
+        .note_on(on_event), .note_off(off_event), .note_busy(busy),
+        .note_busy_valid(busy_valid), .note_busy_ready(busy_ready),
+        .note_freq(freq), .note_velocity(velocity),
         .init_phase(16'd0), .attack_ticks(20'd1), .decay_ticks(20'd1),
         .sustain_level(16'h8000), .release_ticks(20'd0), .wavetable_0(4'd0), .wavetable_1(4'd0),
         .wavetable_interp(16'd0), .audio_out(audio), .in_valid(ui_valid), .in_ready(rack_ready),
@@ -48,6 +51,8 @@ module keyboard_rack_feedback_tb;
             result_count = result_count + 1;
             if (^audio === 1'bx) $fatal(1, "Audio sample unknown");
         end
+        if (rst_n && busy_valid && busy_ready)
+            feedback_count = feedback_count + 1;
     end
     task frame;
         input [1:0] value;
@@ -64,9 +69,10 @@ module keyboard_rack_feedback_tb;
         frame(1);
         wait (on_count == 1); wait (rack_valid && busy);
         @(negedge clk_sys); consumer_ready = 0;
-        frame(0); // 反馈仍被阻塞，释放帧可以缓存，但不能提前改变映射
+        frame(0); // 音频仍被阻塞；声部状态反馈已独立交付 UI
         repeat (5000) @(negedge clk_sys);
-        if (in_ready || off_count || !keyboard_note_pipeline_u.event_held) $fatal(1, "Mapping changed before result handshake");
+        if (!rack_valid || off_count || feedback_count == 0)
+            $fatal(1, "Feedback must advance independently while audio is stalled");
         consumer_ready = 1;
         wait (off_count == 1);
         wait (rack_valid && !busy);
@@ -75,7 +81,7 @@ module keyboard_rack_feedback_tb;
         if (on_count != 1 || off_count != 1 || result_count < 4) $fatal(1, "Duplicate event or silent stream stopped");
         if (!overrun) $fatal(1, "Long stall must report missed sample tick");
         test_passed = 1;
-        $display("KEYBOARD_RACK_FEEDBACK_PASS release_zero real_envelope stalled_result silent_reclaim results=%0d", result_count);
+        $display("KEYBOARD_RACK_FEEDBACK_PASS release_zero real_envelope independent_feedback silent_reclaim results=%0d feedback=%0d", result_count, feedback_count);
         $finish;
     end
     initial begin #500000; $fatal(1, "Rack feedback watchdog"); end

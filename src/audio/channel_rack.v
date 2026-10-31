@@ -7,6 +7,7 @@
  * note_freq: UQ16.16 音符频率
  * note_velocity: UQ0.16 音符力度
  * audio_out: 多路采样之和，SQ(1+$clog2(MAX_POLYPHONY)).15
+ * note_busy/note_busy_valid/note_busy_ready: 交付给 UI 的整组声部状态快照，独立于音频输出握手。
  * 每个采样周期接收一次输入，等待相位和包络计算完成后生成一个采样点。
  * 输入和输出分别在 valid && ready 的时钟上升沿完成传输。
  */
@@ -21,6 +22,8 @@ module channel_rack
     input [MAX_POLYPHONY-1:0] note_on,
     input [MAX_POLYPHONY-1:0] note_off,
     output [MAX_POLYPHONY-1:0] note_busy,
+    output note_busy_valid,
+    input note_busy_ready,
 
     input [31:0] note_freq [MAX_POLYPHONY-1:0],
     input [15:0] note_velocity [MAX_POLYPHONY-1:0],
@@ -64,6 +67,9 @@ module channel_rack
 
     wire [11:0] phase [MAX_POLYPHONY-1:0];
     wire [15:0] envelope_volume [MAX_POLYPHONY-1:0];
+    wire [MAX_POLYPHONY-1:0] envelope_note_busy;
+    reg [MAX_POLYPHONY-1:0] note_busy_r;
+    reg note_busy_valid_r;
     reg [15:0] velocity_r [MAX_POLYPHONY-1:0];
     reg [15:0] volume_r [MAX_POLYPHONY-1:0];
     reg [15:0] volume_mult_a_r, volume_mult_b_r;
@@ -76,7 +82,7 @@ module channel_rack
     wire synth_in_ready, synth_out_valid;
     // 两个组模块同时接收同一拍输入，也同时交给波表合成模块。
     wire group_in_valid = (stc == WF_RECV) && in_valid &&
-                          phase_in_ready && envelope_in_ready;
+                          phase_in_ready && envelope_in_ready && !note_busy_valid_r;
     wire synth_in_valid = (stc == SEND_SYNTH);
     wire group_out_ready = (stc == SEND_SYNTH);
     wire synth_out_ready = (stc == WF_SEND) && out_ready;
@@ -110,7 +116,7 @@ module channel_rack
         .note_on(note_on),
         .note_off(note_off),
         .volume(envelope_volume),
-        .note_busy(note_busy),
+        .note_busy(envelope_note_busy),
         .out_ready(group_out_ready),
         .in_valid(group_in_valid),
         .out_valid(envelope_out_valid),
@@ -183,6 +189,8 @@ module channel_rack
             lane_index <= '0;
             volume_mult_a_r <= '0;
             volume_mult_b_r <= '0;
+            note_busy_r <= '0;
+            note_busy_valid_r <= 1'b0;
             for (i = 0; i < MAX_POLYPHONY; i = i + 1)
             begin
                 velocity_r[i] <= '0;
@@ -191,6 +199,13 @@ module channel_rack
         end
         else
         begin
+            if (note_busy_valid_r && note_busy_ready)
+                note_busy_valid_r <= 1'b0;
+            if (stc == WF_GROUP_SEND && phase_out_valid && envelope_out_valid)
+            begin
+                note_busy_r <= envelope_note_busy;
+                note_busy_valid_r <= 1'b1;
+            end
             case (stc)
                 WF_RECV:
                 begin
@@ -222,6 +237,8 @@ module channel_rack
     end
 
     assign audio_out = synth_audio_out;
-    assign in_ready = (stc == WF_RECV) && phase_in_ready && envelope_in_ready;
+    assign note_busy = note_busy_r;
+    assign note_busy_valid = note_busy_valid_r;
+    assign in_ready = (stc == WF_RECV) && phase_in_ready && envelope_in_ready && !note_busy_valid_r;
     assign out_valid = (stc == WF_SEND) && synth_out_valid;
 endmodule

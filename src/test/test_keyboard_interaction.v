@@ -57,6 +57,7 @@ module test_keyboard_interaction
     wire [15:0] sustain_level [0:0];
     wire [19:0] release_ticks [0:0];
     wire ui_out_valid, rack_in_ready;
+    wire note_busy_valid, note_busy_ready;
     wire configuration_error, sample_overrun;
     wire [15:0] bend_value [0:0];
     assign bend_value[0] = 16'h8000;
@@ -69,7 +70,8 @@ module test_keyboard_interaction
         .key_states(key_states), .key_velocity(key_velocity),
         .knob_states(8'd0), .knob_dirs(8'd0), .knob_pressed(8'd0),
         .bend_value(bend_value), .button_states(4'd0),
-        .note_busy(note_busy), .note_on(note_on), .note_off(note_off),
+        .note_busy(note_busy), .note_busy_valid(note_busy_valid),
+        .note_busy_ready(note_busy_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity),
         .wavetable_0(wavetable_0), .wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp), .init_phase(init_phase),
@@ -98,6 +100,7 @@ module test_keyboard_interaction
     ) channel_rack_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .smp_tick_up(smp_tick_up),
         .note_on(note_on), .note_off(note_off), .note_busy(note_busy),
+        .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .note_freq(note_freq), .note_velocity(note_velocity),
         .init_phase(init_phase[0]), .attack_ticks(attack_ticks[0]),
         .decay_ticks(decay_ticks[0]), .sustain_level(sustain_level[0]),

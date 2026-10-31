@@ -13,6 +13,7 @@ module keyboard_feedback_tb;
     reg [15:0] pressure [2:0];
     reg busy = 1'b0;
     reg feedback_valid = 1'b0;
+    wire feedback_ready;
     reg in_valid = 1'b0;
     wire in_ready, out_valid, sample_ready, overrun;
     reg out_ready = 1'b0;
@@ -26,7 +27,7 @@ module keyboard_feedback_tb;
     keyboard_note_pipeline #(.KEY_NUM(3), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(tick),
         .key_states(keys), .key_velocity(pressure), .bend_value(16'h8000),
-        .note_busy(busy), .note_busy_valid(feedback_valid),
+        .note_busy(busy), .note_busy_valid(feedback_valid), .note_busy_ready(feedback_ready),
         .in_valid(in_valid), .in_ready(in_ready), .out_valid(out_valid), .out_ready(out_ready),
         .note_on(note_on), .note_off(note_off), .note_freq(frequency), .note_velocity(velocity),
         .sample_ready(sample_ready), .sample_overrun(overrun)
@@ -65,6 +66,7 @@ module keyboard_feedback_tb;
             out_ready = 1'b0;
             busy = value;
             feedback_valid = 1'b1;
+            if (!feedback_ready) $fatal(1, "Feedback receiver not ready");
             @(negedge clk_sys);
             feedback_valid = 1'b0;
             busy = !value;
@@ -106,6 +108,7 @@ module keyboard_feedback_tb;
             last_busy = value;
             last_occupied = expected_occupied;
             @(negedge clk_sys); busy = value; feedback_valid = 1'b1;
+            if (!feedback_ready) $fatal(1, "Feedback receiver not ready");
             @(negedge clk_sys); feedback_valid = 1'b0; busy = !value;
             wait (sample_ready);
             @(negedge clk_sys);

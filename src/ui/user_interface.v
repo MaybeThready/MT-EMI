@@ -39,7 +39,8 @@ module user_interface
     input [KNOB_NUM-1:0] knob_pressed,
     input [15:0] bend_value [BEND_NUM-1:0],  // 下端 0000、中心 8000、上端 ffff
     input [MAX_POLYPHONY-1:0] note_busy,
-    input note_busy_valid,  // 每个为1的系统沿采集，连接机架out_valid && out_ready
+    input note_busy_valid,
+    output note_busy_ready,  // 与机架的声部状态快照独立握手
     output [MAX_POLYPHONY-1:0] note_on,
     output [MAX_POLYPHONY-1:0] note_off,
     output [31:0] note_freq [MAX_POLYPHONY-1:0],
@@ -249,7 +250,7 @@ module user_interface
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
         .smp_tick_up(smp_tick_up && !configuration_error),
         .key_states(key_frame_r), .key_velocity(pressure_frame_r), .note_busy(note_busy),
-        .note_busy_valid(note_busy_valid),
+        .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .bend_value(bend_frame_r),
         .in_valid(keyboard_input_valid), .in_ready(keyboard_input_ready),
         .note_on(note_on), .note_off(note_off), .note_freq(note_freq), .note_velocity(note_velocity),
