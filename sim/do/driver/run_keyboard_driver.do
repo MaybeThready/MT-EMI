@@ -1,5 +1,6 @@
 # Run from sim/: do do/driver/run_keyboard_driver.do
 # Check key mapping, debounce, backpressure and reset; expect PASS.
+onerror {abort all}
 set SIM_LIB work_keyboard_driver
 do ../common/setup.do
 do ../common/compile_keyboard_driver.do

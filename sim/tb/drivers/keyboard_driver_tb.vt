@@ -59,11 +59,21 @@ module keyboard_driver_tb();
     reg default_done;
     reg zero_done;
     reg regression_passed;
+    reg regression_failed;
     integer fast_phase; // 0初始化，1位序，2抖动，3背压，4同拍竞争，5断tick，6复位，7完成
     integer default_phase; // 0初始化，1按下阈值，2释放阈值，3隔tick接收，4完成
     integer init_index;
     genvar board;
     genvar key;
+
+    task automatic fail;
+        input string reason;
+        begin
+            regression_failed = 1'b1;
+            regression_passed = 1'b0;
+            $fatal(1, "%0s", reason);
+        end
+    endtask
 
     assign scan_tick_up[FAST] = fast_scan_tick;
     assign scan_tick_up[ZERO] = fast_scan_tick;
@@ -84,6 +94,7 @@ module keyboard_driver_tb();
                             keyboard_driver_u1.frame_pending};
 
     keyboard_driver #(
+        .PRESSURE_ENABLE(0),
         .SYS_CLK_HZ(98_304_000),
         .SCAN_HZ(384_000),
         .DEBOUNCE_TICKS(768),
@@ -101,10 +112,14 @@ module keyboard_driver_tb();
         .key_clk(key_clk[FAST]),
         .key_states(key_states[FAST]),
         .key_velocity(velocity_fast),
-        .out_valid(out_valid[FAST])
+        .out_valid(out_valid[FAST]),
+        .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
+        .adc_error(), .event_overflow()
     );
 
-    keyboard_driver keyboard_driver_u2 (
+    keyboard_driver #(
+        .PRESSURE_ENABLE(0)
+    ) keyboard_driver_u2 (
         .clk_sys(clk_sys),
         .rst_n(rst_n[DEFAULT]),
         .scan_tick_up(scan_tick_up[DEFAULT]),
@@ -115,10 +130,13 @@ module keyboard_driver_tb();
         .key_clk(key_clk[DEFAULT]),
         .key_states(key_states[DEFAULT]),
         .key_velocity(velocity_default),
-        .out_valid(out_valid[DEFAULT])
+        .out_valid(out_valid[DEFAULT]),
+        .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
+        .adc_error(), .event_overflow()
     );
 
     keyboard_driver #(
+        .PRESSURE_ENABLE(0),
         .SYS_CLK_HZ(98_304_000),
         .SCAN_HZ(384_000),
         .DEBOUNCE_TICKS(0),
@@ -137,7 +155,9 @@ module keyboard_driver_tb();
         .key_clk(key_clk[ZERO]),
         .key_states(key_states[ZERO]),
         .key_velocity(velocity_zero),
-        .out_valid(out_valid[ZERO])
+        .out_valid(out_valid[ZERO]),
+        .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
+        .adc_error(), .event_overflow()
     );
 
     sys_ticker sys_ticker_u (
@@ -220,7 +240,7 @@ module keyboard_driver_tb();
         begin
             if (default_tick_count > 0 &&
                 cycle_count - last_default_tick != DEFAULT_SCAN_CYCLES)
-                $fatal(1, "Default tick interval is not 8192 system cycles");
+                fail($sformatf("Default tick interval is not 8192 system cycles"));
             last_default_tick <= cycle_count;
             default_tick_count <= default_tick_count + 1;
         end
@@ -264,7 +284,7 @@ module keyboard_driver_tb();
                     serial_b = {serial_b[14:0], 1'b0};
                     shift_edges = shift_edges + 1;
                     if (shift_edges > 15)
-                        $fatal(1, "DUT %0d generated more than 15 shifts", board);
+                        fail($sformatf("DUT %0d generated more than 15 shifts", board));
                 end
             end
 
@@ -284,20 +304,20 @@ module keyboard_driver_tb();
                 else
                 begin
                     if ((^{load_n[board], key_clk[board], out_valid[board]}) === 1'bx)
-                        $fatal(1, "DUT %0d has an unknown control output", board);
+                        fail($sformatf("DUT %0d has an unknown control output", board));
                     if (stalled_last && (out_valid[board] !== 1'b1 ||
                         key_states[board] !== states_last ||
                         velocity_payload[board] !== velocity_last))
-                        $fatal(1, "DUT %0d changed a stalled output frame", board);
+                        fail($sformatf("DUT %0d changed a stalled output frame", board));
                     if ((^key_states[board]) === 1'bx)
-                        $fatal(1, "DUT %0d has unknown key states", board);
+                        fail($sformatf("DUT %0d has unknown key states", board));
                     if (board == ZERO)
                     begin
                         if (velocity_payload[board] !== {24{16'h8000}})
-                            $fatal(1, "Zero-debounce velocity is not UQ0.16 0.5");
+                            fail($sformatf("Zero-debounce velocity is not UQ0.16 0.5"));
                     end
                     else if (velocity_payload[board] !== {24{16'hFFFF}})
-                        $fatal(1, "DUT %0d has an incorrect fixed velocity", board);
+                        fail($sformatf("DUT %0d has an incorrect fixed velocity", board));
 
                     stalled_last <= out_valid[board] && !out_ready[board];
                     states_last <= key_states[board];
@@ -314,11 +334,11 @@ module keyboard_driver_tb();
                     if (state[board] == S_FRAME_DONE)
                     begin
                         if (sample_count != 16 || shift_edges != 15)
-                            $fatal(1, "DUT %0d: samples=%0d shifts=%0d, expected 16/15",
-                                   board, sample_count, shift_edges);
+                            fail($sformatf("DUT %0d: samples=%0d shifts=%0d, expected 16/15",
+                                   board, sample_count, shift_edges));
                         if (raw_keys[board] !== loaded_keys)
-                            $fatal(1, "DUT %0d serial mapping: expected %h, got %h",
-                                   board, loaded_keys, raw_keys[board]);
+                            fail($sformatf("DUT %0d serial mapping: expected %h, got %h",
+                                   board, loaded_keys, raw_keys[board]));
                         completed_frames[board] <= completed_frames[board] + 1;
                     end
                 end
@@ -363,8 +383,8 @@ module keyboard_driver_tb();
         input [255:0] label_text;
         begin
             if (filtered_state[dut_id] !== expected)
-                $fatal(1, "%0s: DUT %0d expected filtered %h, got %h",
-                       label_text, dut_id, expected, filtered_state[dut_id]);
+                fail($sformatf("%0s: DUT %0d expected filtered %h, got %h",
+                       label_text, dut_id, expected, filtered_state[dut_id]));
         end
     endtask
 
@@ -375,8 +395,8 @@ module keyboard_driver_tb();
         begin
             wait_cycles(3);
             if (received_count[dut_id] == 0 || received_states[dut_id] !== expected)
-                $fatal(1, "%0s: DUT %0d expected received %h, got %h",
-                       label_text, dut_id, expected, received_states[dut_id]);
+                fail($sformatf("%0s: DUT %0d expected received %h, got %h",
+                       label_text, dut_id, expected, received_states[dut_id]));
         end
     endtask
 
@@ -390,8 +410,8 @@ module keyboard_driver_tb();
         begin
             count_before = received_count[DEFAULT];
             if (out_valid[DEFAULT] !== 1'b1 || key_states[DEFAULT] !== old_states)
-                $fatal(1, "Alternating-ready old slot: expected=%h actual=%h valid=%b",
-                       old_states, key_states[DEFAULT], out_valid[DEFAULT]);
+                fail($sformatf("Alternating-ready old slot: expected=%h actual=%h valid=%b",
+                       old_states, key_states[DEFAULT], out_valid[DEFAULT]));
             waited_cycles = 0;
             while (received_count[DEFAULT] == count_before &&
                    waited_cycles < 2 * DEFAULT_SCAN_CYCLES)
@@ -402,10 +422,10 @@ module keyboard_driver_tb();
             if (received_count[DEFAULT] != count_before + 1 ||
                 received_states[DEFAULT] !== old_states ||
                 key_states[DEFAULT] !== new_states || out_valid[DEFAULT] !== 1'b1)
-                $fatal(1, "Alternating-ready replacement: count=%0d->%0d recv=%h slot=%h expected=%h/%h wait=%0d ready_ticks=%0d",
+                fail($sformatf("Alternating-ready replacement: count=%0d->%0d recv=%h slot=%h expected=%h/%h wait=%0d ready_ticks=%0d",
                        count_before, received_count[DEFAULT], received_states[DEFAULT],
                        key_states[DEFAULT], old_states, new_states, waited_cycles,
-                       default_ready_tick_count);
+                       default_ready_tick_count));
 
             waited_cycles = 0;
             while (received_count[DEFAULT] == count_before + 1 &&
@@ -416,9 +436,9 @@ module keyboard_driver_tb();
             end
             if (received_count[DEFAULT] != count_before + 2 ||
                 received_states[DEFAULT] !== new_states)
-                $fatal(1, "Alternating-ready latest transfer: count=%0d->%0d recv=%h expected=%h wait=%0d ready_ticks=%0d",
+                fail($sformatf("Alternating-ready latest transfer: count=%0d->%0d recv=%h expected=%h wait=%0d ready_ticks=%0d",
                        count_before, received_count[DEFAULT], received_states[DEFAULT],
-                       new_states, waited_cycles, default_ready_tick_count);
+                       new_states, waited_cycles, default_ready_tick_count));
         end
     endtask
 
@@ -439,6 +459,7 @@ module keyboard_driver_tb();
         default_done = 1'b0;
         zero_done = 1'b0;
         regression_passed = 1'b0;
+        regression_failed = 1'b0;
         fast_phase = 0;
         default_phase = 0;
         for (init_index = 0; init_index < 3; init_index = init_index + 1)
@@ -536,18 +557,18 @@ module keyboard_driver_tb();
         check_filtered(FAST, 24'hA500A5, "Latest state under backpressure");
         if (out_valid[FAST] !== 1'b1 || key_states[FAST] !== 24'd0 ||
             frame_pending[FAST] !== 1'b1)
-            $fatal(1, "Backpressure did not preserve the old frame and pending update");
+            fail($sformatf("Backpressure did not preserve the old frame and pending update"));
         count_before = received_count[FAST];
         out_ready[FAST] = 1'b1;
         wait_cycles(1);
         if (received_count[FAST] != count_before + 1 ||
             received_states[FAST] !== 24'd0 || out_valid[FAST] !== 1'b1 ||
             key_states[FAST] !== 24'hA500A5)
-            $fatal(1, "Old frame/latest frame replacement failed");
+            fail($sformatf("Old frame/latest frame replacement failed"));
         wait_cycles(1);
         if (received_count[FAST] != count_before + 2 ||
             received_states[FAST] !== 24'hA500A5)
-            $fatal(1, "Back-to-back latest-state transfer failed");
+            fail($sformatf("Back-to-back latest-state transfer failed"));
         $display("[FAST] Long backpressure, latest snapshot and consecutive transfers passed");
 
         fast_phase = 4;
@@ -558,15 +579,15 @@ module keyboard_driver_tb();
         wait_frames(FAST, 3);
         wait_state(FAST, S_FILTER_FRAME);
         if (!frame_pending[FAST] || !out_valid[FAST])
-            $fatal(1, "FILTER collision test did not establish a pending frame");
+            fail($sformatf("FILTER collision test did not establish a pending frame"));
         out_ready[FAST] = 1'b1;
         wait_cycles(1);
         check_filtered(FAST, 24'hA5FFA5, "FILTER collision confirms new state");
         if (key_states[FAST] !== 24'hA500A5)
-            $fatal(1, "FILTER collision published an incomplete frame");
+            fail($sformatf("FILTER collision published an incomplete frame"));
         wait_cycles(1);
         if (out_valid[FAST] !== 1'b1 || key_states[FAST] !== 24'hA5FFA5)
-            $fatal(1, "New state lost after FILTER collision");
+            fail($sformatf("New state lost after FILTER collision"));
         check_received(FAST, 24'hA5FFA5, "FILTER collision transfer");
 
         // FRAME_DONE沿同时接收旧帧与装入新帧，不得产生valid空洞。
@@ -582,7 +603,7 @@ module keyboard_driver_tb();
         if (received_count[FAST] != count_before + 1 ||
             received_states[FAST] !== 24'hA5FFA5 || out_valid[FAST] !== 1'b1 ||
             key_states[FAST] !== 24'hFFFFFF)
-            $fatal(1, "FRAME_DONE simultaneous receive/publish failed");
+            fail($sformatf("FRAME_DONE simultaneous receive/publish failed"));
         check_received(FAST, 24'hFFFFFF, "FRAME_DONE collision transfer");
         $display("[FAST] FILTER/FRAME_DONE simultaneous handshake boundaries passed");
 
@@ -593,11 +614,11 @@ module keyboard_driver_tb();
         physical_keys[FAST] = 24'h000080;
         wait_frames(FAST, 1);
         if (!candidate_valid[FAST][7])
-            $fatal(1, "Tick interruption test did not establish a candidate");
+            fail($sformatf("Tick interruption test did not establish a candidate"));
         fast_tick_enable = 1'b0;
         wait_cycles(FAST_SCAN_CYCLES * 5);
         if (candidate_valid[FAST] !== 24'd0)
-            $fatal(1, "Missing scan ticks did not clear candidate history");
+            fail($sformatf("Missing scan ticks did not clear candidate history"));
         check_filtered(FAST, 24'd0, "Interrupted candidate must not confirm");
         fast_tick_enable = 1'b1;
         wait_frames(FAST, 3);
@@ -615,7 +636,7 @@ module keyboard_driver_tb();
         if (load_n[FAST] !== 1'b1 || key_clk[FAST] !== 1'b0 ||
             out_valid[FAST] !== 1'b0 || key_states[FAST] !== 24'd0 ||
             candidate_valid[FAST] !== 24'd0)
-            $fatal(1, "Asynchronous reset during scan failed");
+            fail($sformatf("Asynchronous reset during scan failed"));
         wait_cycles(6);
         rst_n[FAST] = 1'b1;
         wait_frames(FAST, 4);
@@ -656,7 +677,7 @@ module keyboard_driver_tb();
         first_candidate_cycle = cycle_count;
         first_candidate_frame = completed_frames[DEFAULT];
         if (!candidate_valid[DEFAULT][0])
-            $fatal(1, "Default debounce did not establish its first candidate");
+            fail($sformatf("Default debounce did not establish its first candidate"));
         check_filtered(DEFAULT, 24'd0, "Default first press sample");
         for (n = 0; n < 11; n = n + 1)
         begin
@@ -666,7 +687,7 @@ module keyboard_driver_tb();
         wait_frames(DEFAULT, 1);
         if (cycle_count - first_candidate_cycle != DEFAULT_DEBOUNCE_CYCLES ||
             completed_frames[DEFAULT] - first_candidate_frame != 12)
-            $fatal(1, "Default debounce is not 98304 cycles / 12 scan intervals");
+            fail($sformatf("Default debounce is not 98304 cycles / 12 scan intervals"));
         check_filtered(DEFAULT, 24'h000001, "Default 13th press sample confirms");
         check_received(DEFAULT, 24'h000001, "Default press transfer");
 
@@ -681,7 +702,7 @@ module keyboard_driver_tb();
         end
         wait_frames(DEFAULT, 1);
         if (cycle_count - first_candidate_cycle != DEFAULT_DEBOUNCE_CYCLES)
-            $fatal(1, "Default release debounce is not 98304 cycles");
+            fail($sformatf("Default release debounce is not 98304 cycles"));
         check_received(DEFAULT, 24'd0, "Default 13th release sample confirms");
         $display("[DEFAULT] Real sys_ticker, 8192-cycle scans and 1ms debounce passed");
 
@@ -708,17 +729,20 @@ module keyboard_driver_tb();
     begin
         wait (fast_done && default_done && zero_done);
         wait_cycles(4);
-        if (default_tick_count < 50 || received_count[FAST] == 0 ||
+        if (regression_failed || default_tick_count < 50 || received_count[FAST] == 0 ||
             received_count[DEFAULT] == 0 || received_count[ZERO] == 0)
-            $fatal(1, "Regression coverage did not complete");
-        regression_passed = 1'b1;
-        $display("PASS: keyboard_driver_tb completed all checks at cycle %0d", cycle_count);
-        $finish;
+            fail($sformatf("Regression coverage did not complete"));
+        else
+        begin
+            regression_passed = 1'b1;
+            $display("PASS: keyboard_driver_tb completed all checks at cycle %0d", cycle_count);
+            $finish;
+        end
     end
 
     initial
     begin
         wait_cycles(1_000_000);
-        $fatal(1, "TIMEOUT: keyboard_driver_tb did not complete within 1000000 cycles");
+        fail($sformatf("TIMEOUT: keyboard_driver_tb did not complete within 1000000 cycles"));
     end
 endmodule

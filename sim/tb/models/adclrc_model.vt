@@ -1,0 +1,181 @@
+/**
+ * ADCLRC协议模型，仅用于仿真，不参与综合，不模拟模拟精度/真实CIC响应。
+ * 模拟延迟busy、保持ready、切换通道的旧样本和ready高/低两种卡死。
+ * 检查硬核配置、实际ADC时钟及请求脉宽；测试时钟必须与驱动SYS_CLK_HZ参数一致。
+ */
+`timescale 1ns/1ps
+module ADCLRC
+#(
+    parameter DYN_BKEN = "FALSE",
+    parameter CLK_SEL = 1'b1,
+    parameter PIOCLK_SEL = 1'b0,
+    parameter DIV_CTL = 2'd0,
+    parameter VSEN_CTL = 3'd0,
+    parameter VSEN_CTL_SEL = 1'b1,
+    parameter ADC_MODE = 1'b1,
+    parameter SAMPLE_CNT_SEL = 1,
+    parameter RATE_CHANGE_CTRL = 2
+)(
+    input ADCINBK2A, ADCINBK2B, ADCINBK3A, ADCINBK3B,
+    input ADCINBK4A, ADCINBK4B, ADCINBK5A, ADCINBK5B,
+    input [2:0] VSENCTL,
+    input [9:0] FSCAL_VALUE,
+    input [11:0] OFFSET_VALUE,
+    input ADCEN, CLK, DRSTN, ADCREQI,
+    output ADCRDY,
+    output [13:0] ADCVALUE
+);
+    reg adcrdy_r;
+    reg [13:0] adcvalue_r;
+    assign ADCRDY = adcrdy_r;
+    assign ADCVALUE = adcvalue_r;
+
+    // 测试环境驱动的是模拟模型，不强制任何被测RTL信号。
+    reg [13:0] voltage_code;
+    integer channel_id;
+    integer stall_mode;
+    reg request_prev;
+    reg converting;
+    reg [13:0] captured_code;
+    reg [13:0] previous_code;
+    integer last_channel;
+    integer age;
+    integer request_count;
+    integer request_high_cycles;
+    real last_clock_time;
+    real clock_period;
+    real request_start_time;
+    reg request_timing_valid;
+
+    initial
+    begin
+        adcrdy_r = 1'b1;
+        adcvalue_r = 14'd123;
+        request_prev = 1'b0;
+        converting = 1'b0;
+        captured_code = 14'd0;
+        previous_code = 14'd0;
+        last_channel = -1;
+        age = 0;
+        request_count = 0;
+        request_high_cycles = 0;
+        last_clock_time = 0.0;
+        clock_period = 0.0;
+        request_start_time = 0.0;
+        request_timing_valid = 1'b0;
+        voltage_code = 14'd0;
+        channel_id = 0;
+        stall_mode = 0;
+        if (CLK_SEL !== 1'b1 || PIOCLK_SEL !== 1'b0 || DIV_CTL !== 2'd0)
+            $fatal(1, "ADCLRC configuration: require external CLK with CLK_SEL=1, PIOCLK_SEL=0 and DIV_CTL=0");
+        if (DYN_BKEN != "FALSE" || VSEN_CTL !== 3'b000 ||
+            VSEN_CTL_SEL !== 1'b1 || ADC_MODE !== 1'b1)
+            $fatal(1, "ADCLRC configuration: require dedicated ADCV in voltage mode");
+        if (SAMPLE_CNT_SEL < 1 || SAMPLE_CNT_SEL > 4 ||
+            RATE_CHANGE_CTRL < 2 || RATE_CHANGE_CTRL > 5 ||
+            (64 << SAMPLE_CNT_SEL) <= 7 * (4 << RATE_CHANGE_CTRL))
+            $fatal(1, "ADCLRC configuration: invalid sample-count/rate combination");
+    end
+
+    // 硬核专用CLK的实测周期，不借用上层参数推断频率。
+    always @(posedge CLK or negedge DRSTN)
+    begin
+        if (!DRSTN)
+        begin
+            last_clock_time = 0.0;
+            clock_period = 0.0;
+        end
+        else
+        begin
+            if (last_clock_time != 0.0)
+            begin
+                clock_period = $realtime - last_clock_time;
+                if (clock_period <= 500.0 || clock_period > 2000.001)
+                    $fatal(1, "ADCLRC clock: require 0.5MHz <= actual ADC clock < 2MHz");
+            end
+            last_clock_time = $realtime;
+        end
+    end
+
+    always @(posedge ADCREQI or negedge DRSTN)
+    begin
+        if (!DRSTN)
+            request_timing_valid = 1'b0;
+        else
+        begin
+            request_start_time = $realtime;
+            request_timing_valid = 1'b1;
+        end
+    end
+
+    always @(negedge ADCREQI)
+    begin
+        // 先让同一时刻的异步复位连接传播完成，复位中断的请求不检查正常脉宽。
+        #0;
+        if (DRSTN && ADCEN && request_timing_valid)
+        begin
+            if (clock_period == 0.0 ||
+                $realtime - request_start_time + 0.002 < 2.0 * clock_period)
+                $fatal(1, "ADCLRC request: pulse must cover at least two ADC clock periods");
+        end
+        request_timing_valid = 1'b0;
+    end
+
+    always @(posedge CLK or negedge DRSTN)
+    begin
+        if (!DRSTN)
+        begin
+            adcrdy_r <= 1'b1; // 刻意保留旧ready高，检测不能误收旧值。
+            adcvalue_r <= 14'd123;
+            request_prev <= 1'b0;
+            converting <= 1'b0;
+            age <= 0;
+            last_channel <= -1;
+            previous_code <= 14'd0;
+            request_high_cycles <= 0;
+        end
+        else
+        begin
+            request_prev <= ADCREQI;
+            if (VSENCTL !== 3'b000 || ADC_MODE !== 1'b1)
+                $fatal(1, "ADC is not using dedicated ADCV voltage mode");
+            if ($isunknown(FSCAL_VALUE) || FSCAL_VALUE < 452 || FSCAL_VALUE > 840)
+                $fatal(1, "ADCLRC calibration: voltage-mode FSCAL must be 452..840");
+            if ($isunknown(OFFSET_VALUE) || $signed(OFFSET_VALUE) < -410 ||
+                $signed(OFFSET_VALUE) > 410)
+                $fatal(1, "ADCLRC calibration: signed voltage-mode OFFSET must be -410..410");
+            if (ADCREQI)
+                request_high_cycles <= request_high_cycles + 1;
+            else if (request_prev)
+            begin
+                if (request_high_cycles < 2)
+                    $fatal(1, "ADCLRC request: fewer than two ADC clock rising edges");
+                request_high_cycles <= 0;
+            end
+            if (ADCEN && ADCREQI && !request_prev)
+            begin
+                if (converting)
+                    $fatal(1, "ADC received overlapping requests");
+                request_count <= request_count + 1;
+                converting <= 1'b1;
+                age <= 0;
+                // 通道第一次转换返回上一通道残留，下一次才返回当前电压。
+                captured_code <= (channel_id == last_channel) ? voltage_code : previous_code;
+                last_channel <= channel_id;
+                previous_code <= voltage_code;
+            end
+            else if (converting)
+            begin
+                age <= age + 1;
+                if (age == 2 && stall_mode != 1)
+                    adcrdy_r <= 1'b0;
+                if (age == (64 << SAMPLE_CNT_SEL) && stall_mode == 0)
+                begin
+                    adcvalue_r <= captured_code;
+                    adcrdy_r <= 1'b1;
+                    converting <= 1'b0;
+                end
+            end
+        end
+    end
+endmodule

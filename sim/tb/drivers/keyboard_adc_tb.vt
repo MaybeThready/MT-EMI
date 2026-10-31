@@ -1,0 +1,125 @@
+/**
+ * 测试ADC时钟、结果槽背压、旧ready拒收、同拍接收/请求及复位；正常应打印PASS。
+ * EXPECT_CLOCK_SOURCE_FAILURE=1为错误CLK_SEL负例，应由模型报错终止。
+ */
+`timescale 1ns/1ps
+module keyboard_adc_tb
+#(
+    parameter integer EXPECT_CLOCK_SOURCE_FAILURE = 0
+)();
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg in_valid = 1'b0;
+    reg out_ready = 1'b0;
+    wire in_ready, out_valid, sample_error, adc_error;
+    wire [13:0] sample_code;
+    reg regression_passed = 1'b0;
+    integer cycles = 0;
+    integer i;
+    real last_adc_edge = 0.0;
+
+    generate
+        if (EXPECT_CLOCK_SOURCE_FAILURE)
+        begin : g_invalid_clock_source
+            // 单独的非法配置探针：不篡改被测驱动，仅验证模型能拒绝错误的硬核时钟源。
+            ADCLRC #(
+                .CLK_SEL(1'b0)
+            ) invalid_adc_u (
+                .ADCINBK2A(1'b0), .ADCINBK2B(1'b0),
+                .ADCINBK3A(1'b0), .ADCINBK3B(1'b0),
+                .ADCINBK4A(1'b0), .ADCINBK4B(1'b0),
+                .ADCINBK5A(1'b0), .ADCINBK5B(1'b0),
+                .VSENCTL(3'b000), .FSCAL_VALUE(10'd653), .OFFSET_VALUE(12'd0),
+                .ADCEN(rst_n), .CLK(keyboard_adc_u.clk_adc_r), .DRSTN(rst_n),
+                .ADCREQI(1'b0), .ADCRDY(), .ADCVALUE()
+            );
+        end
+    endgenerate
+
+    keyboard_adc #(
+        .SYS_CLK_HZ(4_000_000), .ADC_CLK_DIV(4),
+        .ADC_STARTUP_TICKS(8), .ADC_TIMEOUT_TICKS(16384)
+    ) keyboard_adc_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .out_ready(out_ready), .out_valid(out_valid), .sample_code(sample_code),
+        .sample_error(sample_error), .adc_error(adc_error)
+    );
+
+    always #125 clk_sys = ~clk_sys;
+    always @(posedge clk_sys)
+        cycles = cycles + 1;
+
+    always @(posedge keyboard_adc_u.clk_adc_r or negedge keyboard_adc_u.clk_adc_r or negedge rst_n)
+    begin
+        if (!rst_n)
+            last_adc_edge = 0.0;
+        else
+        begin
+            // 4MHz系统时钟/4，ADC每个高、低半周期均应为500ns。
+            if (last_adc_edge != 0.0 &&
+                ($realtime - last_adc_edge < 499.999 || $realtime - last_adc_edge > 500.001))
+                $fatal(1, "ADC registered clock has the wrong divider or duty cycle");
+            last_adc_edge = $realtime;
+        end
+    end
+
+    task request_sample;
+        begin
+            while (!in_ready) @(negedge clk_sys);
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+        end
+    endtask
+
+    initial
+    begin
+        repeat (4) @(negedge clk_sys);
+        if (in_ready || out_valid || sample_error || adc_error || keyboard_adc_u.clk_adc_r)
+            $fatal(1, "ADC reset must hold ready/valid/error and dedicated clock low");
+        keyboard_adc_u.adc_u.voltage_code = 14'd777;
+        keyboard_adc_u.adc_u.channel_id = 0;
+        keyboard_adc_u.adc_u.stall_mode = 0;
+        rst_n = 1'b1;
+        request_sample();
+        while (!out_valid) @(negedge clk_sys);
+        if (sample_code !== 14'd0)
+            $fatal(1, "ADC accepted stale ready/data before actual conversion completed");
+        out_ready = 1'b1;
+        @(negedge clk_sys);
+        out_ready = 1'b0;
+        request_sample();
+        while (!out_valid) @(negedge clk_sys);
+        if (sample_code !== 14'd777)
+            $fatal(1, "ADC did not capture completed result");
+        keyboard_adc_u.adc_u.voltage_code = 14'd1400;
+        in_valid = 1'b1;
+        for (i = 0; i < 300; i = i + 1)
+        begin
+            @(negedge clk_sys);
+            if (!out_valid || in_ready || sample_code !== 14'd777)
+                $fatal(1, "ADC output slot overwritten under backpressure");
+        end
+        out_ready = 1'b1; // 同一沿消费旧结果并接受下一次请求。
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        out_ready = 1'b0;
+        while (!out_valid) @(negedge clk_sys);
+        if (sample_code !== 14'd1400 || adc_error || sample_error)
+            $fatal(1, "ADC simultaneous consume/request failed");
+        rst_n = 1'b0;
+        #1;
+        if (in_ready || out_valid || sample_code !== 14'd0 || adc_error ||
+            sample_error || keyboard_adc_u.clk_adc_r)
+            $fatal(1, "ADC asynchronous reset failed");
+        regression_passed = 1'b1;
+        $display("PASS: keyboard_adc_tb registered ADC clock, result backpressure, simultaneous request/consume and reset (%0d cycles)", cycles);
+        $finish;
+    end
+
+    initial
+    begin
+        repeat (10000) @(negedge clk_sys);
+        $fatal(1, "TIMEOUT: keyboard_adc_tb");
+    end
+endmodule

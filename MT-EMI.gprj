@@ -18,6 +18,9 @@
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/keyboard_adc.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/keyboard_pressure_scanner.v" type="file.verilog" enable="1"/>
+        <File path="src/drivers/keyboard_driver.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
     </FileList>

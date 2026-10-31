@@ -1,0 +1,530 @@
+/**
+ * 测试双4067的24路FSR映射、校准、完整压力组和故障恢复。
+ * 验证1.3ms短按/短释放、深度3事件FIFO回绕/满出入队/溢出、背压；应打印最终PASS。
+ * ADC行为模型仅验证数字协议，不验证真实模拟精度、噪声和CIC响应。
+ */
+`timescale 1ns/1ps
+module keyboard_pressure_scanner_tb();
+    localparam integer PERIOD = 1000;
+    localparam integer BREAK_TICKS = 3;
+    localparam integer SETUP_TICKS = 3;
+    localparam integer SETTLE_TICKS = 12;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg scan_tick_up = 1'b0;
+    reg out_ready = 1'b1;
+    reg tick_enabled = 1'b1;
+    reg [23:0] physical_keys = 24'd0;
+    reg [13:0] codes [0:23];
+    reg [15:0] shift_a = 16'd0, shift_b = 16'd0;
+    wire load_n, key_clk, out_valid;
+    wire [23:0] key_states;
+    wire [15:0] key_velocity [23:0];
+    wire [3:0] mux_addr;
+    wire mux_en_a_n, mux_en_b_n, adc_error, event_overflow;
+    wire [383:0] payload;
+    integer cycle_count = 0;
+    integer tick_count = 0;
+    integer completed_frames = 0;
+    integer received_frames = 0;
+    integer load_count = 0;
+    integer stall_mode = 0;
+    integer active_key;
+    integer channel_requests [0:23];
+    integer disabled_since = 0;
+    integer address_since = 0;
+    integer enabled_since = 0;
+    integer old_active = -1;
+    integer model_requests_seen = 0;
+    reg [3:0] previous_addr = 4'd0;
+    reg [23:0] received_states = 24'd0;
+    reg [383:0] received_payload = 384'd0;
+    reg was_stalled = 1'b0;
+    reg [23:0] stalled_states;
+    reg [383:0] stalled_payload;
+    integer i;
+    genvar lane;
+    integer last_enabled_key = -1;
+    integer crossings_15_16 = 0, crossings_23_0 = 0;
+    integer last_read_ptr = 0, last_write_ptr = 0, read_wraps = 0, write_wraps = 0;
+    integer full_replacements = 0;
+    reg [23:0] previous_received_states = 24'd0;
+    reg [23:0] expected_states [0:255];
+    integer expected_write = 0, expected_read = 0;
+    reg check_history = 1'b1, atomic_check = 1'b0;
+    reg [383:0] atomic_old, atomic_new;
+    reg regression_passed = 1'b0, regression_failed = 1'b0;
+    integer phase = 0;
+
+    task automatic fail;
+        input string reason;
+        begin
+            regression_failed = 1'b1;
+            regression_passed = 1'b0;
+            $display("FAIL: %0s phase=%0d cycle=%0d", reason, phase, cycle_count);
+            $fatal(1, "keyboard_pressure_scanner_tb failed");
+        end
+    endtask
+
+    task set_keys;
+        input [23:0] next_states;
+        begin
+            if (physical_keys !== next_states && check_history)
+            begin
+                if (expected_write >= 256) fail("Reference queue exhausted");
+                expected_states[expected_write] = next_states;
+                expected_write = expected_write + 1;
+            end
+            physical_keys = next_states;
+        end
+    endtask
+
+    task wait_history;
+        integer start_cycle;
+        begin
+            start_cycle = cycle_count;
+            while (expected_read != expected_write)
+            begin
+                @(negedge clk_sys);
+                if (cycle_count - start_cycle > 2 * PERIOD) fail("Touch event queue did not drain promptly");
+            end
+        end
+    endtask
+
+    function [335:0] calibration_zero;
+        integer k;
+        begin
+            for (k = 0; k < 24; k = k + 1)
+                calibration_zero[k*14 +: 14] = k; // 高阻松开时近0，模拟各键的小零点偏差。
+        end
+    endfunction
+
+    function [335:0] calibration_full;
+        integer k;
+        begin
+            for (k = 0; k < 24; k = k + 1)
+                calibration_full[k*14 +: 14] = 1600 + k * 2;
+        end
+    endfunction
+
+    function [15:0] expected_velocity;
+        input integer key_id;
+        input integer code;
+        integer low_value, full_value, span;
+        reg [63:0] value;
+        begin
+            low_value = 8 + key_id;
+            full_value = 1600 + key_id * 2;
+            span = full_value - low_value;
+            if (code <= low_value)
+                expected_velocity = 16'd0;
+            else if (code >= full_value)
+                expected_velocity = 16'hFFFF;
+            else
+            begin
+                value = (64'd65535 * (code - low_value) + span / 2) / span;
+                expected_velocity = value[15:0];
+            end
+        end
+    endfunction
+
+    keyboard_driver #(
+        .SYS_CLK_HZ(4_000_000), .SCAN_HZ(4000),
+        .DEBOUNCE_TICKS(4000), .RELEASE_TICKS(4000), .EVENT_FIFO_DEPTH(3),
+        .SHIFT_HALF_CYCLES(4), .LOAD_CYCLES(4),
+        .ADC_CLK_DIV(4), .ADC_STARTUP_TICKS(8), .ADC_TIMEOUT_TICKS(16384),
+        .MUX_BREAK_TICKS(BREAK_TICKS), .ADDRESS_SETUP_TICKS(SETUP_TICKS),
+        .MUX_SETTLE_TICKS(SETTLE_TICKS),
+        .PRESSURE_ZERO_CODES(calibration_zero()), .PRESSURE_FULL_CODES(calibration_full())
+    ) keyboard_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
+        .data_a(shift_a[15]), .data_b(shift_b[15]),
+        .out_ready(out_ready), .load_n(load_n), .key_clk(key_clk),
+        .key_states(key_states), .key_velocity(key_velocity), .out_valid(out_valid),
+        .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
+        .adc_error(adc_error), .event_overflow(event_overflow)
+    );
+
+    generate
+        for (lane = 0; lane < 24; lane = lane + 1)
+        begin : g_payload
+            assign payload[lane*16 +: 16] = key_velocity[lane];
+        end
+    endgenerate
+
+    always #125 clk_sys = ~clk_sys; // 4MHz，模拟时间与SYS_CLK_HZ一致。
+
+    always @(negedge clk_sys)
+    begin
+        if (!rst_n || !tick_enabled)
+        begin
+            tick_count = 0;
+            scan_tick_up = 1'b0;
+        end
+        else if (tick_count == PERIOD - 1)
+        begin
+            tick_count = 0;
+            scan_tick_up = 1'b1;
+        end
+        else
+        begin
+            tick_count = tick_count + 1;
+            scan_tick_up = 1'b0;
+        end
+    end
+
+    // 外部165链：有效12位前面有4个无效位；两块键盘并行输出。
+    always @(negedge load_n or posedge key_clk)
+    begin
+        if (!load_n)
+        begin
+            shift_a <= {4'hA, physical_keys[11:0]};
+            shift_b <= {4'h5, physical_keys[23:12]};
+            load_count = load_count + 1;
+        end
+        else
+        begin
+            shift_a <= {shift_a[14:0], 1'b0};
+            shift_b <= {shift_b[14:0], 1'b0};
+        end
+    end
+
+    always @(*)
+    begin
+        if (!mux_en_a_n && mux_en_b_n)
+            active_key = mux_addr;
+        else if (mux_en_a_n && !mux_en_b_n && mux_addr < 8)
+            active_key = 16 + mux_addr;
+        else
+            active_key = -1;
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.channel_id = active_key;
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.voltage_code =
+            (active_key >= 0 && active_key < 24) ? codes[active_key] : 14'd0;
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.stall_mode = stall_mode;
+    end
+
+    always @(posedge clk_sys)
+    begin
+        cycle_count = cycle_count + 1;
+        if (rst_n)
+        begin
+            if (!mux_en_a_n && !mux_en_b_n)
+                fail("Both mux outputs enabled on one ADC bus");
+            if (!mux_en_b_n && mux_addr >= 8)
+                fail("Unused second-chip Y8..Y15 selected");
+            if (mux_addr != previous_addr)
+            begin
+                if (active_key != -1 || cycle_count - disabled_since < BREAK_TICKS)
+                    fail($sformatf("Address changed without break-before-make"));
+                address_since = cycle_count;
+            end
+            if (old_active == -1 && active_key != -1)
+            begin
+                if (cycle_count - address_since < SETUP_TICKS)
+                    fail($sformatf("Address setup too short"));
+                if (last_enabled_key == 15 && active_key == 16) crossings_15_16 = crossings_15_16 + 1;
+                if (last_enabled_key == 23 && active_key == 0) crossings_23_0 = crossings_23_0 + 1;
+                last_enabled_key = active_key;
+                enabled_since = cycle_count;
+            end
+            if (old_active != -1 && active_key == -1)
+                disabled_since = cycle_count;
+            if (old_active != -1 && active_key != -1 && active_key != old_active)
+                fail($sformatf("Mux switched without disabling"));
+            previous_addr = mux_addr;
+            old_active = active_key;
+
+            if (keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count != model_requests_seen)
+            begin
+                model_requests_seen = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count;
+                if (active_key < 0 || active_key > 23 || cycle_count - enabled_since < SETTLE_TICKS)
+                    fail($sformatf("ADC requested on invalid/unsettled channel"));
+                channel_requests[active_key] = channel_requests[active_key] + 1;
+            end
+
+            if (last_read_ptr == 2 && keyboard_driver_u.g_event_output.read_ptr_r == 0)
+                read_wraps = read_wraps + 1;
+            if (last_write_ptr == 2 && keyboard_driver_u.g_event_output.write_ptr_r == 0)
+                write_wraps = write_wraps + 1;
+            last_read_ptr = keyboard_driver_u.g_event_output.read_ptr_r;
+            last_write_ptr = keyboard_driver_u.g_event_output.write_ptr_r;
+            if (keyboard_driver_u.g_event_output.count_r == 3 && keyboard_driver_u.g_event_output.fifo_pop &&
+                keyboard_driver_u.g_event_output.fifo_push)
+                full_replacements = full_replacements + 1;
+            if (keyboard_driver_u.pressure_frame_done)
+                completed_frames = completed_frames + 1;
+            if (was_stalled && (!out_valid || key_states !== stalled_states || payload !== stalled_payload))
+                fail($sformatf("Output frame changed under backpressure"));
+            was_stalled = out_valid && !out_ready;
+            stalled_states = key_states;
+            stalled_payload = payload;
+            if (out_valid && out_ready)
+            begin
+                received_frames = received_frames + 1;
+                received_states = key_states;
+                received_payload = payload;
+                if (completed_frames == 0 && payload !== 384'd0)
+                    fail("Nonzero pressure before first complete ADC group");
+                for (integer key_id = 0; key_id < 24; key_id = key_id + 1)
+                    if (!key_states[key_id] && key_velocity[key_id] !== 16'd0)
+                        fail("Released key velocity is nonzero");
+                if (check_history && key_states !== previous_received_states)
+                begin
+                    if (expected_read >= expected_write || key_states !== expected_states[expected_read])
+                    begin
+                        $display("event=%0d expected=%h actual=%h",expected_read,expected_states[expected_read],key_states);
+                        fail("Touch event dropped, reordered or replayed");
+                    end
+                    expected_read = expected_read + 1;
+                end
+                previous_received_states = key_states;
+                if (atomic_check && key_states == 24'hFFFFFF && payload !== atomic_old && payload !== atomic_new)
+                    fail("Partial pressure group published");
+            end
+        end
+        else
+        begin
+            was_stalled = 1'b0;
+            previous_addr = 4'd0;
+            old_active = -1;
+            previous_received_states = 24'd0;
+            expected_read = 0;
+            expected_write = 0;
+            last_read_ptr = 0;
+            last_write_ptr = 0;
+            disabled_since = cycle_count;
+            address_since = cycle_count;
+        end
+    end
+
+    task wait_cycles;
+        input integer count;
+        repeat (count) @(negedge clk_sys);
+    endtask
+
+    task wait_frames;
+        input integer count;
+        integer target;
+        begin
+            target = completed_frames + count;
+            while (completed_frames < target)
+                @(negedge clk_sys);
+            wait_cycles(16);
+        end
+    endtask
+
+    task check_frame;
+        input [23:0] expected_states;
+        integer key_id, actual_value, expected_value;
+        begin
+            if (received_states !== expected_states)
+                fail($sformatf("State mapping expected %h got %h", expected_states, received_states));
+            for (key_id = 0; key_id < 24; key_id = key_id + 1)
+            begin
+                expected_value = expected_states[key_id] ? expected_velocity(key_id, codes[key_id]) : 0;
+                actual_value = received_payload[key_id*16 +: 16];
+                if (actual_value < expected_value - 1 || actual_value > expected_value + 1)
+                    fail($sformatf("Key %0d velocity expected %0d got %0d", key_id, expected_value, actual_value));
+            end
+        end
+    endtask
+
+    initial
+    begin : regression
+        integer frames_before, loads_before, requests_before;
+        reg [23:0] old_states;
+        reg [383:0] old_payload;
+        for (i = 0; i < 24; i = i + 1)
+        begin
+            codes[i] = 1000 + i * 17;
+            channel_requests[i] = 0;
+        end
+        wait_cycles(6);
+        if (!mux_en_a_n || !mux_en_b_n || out_valid || adc_error || event_overflow)
+            fail("Reset did not restore safe status");
+        rst_n = 1'b1;
+
+        phase = 1;
+        @(posedge scan_tick_up); set_keys(24'h000001);
+        wait_cycles(5200); // Actual 1.3ms with 4MHz sys clock and 1ms debounce.
+        if (expected_read != expected_write) fail("1.3ms press waited for pressure group");
+        set_keys(24'd0);
+        wait_cycles(5200);
+        if (expected_read != expected_write || completed_frames != 0)
+            fail("Short press/release before first pressure group lost");
+        $display("PASS: 1.3ms press/release before first ADC group, 1ms debounce, neutral initial pressure");
+        wait_frames(1);
+        check_frame(24'd0);
+
+        phase = 2;
+        set_keys(24'hFFFFFF);
+        wait_frames(2);
+        wait_history;
+        check_frame(24'hFFFFFF);
+        for (i = 0; i < 24; i = i + 1)
+            if (channel_requests[i] < 6) fail("Missing FSR lane or discarded conversions");
+        if (crossings_15_16 < 2 || crossings_23_0 < 1) fail("Mux boundary coverage incomplete");
+        for (i = 0; i < 24; i = i + 1)
+        begin
+            codes[i] = i[0] ? 14'd16383 : 14'd0;
+            wait_frames(2);
+            check_frame(24'hFFFFFF);
+        end
+        codes[0] = 14'd8; codes[1] = 14'd9; codes[2] = 14'd805; codes[3] = 14'd1606;
+        wait_frames(2);
+        check_frame(24'hFFFFFF);
+        $display("PASS: 24 independent FSRs, 16+8 mapping, both boundaries, zero/deadband/mid/full/saturation");
+
+        phase = 3;
+        wait_frames(1);
+        atomic_old = received_payload;
+        for (i = 0; i < 24; i = i + 1)
+        begin
+            codes[i] = 900 + i * 11;
+            atomic_new[i*16 +: 16] = expected_velocity(i, codes[i]);
+        end
+        atomic_check = 1'b1;
+        wait_frames(2);
+        check_frame(24'hFFFFFF);
+        atomic_check = 1'b0;
+        set_keys(24'h000001);
+        wait_frames(2);
+        check_frame(24'h000001);
+        wait_frames(1);
+        frames_before = completed_frames;
+        @(posedge scan_tick_up); set_keys(24'd0);
+        wait_cycles(5200);
+        if (expected_read != expected_write) fail("1.3ms release lost");
+        set_keys(24'h000001);
+        wait_cycles(5200);
+        if (expected_read != expected_write || completed_frames != frames_before)
+            fail("Short release/repress within one ADC group lost");
+        $display("PASS: complete pressure snapshots and 1.3ms release/repress within one ADC group");
+
+        phase = 4;
+        set_keys(24'd0);
+        wait_frames(2);
+        wait_history;
+        @(negedge clk_sys); out_ready = 1'b0;
+        wait (out_valid);
+        @(negedge clk_sys);
+        old_states = key_states; old_payload = payload;
+        loads_before = load_count; frames_before = completed_frames;
+        set_keys(24'h000001); wait_cycles(6 * PERIOD);
+        set_keys(24'h010001); wait_cycles(6 * PERIOD);
+        set_keys(24'h000002); wait_cycles(6 * PERIOD);
+        if (keyboard_driver_u.g_event_output.count_r != 3 || event_overflow)
+            fail("Depth3 FIFO not full after three events or overflowed early");
+        if (key_states !== old_states || payload !== old_payload || load_count <= loads_before + 2)
+            fail("Backpressure overwrote output or stopped touch scanning");
+        while (completed_frames == frames_before) @(negedge clk_sys);
+        set_keys(24'd0);
+        wait (keyboard_driver_u.filtered_state === 24'd0);
+        @(negedge clk_sys); out_ready = 1'b1;
+        wait_history;
+        wait_cycles(4);
+        if (event_overflow || full_replacements == 0 || read_wraps == 0 || write_wraps == 0)
+            fail("Non-power-of-two full FIFO replacement or wrap coverage failed");
+        $display("PASS: depth3 FIFO wrap/full pop+push, ordered events and ADC progress under backpressure");
+
+        phase = 5;
+        set_keys(24'hFFFFFF);
+        wait_frames(2);
+        check_frame(24'hFFFFFF);
+        while (active_key != 5) @(negedge clk_sys);
+        stall_mode = 1;
+        frames_before = completed_frames;
+        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.sample_error)
+            @(negedge clk_sys);
+        wait_cycles(2);
+        if (!adc_error || completed_frames != frames_before || !mux_en_a_n || !mux_en_b_n)
+            fail("Ready-high timeout published partial group or failed to disable both muxes");
+        stall_mode = 0;
+        wait_frames(2);
+        check_frame(24'hFFFFFF);
+        if (!adc_error) fail("ADC fault latch unexpectedly cleared");
+        while (active_key != 18) @(negedge clk_sys);
+        stall_mode = 2;
+        frames_before = completed_frames;
+        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.sample_error)
+            @(negedge clk_sys);
+        wait_cycles(2);
+        if (completed_frames != frames_before || !mux_en_a_n || !mux_en_b_n)
+            fail("Ready-low timeout did not cancel partial group safely");
+        stall_mode = 0;
+        wait_frames(2);
+        check_frame(24'hFFFFFF);
+        $display("PASS: both timeout modes discard partial groups and reset/retry from channel0");
+
+        phase = 6;
+        while (active_key != 16) @(negedge clk_sys);
+        rst_n = 1'b0;
+        #1;
+        if (!mux_en_a_n || !mux_en_b_n || out_valid || adc_error || event_overflow ||
+            key_states !== 24'd0 || payload !== 384'd0)
+            fail("Reset did not restore safe outputs");
+        wait_cycles(6);
+        physical_keys = 24'd0;
+        rst_n = 1'b1;
+        @(posedge scan_tick_up); set_keys(24'h800001);
+        wait_frames(2);
+        check_frame(24'h800001);
+        $display("PASS: reset during second-chip scan clears faults and restarts");
+
+        phase = 7;
+        set_keys(24'd0);
+        wait_frames(2);
+        wait_history;
+        check_history = 1'b0;
+        @(negedge clk_sys); out_ready = 1'b0;
+        wait (out_valid);
+        for (i = 0; i < 7; i = i + 1)
+        begin
+            physical_keys = i[0] ? 24'd0 : 24'h000001;
+            wait_cycles(6 * PERIOD);
+        end
+        if (!event_overflow) fail("Bounded FIFO did not report overflow");
+        @(negedge clk_sys); out_ready = 1'b1;
+        wait_frames(2);
+        if (received_states !== physical_keys || !event_overflow)
+            fail("Overflow recovery did not resynchronize the current physical state");
+        rst_n = 1'b0;
+        wait_cycles(6);
+        physical_keys = 24'd0;
+        check_history = 1'b1;
+        rst_n = 1'b1;
+        wait_frames(2);
+        check_frame(24'd0);
+        if (event_overflow || adc_error) fail("Reset failed to clear fault flags");
+        $display("PASS: overflow reports loss, retries current state and clears on reset");
+
+        phase = 8;
+        tick_enabled = 1'b0;
+        wait_cycles(2 * PERIOD);
+        wait_cycles(40000);
+        frames_before = completed_frames;
+        requests_before = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count;
+        wait_cycles(5000);
+        if (completed_frames != frames_before ||
+            keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count != requests_before)
+            fail("Pressure acquisition started without scan_tick_up");
+        tick_enabled = 1'b1;
+        wait_frames(2);
+        check_frame(24'd0);
+        if (regression_failed || expected_read != expected_write || full_replacements == 0)
+            fail("Previous failure or incomplete coverage remains");
+        else
+        begin
+            regression_passed = 1'b1;
+            $display("PASS: keyboard_pressure_scanner_tb %0d pressure groups / %0d output frames / %0d cycles; FIFO wraps=%0d/%0d full replacements=%0d",
+                     completed_frames,received_frames,cycle_count,read_wraps,write_wraps,full_replacements);
+            $finish;
+        end
+    end
+
+    initial
+    begin
+        wait_cycles(5_000_000);
+        fail($sformatf("TIMEOUT: keyboard_pressure_scanner_tb"));
+    end
+endmodule
