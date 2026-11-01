@@ -9,6 +9,8 @@
  * scene_state/highlight_mask/default_mask remain fixed until render_done.
  * out_valid && out_ready accepts one job; render_done may acknowledge that
  * same edge or pulse later. Never derive input ready from the drawing engine.
+ * Prompt counters use only clog2(HIGHLIGHT_MS+1) bits. Millisecond enable
+ * is predecoded one count ahead, with identical tick phase, not a new clock.
  * Activity lasts HIGHLIGHT_MS; reset events also show DEFAULT. No keyboard
  * lighting/held_keys interface. Spectrum is1024-point Hann,linear REL.MAG.
  * audio_in_* connects to i2s_driver.audio_out_lcd/out_valid_lcd/out_ready_lcd:
@@ -71,15 +73,33 @@ module ui_interaction
     localparam IDLE = 2'd0, FREEZE_SCENE = 2'd1, SEND_SCENE = 2'd2, WAIT_RENDER = 2'd3;
     localparam MS_DIV = (CLK_SYS_HZ >= 1000) ? ((CLK_SYS_HZ + 500) / 1000) : 1;
     localparam MS_WIDTH = (MS_DIV <= 1) ? 1 : $clog2(MS_DIV);
+    localparam TIMER_LIMIT = (HIGHLIGHT_MS>=1 && HIGHLIGHT_MS<=65535) ? HIGHLIGHT_MS : 1;
+    localparam TIMER_WIDTH = (TIMER_LIMIT<=1) ? 1 : $clog2(TIMER_LIMIT+1);
     wire [1:0] state;
     reg [1:0] next_state;
     reg [MS_WIDTH-1:0] ms_count_r;
-    wire ms_tick = (ms_count_r == MS_DIV - 1);
+    wire ms_tick;
+    generate
+        if (MS_DIV<=1)
+        begin : every_cycle_tick
+            assign ms_tick=1'b1;
+        end
+        else
+        begin : registered_ms_tick
+            reg ms_tick_r;
+            assign ms_tick=ms_tick_r;
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n) ms_tick_r<=1'b0;
+                else ms_tick_r<=(ms_count_r==MS_DIV-2);
+            end
+        end
+    endgenerate
     reg [527:0] latest_r, scene_r;
     reg have_state_r, dirty_r, protocol_error_r;
     reg [21:0] highlight_r, defaults_r, reset_latched_r;
     reg [21:0] pending_activity_r, pending_reset_r;
-    reg [15:0] remaining_r [0:21];
+    reg [TIMER_WIDTH-1:0] remaining_r [0:21];
     reg wave_pending_r, scene_wave_valid_r;
     reg scene_pcm_valid_r, scene_spectrum_valid_r, scene_spectrum_clipped_r, scene_fft_overflow_r;
     reg cache_view_r, cache_valid_r;
@@ -114,7 +134,9 @@ module ui_interaction
     wire column_read_allowed = (state == WAIT_RENDER) || ((state == SEND_SCENE) && out_ready);
     reg [21:0] active_mask;
     reg expiring;
-    wire input_fire = display_in_valid && display_in_ready;
+    // Sequential updates below are already excluded by asynchronous reset.
+    // Keep public ready low in reset; do not route rst_n through timer CEs.
+    wire input_fire = display_in_valid && !configuration_error;
     wire [21:0] input_activity = display_in_state[477:456] | display_in_state[499:478];
     wire [21:0] input_reset = display_in_state[499:478];
     integer i;
@@ -205,8 +227,8 @@ module ui_interaction
         expiring = 1'b0;
         for (k = 0; k < 22; k = k + 1)
         begin
-            active_mask[k] = (remaining_r[k] != 16'd0);
-            if (remaining_r[k] == 16'd1) expiring = 1'b1;
+            active_mask[k] = (remaining_r[k] != {TIMER_WIDTH{1'b0}});
+            if (remaining_r[k] == {{(TIMER_WIDTH-1){1'b0}},1'b1}) expiring = 1'b1;
         end
     end
     always @(posedge clk_sys or negedge rst_n)
@@ -235,7 +257,7 @@ module ui_interaction
             scene_wave_seq_r <= 32'd0;
             scene_output_peak_r <= 16'd0;
             scene_dropped_windows_r <= 32'd0;
-            for (i = 0; i < 22; i = i + 1) remaining_r[i] <= 16'd0;
+            for (i = 0; i < 22; i = i + 1) remaining_r[i] <= {TIMER_WIDTH{1'b0}};
         end
         else
         begin
@@ -243,8 +265,8 @@ module ui_interaction
             else ms_count_r <= ms_count_r + 1'b1;
             for (i = 0; i < 22; i = i + 1)
             begin
-                if (ms_tick && remaining_r[i] != 16'd0)
-                    remaining_r[i] <= remaining_r[i] - 16'd1;
+                if (ms_tick && remaining_r[i] != {TIMER_WIDTH{1'b0}})
+                    remaining_r[i] <= remaining_r[i] - 1'b1;
                 if (input_fire && input_activity[i])
                 begin
                     remaining_r[i] <= HIGHLIGHT_MS;

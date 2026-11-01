@@ -1,4 +1,4 @@
-# Run from ai_workspace/sim. Real vendor SDP models; fresh isolated library.
+# Run from formal sim/. Real vendor SDP models; fresh isolated library.
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

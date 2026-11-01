@@ -1,4 +1,4 @@
-# Execute from ai_workspace/sim. No synthesis or place-and-route.
+# Execute from formal sim/. No synthesis or place-and-route.
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do
