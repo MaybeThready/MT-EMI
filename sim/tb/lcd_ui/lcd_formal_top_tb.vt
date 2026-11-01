@@ -1,0 +1,127 @@
+/**
+ * Formal-root integration: real PLL, physical keyboard serial model, UI/rack/
+ * current formal mixer/I2S and played-PCM receiver, plus native scan logic.
+ * No diagnostic pattern source. LCD is intentionally blank until drawers.
+ * Accelerate only PLL_INIT wait and debounce in TB. Encrypted ADSR division
+ * uses the existing 32-cycle functional model; not an IP/timing sign-off.
+ */
+`timescale 1ns/1ps
+module lcd_formal_top_tb;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_core = 1'b0, reset_button = 1'b1;
+    always #10 clk_core = ~clk_core;
+    reg [3:0] ui_button_n = 4'hf;
+    reg [15:0] board_a = 16'd0, board_b = 16'd0;
+    reg [23:0] keys = 24'd0;
+    wire load_n, key_clk, i2s_bclk, i2s_lrck, i2s_dout, sd_mode_n;
+    wire flash_cs_n, flash_clk, flash_mosi, flash_wp_n, flash_hold_n;
+    tri1 flash_miso;
+    wire [1:0] status_led, saved_value_led;
+    wire lcd_clk, lcd_en, lcd_bl, lcd_hs_n, lcd_vs_n;
+    wire [5:0] lcd_r, lcd_g, lcd_b;
+    reg test_passed = 1'b0;
+    integer ui_updates = 0, pcm_updates = 0, nonzero_pcm = 0, active_pixels = 0;
+    integer samples = 0, cx, cy;
+    reg [31:0] last_note_on = 32'd0;
+    reg [527:0] last_display = 528'd0;
+    reg checking = 1'b1;
+
+    top #(.BUTTON_DEBOUNCE_CYCLES(8), .KEY_DEBOUNCE_TICKS(0),
+        .FLASH_POWER_UP_CYCLES(10)) top_u (
+        .clk_core(clk_core), .reset_button(reset_button), .ui_button_n(ui_button_n),
+        .data_a(board_a[15]), .data_b(board_b[15]), .load_n(load_n), .key_clk(key_clk),
+        .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck), .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n),
+        .status_led(status_led), .saved_value_led(saved_value_led),
+        .flash_cs_n(flash_cs_n), .flash_clk(flash_clk), .flash_mosi(flash_mosi), .flash_miso(flash_miso),
+        .flash_wp_n(flash_wp_n), .flash_hold_n(flash_hold_n),
+        .lcd_clk(lcd_clk), .lcd_en(lcd_en), .lcd_r(lcd_r), .lcd_g(lcd_g), .lcd_b(lcd_b),
+        .lcd_bl(lcd_bl), .lcd_hs_n(lcd_hs_n), .lcd_vs_n(lcd_vs_n)
+    );
+    defparam top_u.lcd_driver_u.H_ACTIVE = 65;
+    defparam top_u.lcd_driver_u.V_ACTIVE = 33;
+    defparam top_u.lcd_driver_u.H_BACK = 3;
+    defparam top_u.lcd_driver_u.H_FRONT = 5;
+    defparam top_u.lcd_driver_u.V_BACK = 2;
+    defparam top_u.lcd_driver_u.V_FRONT = 3;
+    initial force top_u.sys_clocker_u.gowin_pll_u.u_pll_init.waitcnt = '1;
+
+    always @(negedge load_n)
+    begin
+        board_a = {4'd0,keys[11:0]};
+        board_b = {4'd0,keys[23:12]};
+    end
+    always @(posedge key_clk)
+    begin
+        board_a = {board_a[14:0],1'b0};
+        board_b = {board_b[14:0],1'b0};
+    end
+    always @(negedge top_u.rst_sys_n) samples = 0;
+    always @(posedge lcd_clk)
+    begin
+        #0.001;
+        if (top_u.rst_sys_n && checking)
+        begin
+            cx = samples % 73;
+            cy = (samples/73) % 38;
+            if (lcd_en !== (cx >= 3 && cx < 68 && cy >= 2 && cy < 35))
+                $fatal(1,"formal LCD scan/de phase");
+            if ({lcd_r,lcd_g,lcd_b} !== 18'd0) $fatal(1,"demo pixels leaked into formal top");
+            if (lcd_en) active_pixels = active_pixels + 1;
+            samples = samples + 1;
+        end
+    end
+    always @(posedge top_u.clk_sys)
+    begin
+        if (top_u.rst_sys_n)
+        begin
+            if (!top_u.played_pcm_ready) $fatal(1,"formal LCD backpressured I2S");
+            if (top_u.ui_display_valid && top_u.ui_display_ready)
+            begin
+                ui_updates = ui_updates + 1;
+                last_display = top_u.ui_display_state;
+            end
+            if (top_u.ui_out_valid && top_u.ui_audio_ready)
+                last_note_on = last_note_on | top_u.note_on;
+            if (top_u.played_pcm_valid && top_u.played_pcm_ready)
+            begin
+                pcm_updates = pcm_updates + 1;
+                if (top_u.played_pcm != 16'sd0) nonzero_pcm = nonzero_pcm + 1;
+            end
+            if (top_u.lcd_protocol_error || top_u.lcd_configuration_error || top_u.configuration_error)
+                $fatal(1,"formal top configuration/protocol error");
+        end
+    end
+
+    initial
+    begin
+        repeat (6) @(negedge clk_core);
+        reset_button = 1'b0;
+        wait (top_u.rst_sys_n);
+        keys = 24'h000200; // A4, through the physical serial keyboard interface.
+        repeat (50000) @(negedge top_u.clk_sys);
+        if (!last_note_on || nonzero_pcm == 0 || pcm_updates < 16 || ui_updates == 0 || active_pixels == 0)
+            $fatal(1,"formal chain incomplete notes=%h nonzero=%0d PCM=%0d UI=%0d",last_note_on,nonzero_pcm,pcm_updates,ui_updates);
+        ui_button_n = 4'hb; // B3: wave/spectrum selection only.
+        repeat (12000) @(negedge top_u.clk_sys);
+        ui_button_n = 4'hf;
+        repeat (12000) @(negedge top_u.clk_sys);
+        if (!last_display[500]) $fatal(1,"formal button/UI/display route not connected");
+        checking = 1'b0;
+        reset_button = 1'b1;
+        #2;
+        if (lcd_bl || lcd_en || i2s_bclk) $fatal(1,"formal asynchronous reset");
+        repeat (6) @(negedge clk_core);
+        reset_button = 1'b0;
+        wait (top_u.rst_sys_n);
+        repeat (3000) @(negedge top_u.clk_sys);
+        if (!lcd_bl || !sd_mode_n) $fatal(1,"formal reset restart");
+        test_passed = 1'b1;
+        $display("LCD_FORMAL_TOP_PASS keyboard UI rack mixer I2S PCM display B3 blank_scan reset nonzero=%0d",nonzero_pcm);
+        $finish;
+    end
+    initial
+    begin
+        #5000000;
+        $fatal(1,"formal top watchdog");
+    end
+endmodule

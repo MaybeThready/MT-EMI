@@ -78,11 +78,20 @@ module ui_control_pipeline
     input storage_catalog_valid,
     input [15:0] storage_slot_present,
     output menu_slot_known,
-    output menu_slot_present
+    output menu_slot_present,
+    // NEW: internal UI display model. Public LCD traffic still goes only via
+    // user_interface. Commit is a one-cycle pulse without ready; payload is
+    // V2 state[527:32],496 bits. Top fills errors/busy/bend and owns sequence.
+    output display_model_commit,
+    output [495:0] display_model_payload
 );
     // 目录由存储驱动在上电扫描后提供；未知不能显示为“空槽”。
     assign menu_slot_known = storage_catalog_valid;
     assign menu_slot_present = storage_catalog_valid && storage_slot_present[menu_slot];
+    wire display_view, display_update;
+    wire signed [15:0] display_wave_progress;
+    wire [15:0] display_master_gain;
+    wire [21:0] display_activity, display_reset;
     wire [1:0] context_effect_select, effect_select;
     wire context_effect_reset, effect_reset;
     wire [127:0] bank_advanced, current_advanced, loaded_advanced;
@@ -221,7 +230,7 @@ module ui_control_pipeline
         .button_held(button_held),
         .in_valid(button_event_valid),
         .in_ready(button_event_ready),
-        .mode(context_mode),
+        .mode(context_mode), .display_view(display_view),
         .fine_adjust(context_fine_adjust),
         .edit_enable(context_edit_enable),
         .edit_target(context_edit_target),
@@ -269,7 +278,9 @@ module ui_control_pipeline
         .configuration_error(configuration_error),
         .in_valid(knob_event_valid),
         .in_ready(knob_event_ready),
-        .wave_progress(),
+        .wave_progress(display_wave_progress),
+        .display_master_gain(display_master_gain), .display_update(display_update),
+        .display_activity_mask(display_activity), .display_reset_mask(display_reset),
         .wavetable_0(bank_wavetable_0),
         .wavetable_1(bank_wavetable_1),
         .interp_percent(bank_interp_percent),
@@ -349,4 +360,88 @@ module ui_control_pipeline
         .apply_valid(preset_load_valid), .apply_ready(preset_load_ready), .apply_parameters(loaded_parameters),
         .result_valid(preset_result_valid), .result_ready(preset_result_ready), .result_status(preset_result_status)
     );
+
+    reg display_control_busy_r, display_apply_guard_r;
+    reg display_observed_safe_r, display_first_r, display_commit_r;
+    reg [495:0] display_candidate, display_observed_r, display_payload_r;
+    reg [30:0] display_changed_r;
+    reg [21:0] display_pending_activity_r, display_pending_reset_r;
+    wire display_button_start = button_out_valid && button_out_ready;
+    wire display_frame_done = frame_done_valid && frame_done_ready;
+    wire display_safe = !display_control_busy_r && !display_button_start &&
+                        !preset_load_valid && !display_apply_guard_r;
+    // Event bits are transient, not part of the ordinary state comparison.
+    wire [495:0] display_reference = {display_payload_r[495:468],44'd0,display_payload_r[423:0]};
+    integer display_group;
+    assign display_model_commit = display_commit_r;
+    assign display_model_payload = display_payload_r;
+    always @(*)
+    begin
+        display_candidate = 496'd0;
+        display_candidate[191:0] = current_parameters;
+        display_candidate[207:192] = display_master_gain;
+        display_candidate[223:208] = current_balance_gain;
+        display_candidate[351:224] = current_advanced;
+        display_candidate[367:352] = display_wave_progress;
+        display_candidate[383:368] = WAVE_SELECT_STEPS;
+        display_candidate[385:384] = context_mode;
+        display_candidate[386] = context_fine_adjust;
+        display_candidate[387] = context_edit_target;
+        display_candidate[390:388] = menu_page;
+        display_candidate[392:391] = menu_selection;
+        display_candidate[396:393] = menu_slot;
+        display_candidate[397] = menu_save;
+        display_candidate[401:398] = menu_result_status;
+        display_candidate[403:402] = menu_effect;
+        display_candidate[404] = menu_effect_reset;
+        display_candidate[405] = storage_catalog_valid;
+        display_candidate[421:406] = storage_catalog_valid ? storage_slot_present : 16'd0;
+        display_candidate[468] = display_view;
+    end
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            display_control_busy_r <= 1'b0;
+            display_apply_guard_r <= 1'b0;
+            display_observed_safe_r <= 1'b0;
+            display_first_r <= 1'b1;
+            display_commit_r <= 1'b0;
+            display_observed_r <= 496'd0;
+            display_payload_r <= 496'd0;
+            display_changed_r <= 31'd0;
+            display_pending_activity_r <= 22'd0;
+            display_pending_reset_r <= 22'd0;
+        end
+        else
+        begin
+            if (display_frame_done) display_control_busy_r <= 1'b0;
+            if (display_button_start) display_control_busy_r <= 1'b1;
+            display_apply_guard_r <= preset_load_valid && preset_load_ready;
+            // Unconditional observation cuts a wide conditional capture path.
+            // Both observation and publication must be outside a transaction.
+            display_observed_r <= display_candidate;
+            display_observed_safe_r <= display_safe;
+            for (display_group = 0; display_group < 31; display_group = display_group + 1)
+                display_changed_r[display_group] <=
+                    (display_candidate[16*display_group +: 16] != display_reference[16*display_group +: 16]);
+            display_commit_r <= 1'b0;
+            if (display_update)
+            begin
+                display_pending_activity_r <= display_pending_activity_r | display_activity;
+                display_pending_reset_r <= display_pending_reset_r | display_reset;
+            end
+            if (display_safe && display_observed_safe_r && !display_commit_r &&
+                (display_first_r || (|display_changed_r) || (|display_pending_activity_r) || (|display_pending_reset_r)))
+            begin
+                display_payload_r <= display_observed_r;
+                display_payload_r[445:424] <= display_pending_activity_r | (display_update ? display_activity : 22'd0);
+                display_payload_r[467:446] <= display_pending_reset_r | (display_update ? display_reset : 22'd0);
+                display_pending_activity_r <= 22'd0;
+                display_pending_reset_r <= 22'd0;
+                display_commit_r <= 1'b1;
+                display_first_r <= 1'b0;
+            end
+        end
+    end
 endmodule

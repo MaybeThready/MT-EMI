@@ -24,6 +24,7 @@ module ui_control_state
     output in_ready,
     output [1:0] mode,
     output fine_adjust,
+    output display_view,  // NEW: 0=WAVE,1=SPECTRUM; only PLAY B3 toggles, reset0.
     output edit_enable,
     output edit_target,
     output clear_wave_progress,
@@ -50,6 +51,8 @@ module ui_control_state
     wire current_state;
     reg next_state;
     reg [1:0] mode_r;
+    reg display_view_r;
+    assign display_view = display_view_r;
     localparam PAGE_PLAY = 3'd0;
     localparam PAGE_MAIN_MENU = 3'd1;
     localparam PAGE_SELECT_SLOT = 3'd2;
@@ -159,6 +162,7 @@ module ui_control_state
         if (!rst_n)
         begin
             mode_r <= 2'd0;
+            display_view_r <= 1'b0;
             effect_select_r <= 2'd0;
             effect_reset_r <= 1'b0;
             menu_effect_reset_r <= 1'b0;
@@ -198,6 +202,8 @@ module ui_control_state
                                 mode_r <= (mode_r == 2'd0) ? 2'd1 : 2'd0;
                                 clear_wave_progress_r <= 1'b1;
                             end
+                            else if (button_pressed_event[2])
+                                display_view_r <= ~display_view_r;
                         end
                     end
                     PAGE_MAIN_MENU:

@@ -108,7 +108,8 @@ module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter S
         .reverb_mix_percent(reverb_mix_percent),
         .delay_mix_percent(delay_mix_percent),
         .distortion_mix_percent(distortion_mix_percent),
-        .chorus_mix_percent(chorus_mix_percent)
+        .chorus_mix_percent(chorus_mix_percent),
+        .display_master_gain(), .display_update(), .display_activity_mask(), .display_reset_mask()
     );
 
     // 由公开字段重组，与直接指定的两组音色逐字段对比，不读内部寄存器。

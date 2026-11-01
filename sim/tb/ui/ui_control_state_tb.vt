@@ -66,7 +66,8 @@ module ui_control_state_tb;
         .edit_target(edit_target),
         .clear_wave_progress(clear_wave_progress),
         .context_valid(context_valid),
-        .context_ready(context_ready)
+        .context_ready(context_ready),
+        .display_view()
     );
 
     task press_menu_button;

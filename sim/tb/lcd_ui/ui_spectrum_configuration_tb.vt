@@ -1,0 +1,54 @@
+/**
+ * Public spectrum parameter boundary checks through the UI frontend.
+ * Bad configurations reject UI work and column reads/writes, while played-PCM
+ * ready remains asserted. Covers zero/negative rate/range, Nyquist overflow,
+ * invalid column counts and geometry. No hierarchical forcing or clock changes.
+ */
+`timescale 1ns/1ps
+module ui_spectrum_configuration_tb;
+    parameter BAD_CASE = 1; // Integer1..10, one illegal configuration per run.
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys = 1'b0, rst_n = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    wire audio_in_ready, display_in_ready, out_valid, configuration_error, protocol_error;
+    wire scene_wave_valid, scene_spectrum_valid;
+    reg test_passed = 1'b0;
+    ui_interaction #(
+        .WAVE_COLUMNS(BAD_CASE==5 ? 0 : (BAD_CASE==6 ? 1025 : 544)),
+        .GRAPH_Y_MIN(BAD_CASE==7 ? 303 : 96),
+        .GRAPH_Y_MAX(BAD_CASE==8 ? 480 : 303),
+        .SPECTRUM_SAMPLE_RATE_NUM(BAD_CASE==1 ? 0 : (BAD_CASE==9 ? -1 : 98245614)),
+        .SPECTRUM_SAMPLE_RATE_DEN(BAD_CASE==2 ? 0 : 2048),
+        .SPECTRUM_MAX_HZ(BAD_CASE==3 ? 0 : (BAD_CASE==4 ? 24000 : (BAD_CASE==10 ? -1 : 4000)))
+    ) ui_interaction_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .display_in_state(528'd0), .display_in_valid(1'b1), .display_in_ready(display_in_ready),
+        .audio_in(-16'sd32768), .audio_in_valid(1'b1), .audio_in_ready(audio_in_ready),
+        .scene_state(), .highlight_mask(), .default_mask(),
+        .out_valid(out_valid), .out_ready(1'b1), .render_done(1'b0),
+        .scene_wave_valid(scene_wave_valid), .scene_wave_seq(), .scene_output_peak(), .scene_pcm_valid(),
+        .scene_spectrum_valid(scene_spectrum_valid), .scene_spectrum_seq(),
+        .scene_spectrum_clipped(), .scene_fft_overflow(),
+        .scene_dropped_windows(), .column_rd_en(1'b0), .column_rd_addr(11'd0), .column_rd_data(),
+        .dropped_windows(), .protocol_error(protocol_error), .configuration_error(configuration_error)
+    );
+    initial
+    begin
+        repeat (3) @(negedge clk_sys);
+        if (audio_in_ready || display_in_ready) $fatal(1,"ready during reset");
+        rst_n = 1'b1;
+        repeat (2100)
+        begin
+            @(negedge clk_sys);
+            if (configuration_error!==1'b1 || display_in_ready!==1'b0 || audio_in_ready!==1'b1 ||
+                out_valid!==1'b0 || scene_wave_valid!==1'b0 || scene_spectrum_valid!==1'b0 || protocol_error)
+                $fatal(1,"invalid spectrum parameter/PCM isolation case=%0d",BAD_CASE);
+        end
+        rst_n = 1'b0;
+        #1;
+        if (audio_in_ready || display_in_ready || out_valid) $fatal(1,"reset cancellation");
+        test_passed = 1'b1;
+        $display("UI_SPECTRUM_CONFIGURATION_PASS case=%0d audio_not_blocked",BAD_CASE);
+        $finish;
+    end
+endmodule

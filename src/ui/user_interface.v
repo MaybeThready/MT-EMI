@@ -98,10 +98,27 @@ module user_interface
     input storage_catalog_valid,
     input [15:0] storage_slot_present,
     output menu_slot_known,
-    output menu_slot_present
+    output menu_slot_present,
+    // NEW LCD display channel, V2. Same clk_sys and rst_sys_n as this UI.
+    // state[31:0] seq; [223:32]12 edit-unit words; [239:224]master Q15;
+    // [255:240]balance Q15; [383:256]8 advanced words; [399:384]signed
+    // wave progress; [415:400]steps; [419:416]mode/fine/target;
+    // [453:420]menu/catalog; [455:454]configuration_error/sample_overrun;
+    // [477:456]activity22; [499:478]reset22; [500]view0=WAVE/1=FFT;
+    // [506:501]busy count; [507]busy-known; [508]bend-known;
+    // [511:509]zero; [527:512]calibrated bend request (0000/8000/FFFF).
+    // Transfer only on display_out_valid && display_out_ready. While waiting,
+    // hold the full528-bit state and valid. Display ready never gates existing
+    // input, audio, note_busy or storage ready. Old unsent models may coalesce;
+    // activity/reset events are OR-preserved. No keyboard-lighting payload.
+    output [527:0] display_out_state,
+    output display_out_valid,
+    input display_out_ready
 );
     localparam STATE_WAIT_COMBINED_FRAME = 1'b0;
     localparam STATE_DELIVER_FRAME_TO_ALL_SOURCES = 1'b1;
+    wire display_pipeline_commit;
+    wire [495:0] display_pipeline_payload;
     wire current_state;
     reg next_state;
     reg [31:0] next_batch_id_r;
@@ -236,9 +253,9 @@ module user_interface
         (MAX_POLYPHONY < 1) || (VELOCITY_SLEW_STEP == 16'd0);
     assign input_frame_available = !configuration_error && (current_state == STATE_WAIT_COMBINED_FRAME);
     assign in_ready = rst_n && input_frame_available;
-    assign button_valid = rst_n && (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !button_delivered_r;
-    assign knob_valid = rst_n && (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !knob_delivered_r;
-    assign keyboard_input_valid = rst_n && (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !keyboard_delivered_r;
+    assign button_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !button_delivered_r;
+    assign knob_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !knob_delivered_r;
+    assign keyboard_input_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !keyboard_delivered_r;
     // out_valid_r 与键盘有效状态均异步清零；不重复引入复位组合路径。
     assign out_valid = !configuration_error && out_valid_r && keyboard_audio_valid;
     assign audio_accept = out_valid && out_ready;
@@ -387,6 +404,8 @@ module user_interface
         .knob_batch_last(1'b1),
         .knob_in_valid(knob_valid),
         .knob_in_ready(knob_ready),
+        .display_model_commit(display_pipeline_commit),
+        .display_model_payload(display_pipeline_payload),
         .out_valid(pipeline_valid),
         .out_ready(1'b1),
         .protocol_error(pipeline_protocol_error),
@@ -606,4 +625,91 @@ module user_interface
                 sample_overrun_r <= 1'b1;
         end
     end
+
+    reg [495:0] display_payload;
+    reg display_initialized_r;
+    reg [3:0] display_busy_group_r [0:3];
+    reg display_busy_pending_r, display_busy_known_r, display_bend_known_r;
+    reg [5:0] display_busy_count_r;
+    reg [15:0] display_bend_r;
+    reg [25:0] display_status_previous_r;
+    wire [31:0] display_busy_word;
+    wire [25:0] display_status = {configuration_error, sample_overrun,
+        display_busy_known_r, display_bend_known_r, display_busy_count_r, display_bend_r};
+    wire display_status_changed = (display_status != display_status_previous_r);
+    wire display_publish = display_pipeline_commit || (display_initialized_r && display_status_changed);
+    genvar display_voice;
+    generate
+        for (display_voice = 0; display_voice < 32; display_voice = display_voice + 1)
+        begin : display_busy_bits
+            if (display_voice < MAX_POLYPHONY)
+                assign display_busy_word[display_voice] = note_busy[display_voice];
+            else
+                assign display_busy_word[display_voice] = 1'b0;
+        end
+    endgenerate
+    function [3:0] display_popcount8;
+        input [7:0] value;
+        integer bit_index;
+        begin
+            display_popcount8 = 4'd0;
+            for (bit_index = 0; bit_index < 8; bit_index = bit_index + 1)
+                display_popcount8 = display_popcount8 + {3'd0,value[bit_index]};
+        end
+    endfunction
+    integer display_lane;
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            display_initialized_r <= 1'b0;
+            display_busy_pending_r <= 1'b0;
+            display_busy_known_r <= 1'b0;
+            display_bend_known_r <= 1'b0;
+            display_busy_count_r <= 6'd0;
+            display_bend_r <= 16'h8000;
+            display_status_previous_r <= 26'h0008000;
+            for (display_lane = 0; display_lane < 4; display_lane = display_lane + 1)
+                display_busy_group_r[display_lane] <= 4'd0;
+        end
+        else
+        begin
+            if (display_pipeline_commit) display_initialized_r <= 1'b1;
+            display_status_previous_r <= display_status;
+            display_busy_pending_r <= note_busy_valid && note_busy_ready;
+            if (note_busy_valid && note_busy_ready)
+                for (display_lane = 0; display_lane < 4; display_lane = display_lane + 1)
+                    display_busy_group_r[display_lane] <= display_popcount8(display_busy_word[8*display_lane +: 8]);
+            if (display_busy_pending_r)
+            begin
+                display_busy_count_r <= {2'd0,display_busy_group_r[0]} + {2'd0,display_busy_group_r[1]} +
+                                        {2'd0,display_busy_group_r[2]} + {2'd0,display_busy_group_r[3]};
+                display_busy_known_r <= 1'b1;
+            end
+            if (in_valid && in_ready)
+            begin
+                display_bend_r <= bend_value[0];
+                display_bend_known_r <= 1'b1;
+            end
+        end
+    end
+    always @(*)
+    begin
+        display_payload = display_pipeline_payload;
+        display_payload[422] = configuration_error || (MAX_POLYPHONY > 32);
+        display_payload[423] = sample_overrun;
+        // Pipeline action bits are pulses; status-only commits must not replay
+        // the previous knob action just because the busy count/bend changed.
+        if (!display_pipeline_commit) display_payload[467:424] = 44'd0;
+        display_payload[474:469] = display_busy_count_r;
+        display_payload[475] = display_busy_known_r;
+        display_payload[476] = display_bend_known_r;
+        display_payload[479:477] = 3'd0;
+        display_payload[495:480] = display_bend_r;
+    end
+    ui_display_snapshot ui_display_snapshot_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .model_commit(display_publish),
+        .model_payload(display_payload), .out_state(display_out_state),
+        .out_valid(display_out_valid), .out_ready(display_out_ready)
+    );
 endmodule
