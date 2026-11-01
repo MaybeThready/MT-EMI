@@ -1,4 +1,5 @@
-# Formal sim/ entry. Same initialized coefficient/SDP models as synthesis RTL.
+# LCD FFT数值回归，使用与综合相同的初始化系数和SDP原语模型。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

@@ -1,3 +1,5 @@
+# LCD实际播放PCM接收联合回归，使用正式I2S与LCD后端，检查接收和绘图停顿行为。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

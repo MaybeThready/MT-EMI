@@ -1,3 +1,5 @@
+# 使用正式采样节拍运行I2S到LCD播放镜像的接收回归。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

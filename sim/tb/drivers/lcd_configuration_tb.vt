@@ -1,4 +1,6 @@
-/** Invalid odd pixel divider is rejected; no panel clock, writes or backlight. */
+/**
+ * LCD非法配置自检：拒绝非法像素分频及显示尺寸，禁止面板时钟、写入和背光。
+ */
 `timescale 1ns/1ps
 module lcd_configuration_tb;
     parameter BAD_DIV=3;

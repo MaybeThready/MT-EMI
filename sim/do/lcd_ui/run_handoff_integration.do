@@ -1,3 +1,5 @@
+# 正式UI与LCD显示交接联合回归，检查完整快照、任务冻结及业务隔离。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

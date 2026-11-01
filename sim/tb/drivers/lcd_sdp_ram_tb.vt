@@ -1,4 +1,6 @@
-/** Real SDPB, 16/32-bit, cross-block tails, read enable, independent read/write. */
+/**
+ * SDP存储自检：真实SDPB、16/32位数据、跨块尾地址、读使能与独立读写。
+ */
 `timescale 1ns/1ps
 module lcd_sdp_ram_tb;
     parameter DATA_WIDTH=16;

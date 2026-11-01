@@ -1,8 +1,8 @@
 /**
- * Independent panel-edge scoreboard: every active/blank pixel, glyphs, columns,
- * sparse clear, pending-write protection, three atomic scene swaps and reset.
- * Parameters cover /2,/4,/6, non-cell-aligned sizes, no porches and full 800x480.
- * Optional +PPM=path exports actual sampled RGB of scene 1 (not a mockup).
+ * V3驱动面板采样沿自检：逐像素核对当前透明tile字形、背景闭合框、图形列及消隐。
+ * 三次安全场景提交检查清空、写保护和无撕裂；覆盖二/四/六分频、非整字符尺寸及800×480。
+ * 使用独立保存的首/中/末ROM银行切片参考，不再使用旧ASCII字格式。
+ * +PPM=路径可导出第一帧实际RGB；运行中复位检查输出与场景撤销。
  */
 `timescale 1ns/1ps
 module lcd_driver_tb;
@@ -25,7 +25,7 @@ module lcd_driver_tb;
     wire lcd_clk,lcd_en,lcd_bl,lcd_hs_n,lcd_vs_n;
     wire [5:0] lcd_r,lcd_g,lcd_b;
     reg test_passed=1'b0;
-    reg [7:0] font [0:2047];
+    reg [7:0] font [0:47];
     integer commits=0, panel_scene=0, completed=0, samples=0, pixels=0;
     integer px,py,cx,cy,cell_addr,idx,lo,hi,ch,colour,fd=0;
     integer written=0;
@@ -132,6 +132,8 @@ module lcd_driver_tb;
         integer x,y;
         reg [31:0] data;
         begin
+            // 同时提交页面配置，版本3也写此配置以验证稀疏重建。
+            send_word(1'b0,4095,(32'd12<<19)|32'd3);
             for(x=0;x<H_ACTIVE;x=x+1)
             begin
                 y=wave_y(x);
@@ -139,8 +141,8 @@ module lcd_driver_tb;
                 else data=(32'd1<<22)|(32'd14<<18)|((V_ACTIVE*3/4)<<9)|(V_ACTIVE/4);
                 send_word(1'b1,x,data);
             end
-            send_word(1'b0,0,(32'd1<<15)|(32'd9<<11)|(32'd15<<7)|((version==1)?32'd65:32'd66));
-            if(CELLS>1) send_word(1'b0,CELLS-1,(32'd14<<7)|32'd90);
+            send_word(1'b0,0,(32'd15<<13)|((version==1)?32'd1:32'd1024));
+            if(CELLS>1) send_word(1'b0,CELLS-1,(32'd14<<13)|32'd1902);
         end
     endtask
     always @(posedge clk)
@@ -168,7 +170,10 @@ module lcd_driver_tb;
             if(expected_de && panel_scene>0)
             begin
                 px=cx-H_BACK; py=cy-V_BACK;
-                idx=((px%64==0)||(py%64==0))?10:8;
+                idx=(py<48 || py>=452)?9:8;
+                if(py==47 && px>=24 && px<776) idx=10;
+                if(px>=160 && px<640 && py>=132 && py<356)
+                    idx=(px<162 || px>=638 || py<134 || py>=354)?12:9;
                 if(panel_scene==1)
                 begin
                     lo=wave_lo(px); hi=wave_hi(px); colour=12;
@@ -188,13 +193,13 @@ module lcd_driver_tb;
                 begin
                     if(cell_addr==0)
                     begin
-                        ch=(panel_scene==1)?65:66; idx=9; colour=15;
+                        ch=(panel_scene==1)?1:2; colour=15;
                     end
                     else if(cell_addr==CELLS-1)
                     begin
-                        ch=90; colour=14;
+                        ch=3; colour=14;
                     end
-                    if(ch!=0 && ((font[ch*16+py%16]>>(7-px%8))&1)) idx=colour;
+                    if(ch!=0 && ((font[(ch-1)*16+py%16]>>(7-px%8))&1)) idx=colour;
                 end
             end
             expected_rgb=palette(idx);
@@ -220,7 +225,7 @@ module lcd_driver_tb;
     end
     initial
     begin
-        $readmemh("../assets/drivers/lcd_font.hex",font);
+        $readmemh("../assets/lcd_ui/draw/driver_tiles.hex",font);
         if($value$plusargs("PPM=%s",ppm_path))
         begin
             fd=$fopen(ppm_path,"w");
@@ -231,6 +236,7 @@ module lcd_driver_tb;
         // Invalid address, reversed range, reserved bits: consume but do not corrupt.
         send_word(1'b1,H_ACTIVE,32'd0);
         send_word(1'b0,CELLS,32'd0);
+        send_word(1'b0,0,(32'd15<<13)|32'd1903); // 字形编号越界，不得覆盖合法文字。
         if(V_ACTIVE>1) send_word(1'b1,0,(32'd1<<22)|32'd1);
         send_word(1'b1,0,32'h80000000);
         if(!address_error) $fatal(1,"Invalid word not reported");
@@ -238,6 +244,7 @@ module lcd_driver_tb;
         build_scene(2);
         // Keep a valid transaction waiting during clear without changing data.
         present;
+        send_word(1'b0,4095,(32'd12<<19)|32'd3);
         send_word(1'b1,H_ACTIVE-1,(32'd1<<22)|(32'd6<<18)|((V_ACTIVE/2)<<9)|(V_ACTIVE/2));
         present;
         wait(completed>=3);
@@ -254,7 +261,7 @@ module lcd_driver_tb;
         repeat(20) @(negedge clk);
         if(frame_active) $fatal(1,"Reset retained scene");
         test_passed=1'b1;
-        $display("LCD_STREAM_PANEL_PASS size=%0dx%0d div=%0d scenes=3 pixels_per_frame=%0d",H_ACTIVE,V_ACTIVE,PIXEL_DIV,H_ACTIVE*V_ACTIVE);
+        $display("LCD_V3_PANEL_PASS size=%0dx%0d div=%0d scenes=3 pixels_per_frame=%0d",H_ACTIVE,V_ACTIVE,PIXEL_DIV,H_ACTIVE*V_ACTIVE);
         $finish;
     end
     initial

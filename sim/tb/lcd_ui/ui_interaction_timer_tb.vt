@@ -1,7 +1,6 @@
 /**
- * Compare every public LCD scene/status output with the frozen pre-fix model.
- * Covers same-cycle tick phase, timer widths1..16, activity/default expiry,
- * reset, input during rendering and backpressure; no internal forcing.
+ * LCD提示计时差分验证：与计时优化前冻结模型逐拍比较公开场景和状态输出。
+ * 覆盖节拍相位、1..16位计时器、活动/默认提示到期、复位、绘制期间输入及背压，不强制内部状态。
  */
 `timescale 1ns/1ps
 module ui_interaction_timer_tb;

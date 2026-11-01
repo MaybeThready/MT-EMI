@@ -1,4 +1,5 @@
-# Execute from formal sim/. No synthesis or place-and-route.
+# LCD显示交接回归集合，不运行综合或布局布线。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

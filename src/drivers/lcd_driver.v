@@ -1,12 +1,9 @@
 /**
- * Native RGB666 scan with compact scene synthesis, no full-screen pixel RAM.
- * All logic uses clk_sys/rst_sys_n; lcd_clk is only an output to the panel.
- * Parameters: pixels/lines; PIXEL_DIV even >=2 system cycles per pixel.
- * Default raster unchanged: 800x480, totals 1192x533, /4, HS/VS high.
- * Scene write encoding/handshake is specified in lcd_scene.v.
- * Six stages align PCLK/DE with registered coordinates/address, SDP, glyph,
- * composition and palette. RGB updates
- * at falling PCLK, remains stable at rising sampling edge. Scan never waits.
+ * 原生RGB666扫描驱动，通过紧凑场景合成画面，不使用全屏像素RAM。
+ * 内部统一使用clk_sys/rst_sys_n，lcd_clk仅输出到面板；参数单位为像素、行和系统时钟周期。
+ * PIXEL_DIV须为不小于2的偶数；默认800×480、总光栅1192×533、像素时钟四分频，HS/VS保持高电平。
+ * 场景写入格式与握手见lcd_scene；六级流水对齐PCLK/DE与坐标、地址、SDP、字形、合成和调色板。
+ * RGB在PCLK下降沿更新，在上升沿采样时保持稳定；扫描不等待业务数据。
  */
 module lcd_driver
 #(

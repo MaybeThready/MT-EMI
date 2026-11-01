@@ -1,9 +1,9 @@
 /**
- * Compact scene SDP storage: real GW5A SDPB in simulation and synthesis.
- * DATA_WIDTH: 16 or 32 unsigned bits; DEPTH: words; ADDR_WIDTH >= clog2(DEPTH).
- * Both ports use clk_sys. Read result appears after the enabled rising edge.
- * Reset affects output/select only. Caller clears memory before displaying.
- * Broadcast low address bits; select transfers through CEA/CEB, not address gates.
+ * 紧凑场景SDP存储封装，仿真与综合均使用真实GW5A SDPB。
+ * DATA_WIDTH为16或32位无符号数据，DEPTH单位为字，ADDR_WIDTH不小于clog2(DEPTH)。
+ * 读写端口共用clk_sys；读使能有效的上升沿之后输出结果。
+ * 复位仅影响输出和存储体选择，调用方须先清存储再显示。
+ * 低位地址广播到各存储块，通过CEA/CEB选择读写，不对地址门控。
  */
 module lcd_sdp_ram
 #(

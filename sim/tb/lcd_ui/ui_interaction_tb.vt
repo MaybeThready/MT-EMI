@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
-/** Receiver: scene freeze/backpressure, events arriving while rendering,
- * long-stall pending DEFAULT preservation, expiry redraw, reset/error paths.
+/**
+ * LCD接收与调度自检：场景冻结/背压、绘制期间的新事件、长期停顿后的默认提示保留、提示到期重绘及复位/错误。
  */
 module ui_interaction_tb;
     GSR GSR (.GSRI(1'b1));

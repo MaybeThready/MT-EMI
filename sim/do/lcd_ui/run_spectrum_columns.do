@@ -1,3 +1,5 @@
+# LCD频谱列映射回归，检查谱线聚合、显示范围与缓存写入。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

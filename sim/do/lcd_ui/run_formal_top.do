@@ -1,4 +1,5 @@
-# Compile the formal root GPRJ, not a workspace or simplified wrapper.
+# 从正式根目录GPRJ编译完整整机，运行真实UI、音频链与LCD绘图联合仿真。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

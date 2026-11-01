@@ -1,4 +1,5 @@
-# Run from formal sim/. Real vendor SDP models; fresh isolated library.
+# LCD音频窗口与波形列单元回归，使用真实厂商SDP模型及独立仿真库。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

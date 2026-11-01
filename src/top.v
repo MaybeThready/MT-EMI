@@ -1,11 +1,8 @@
 /**
- * Formal integration: keyboard -> UI -> rack -> mixer -> I2S, with UI display
- * snapshot and actual-played PCM connected to ui_interaction.
- * Current LCD scan/scene RAM is integrated; drawers/FFT are not implemented.
- * No demonstration pattern or artificial keyboard/audio stimulus is generated.
- * Blank LCD until a real scene producer is connected; scene consumer is held.
- * SW5/U4 is active high; business reset uses PLL-locked synchronous release.
- * Knobs/pressure wheel input integration remains future work (idle/center).
+ * 正式整机连接顶层：键盘→UI→声部机架→Mixer→I2S。
+ * 真实UI显示快照与I2S实际播放PCM接入LCD交互、第三版绘图及FFT，不产生演示图案或人工演奏数据。
+ * LCD场景在安全扫描帧边界提交；SW5/U4为高有效复位，业务复位在PLL锁定后同步释放。
+ * 物理旋钮/弯音输入按当前整机范围保留为空闲事件和中心值。
  */
 module top
 #(
@@ -54,13 +51,9 @@ module top
     reg [215:0] mix_parameters_r;
     reg mix_parameters_busy_r;
     wire ui_audio_ready;
-    wire [527:0] ui_display_state, lcd_scene_state;
-    wire ui_display_valid, ui_display_ready, lcd_scene_valid;
-    wire [21:0] lcd_highlight, lcd_defaults;
-    wire scene_wave_valid, scene_pcm_valid;
-    wire [31:0] scene_wave_seq, scene_dropped_windows, dropped_windows;
-    wire [15:0] scene_output_peak;
-    wire lcd_protocol_error, lcd_ui_configuration_error, lcd_configuration_error, lcd_address_error;
+    wire [527:0] ui_display_state;
+    wire ui_display_valid, ui_display_ready;
+    wire lcd_protocol_error, lcd_configuration_error;
     wire signed [15:0] played_pcm;
     wire played_pcm_valid, played_pcm_ready;
     wire [3:0] button_sync;
@@ -230,7 +223,7 @@ module top
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck),
         .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n)
     );
-    assign status_led = {underrun_r | configuration_error | sample_overrun | lcd_protocol_error | lcd_ui_configuration_error | lcd_configuration_error | lcd_address_error,
+    assign status_led = {underrun_r | configuration_error | sample_overrun | lcd_protocol_error | lcd_configuration_error,
                          frame_count_r[14]};
 
     // One in-flight rack transaction: bind mixer controls to the same UI
@@ -293,27 +286,13 @@ module top
     );
     assign saved_value_led = ~{storage_catalog_valid, storage_out_valid};
 
-    ui_interaction ui_interaction_u (
-        .clk_sys(clk_sys), .rst_n(rst_sys_n), .display_in_state(ui_display_state),
-        .display_in_valid(ui_display_valid), .display_in_ready(ui_display_ready),
-        .audio_in(played_pcm), .audio_in_valid(played_pcm_valid), .audio_in_ready(played_pcm_ready),
-        .scene_state(lcd_scene_state), .highlight_mask(lcd_highlight), .default_mask(lcd_defaults),
-        .out_valid(lcd_scene_valid), .out_ready(1'b0), .render_done(1'b0),
-        .scene_wave_valid(scene_wave_valid), .scene_wave_seq(scene_wave_seq),
-        .scene_output_peak(scene_output_peak), .scene_pcm_valid(scene_pcm_valid),
-        .scene_dropped_windows(scene_dropped_windows), .column_rd_en(1'b0), .column_rd_addr(11'd0),
-        .column_rd_data(), .dropped_windows(dropped_windows),
-        .protocol_error(lcd_protocol_error), .configuration_error(lcd_ui_configuration_error),
-        .scene_spectrum_valid(), .scene_spectrum_seq(), .scene_spectrum_clipped(), .scene_fft_overflow()
-    );
-    // TODO: connect drawers word/present outputs here. Do not use the former
-    // LCD STREAM DEMO or fake a render_done; scanning a blank scene is valid.
-    lcd_driver lcd_driver_u (
-        .clk(clk_sys), .rst_n(rst_sys_n), .word_valid(1'b0), .word_ready(),
-        .word_kind(1'b0), .word_addr(12'd0), .word_data(32'd0),
-        .present_valid(1'b0), .present_ready(), .frame_start(), .frame_active(),
-        .address_error(lcd_address_error), .configuration_error(lcd_configuration_error),
-        .lcd_clk(lcd_clk), .lcd_en(lcd_en), .lcd_r(lcd_r), .lcd_g(lcd_g), .lcd_b(lcd_b),
-        .lcd_bl(lcd_bl), .lcd_hs_n(lcd_hs_n), .lcd_vs_n(lcd_vs_n)
+    // V3 LCD boundary: UI snapshot + actual-played I2S PCM; no demo source.
+    lcd_display lcd_display_u (
+        .clk_sys(clk_sys),.rst_n(rst_sys_n),
+        .display_in_state(ui_display_state),.display_in_valid(ui_display_valid),.display_in_ready(ui_display_ready),
+        .audio_in(played_pcm),.audio_in_valid(played_pcm_valid),.audio_in_ready(played_pcm_ready),
+        .lcd_clk(lcd_clk),.lcd_en(lcd_en),.lcd_r(lcd_r),.lcd_g(lcd_g),.lcd_b(lcd_b),
+        .lcd_bl(lcd_bl),.lcd_hs_n(lcd_hs_n),.lcd_vs_n(lcd_vs_n),
+        .protocol_error(lcd_protocol_error),.configuration_error(lcd_configuration_error),.frame_active()
     );
 endmodule

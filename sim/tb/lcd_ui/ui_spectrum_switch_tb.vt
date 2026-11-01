@@ -1,8 +1,6 @@
 /**
- * Public-interface switch/ownership test: change mode during wave and FFT load,
- * reuse a matching old spectrum, hold a render while new PCM/UI arrive, queue a
- * second window during FFT compute, and reset an in-flight FFT. Every accepted
- * waveform/spectrum cache word is checked with independent golden PCM/bins.
+ * 波形/频谱切换及缓存所有权验证：构建期间切换、匹配旧频谱复用、渲染停顿期间的新PCM/UI、FFT期间下一窗口及复位。
+ * 每个被接受的波形/频谱缓存字均与独立PCM/谱线参考核对。
  */
 `timescale 1ns/1ps
 module ui_spectrum_switch_tb;

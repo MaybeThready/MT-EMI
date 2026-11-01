@@ -1,7 +1,7 @@
 /**
- * Fixed 16-color palette: 4-bit unsigned pixel index to RGB666 {R,G,B}.
- * Pure combinational lookup, no Q format and no clock-cycle latency.
- * Palette is fixed while scanning; indices 0..7 also support the old bars.
+ * 固定16色调色板，将4位无符号像素索引转换为RGB666的{R,G,B}。
+ * 纯组合查询，不涉及Q格式，也不增加时钟周期延迟。
+ * 扫描期间调色板固定，索引0..7同时兼容旧版色条。
  */
 module lcd_palette
 (

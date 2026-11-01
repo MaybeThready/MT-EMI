@@ -1,4 +1,6 @@
-/** All1024 phases, exact quadrant endpoints, synchronous read/hold and reset. */
+/**
+ * 系数ROM自检：覆盖全部1024相位、象限端点、同步读延迟、输出保持及复位。
+ */
 `timescale 1ns/1ps
 module lcd_fft_coeff_rom_tb;
     GSR GSR (.GSRI(1'b1));

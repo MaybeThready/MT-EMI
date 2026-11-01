@@ -1,7 +1,6 @@
 /**
- * Spectrum column mapping versus independent bin-range maxima: replication,
- * aggregation, min/max column counts, full Nyquist view, sequence/peak/flags.
- * FFT numerical checks are separate. All cache writes are observed publicly.
+ * 频谱列映射自检：以独立谱线区间最大值参考检查复制、聚合、列数边界及完整奈奎斯特范围。
+ * 核对序号、峰值、标志和公开缓存写口；FFT数值另由专门用例验证。
  */
 `timescale 1ns/1ps
 module lcd_spectrum_builder_tb;

@@ -1,8 +1,6 @@
 /**
- * Public spectrum parameter boundary checks through the UI frontend.
- * Bad configurations reject UI work and column reads/writes, while played-PCM
- * ready remains asserted. Covers zero/negative rate/range, Nyquist overflow,
- * invalid column counts and geometry. No hierarchical forcing or clock changes.
+ * LCD频谱参数边界验证：通过UI前端检查非法采样率、频率范围、奈奎斯特越界、列数与几何参数。
+ * 配置错误时拒绝UI任务和列读写，实际播放PCM接收仍保持ready；不强制内部状态或修改时钟。
  */
 `timescale 1ns/1ps
 module ui_spectrum_configuration_tb;

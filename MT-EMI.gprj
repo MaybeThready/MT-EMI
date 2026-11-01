@@ -35,11 +35,11 @@
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
-        <File path="src/test/test_dynamic_music.v" type="file.verilog" enable="1"/>
-        <File path="src/test/test_i2s.v" type="file.verilog" enable="1"/>
-        <File path="src/test/test_keyboard_interaction.v" type="file.verilog" enable="1"/>
-        <File path="src/test/test_mixer.v" type="file.verilog" enable="1"/>
-        <File path="src/test/test_static_music.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_dynamic_music.v" type="file.verilog" enable="0"/>
+        <File path="src/test/test_i2s.v" type="file.verilog" enable="0"/>
+        <File path="src/test/test_keyboard_interaction.v" type="file.verilog" enable="0"/>
+        <File path="src/test/test_mixer.v" type="file.verilog" enable="0"/>
+        <File path="src/test/test_static_music.v" type="file.verilog" enable="0"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
         <File path="src/ui/button_event_handler.v" type="file.verilog" enable="1"/>
         <File path="src/ui/keyboard_event_handler.v" type="file.verilog" enable="1"/>
@@ -62,7 +62,6 @@
         <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
         <File path="src/drivers/lcd_driver.v" type="file.verilog" enable="1"/>
-        <File path="src/drivers/lcd_font_rom.v" type="file.verilog" enable="1"/>
         <File path="src/drivers/lcd_palette.v" type="file.verilog" enable="1"/>
         <File path="src/drivers/lcd_scene.v" type="file.verilog" enable="1"/>
         <File path="src/drivers/lcd_sdp_ram.v" type="file.verilog" enable="1"/>
@@ -76,5 +75,13 @@
         <File path="src/lcd_ui/lcd_fft_coeff_rom.v" type="file.verilog" enable="1"/>
         <File path="src/lcd_ui/lcd_fft1024.v" type="file.verilog" enable="1"/>
         <File path="src/lcd_ui/lcd_spectrum_builder.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/drawers.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_decimal.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_display.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_glyph_rom.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_page_program.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_text_info.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_text_rom.v" type="file.verilog" enable="1"/>
+        <File path="src/lcd_ui/lcd_tile_rom.v" type="file.verilog" enable="1"/>
     </FileList>
 </Project>

@@ -1,4 +1,5 @@
-# Run from formal sim/. Parameter checks do not run synthesis or placement.
+# LCD频谱配置边界回归，不运行综合或布局布线。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do

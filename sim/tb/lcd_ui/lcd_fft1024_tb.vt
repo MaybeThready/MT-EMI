@@ -1,7 +1,6 @@
 /**
- * Independent generated fixed-point reference plus NumPy FFT accuracy audit.
- * All513 positive bin_count of17 vectors, raw PCM peak, Hann gain, saturation,
- * valid/ready stability, natural order, release count and reset in load/FFT.
+ * FFT数值与握手回归：使用独立定点参考向量，覆盖17组输入的全部513条正频率谱线。
+ * 检查PCM峰值、Hann增益、饱和、背压保持、自然顺序、窗口释放次数，以及装载/计算中的复位。
  */
 `timescale 1ns/1ps
 module lcd_fft1024_tb;

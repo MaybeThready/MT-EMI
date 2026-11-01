@@ -1,23 +1,15 @@
 /**
- * 1024-point real-PCM spectrum engine, iterative radix2 DIT, Hann window.
- * clk_sys/rst_n: system clock/rst_sys_n. start_valid && start_ready locks one
- * complete PCM window. pcm_rd_* is a synchronous one-cycle read, SQ1.15.
- * window_release pulses after the last PCM value is loaded; FFT subsequently
- * operates on its own two1024x16 SDP banks, without holding the capture bank.
- * Input is bit-reversed on load; natural-order positive bins0..MAX_OUTPUT_BIN.
- * out_valid does not depend on out_ready. Index, complex value and magnitude
- * hold together while stalled. One job only; reset cancels an in-flight job.
- *
- * Re/Im: signed16, FFT(Hann*x)/1024, SQ1.15. Each butterfly rounds nearest,
- * ties toward +infinity, then saturates to16 bits. Products/rotation/addition
- * retain guard bits until the final >>16 (twiddle Q15 + stage scaling1/2).
- * fft_overflow reports butterfly clipping in this frame, never silent wrap.
- * out_magnitude: unsigned UQ1.15,0..8000=0..1FS, linear REL.MAG, not power/dBFS.
- * Integer sqrt(Re^2+Im^2) is floor; multiply by4 for ordinary positive bins,
- * by2 for DC/Nyquist (single-sided amplitude + Hann coherent gain~1/2).
- * amplitude_clipped reports values above1FS; not an audio-path error.
- * One shared18x18 signed multiplier serves Hann, twiddles and both squares.
- * Sqrt uses16 restoring shift/subtract iterations, no divider/multiplier.
+ * 1024点实数PCM频谱引擎：迭代基2时间抽取FFT，输入使用Hann窗。
+ * clk_sys/rst_n连接系统时钟/rst_sys_n；start_valid && start_ready锁定完整PCM窗口。
+ * pcm_rd_*为一拍同步读取，输入格式SQ1.15；最后一个采样装载后脉冲window_release。
+ * 随后仅使用自身两个1024×16工作存储体，不再占用采集窗口；装载时按位反序，输出自然序正频率谱线。
+ * out_valid不依赖out_ready；背压时谱线索引、复数值和幅度保持一致；仅允许一个任务，复位取消当前任务。
+ * 实部/虚部为16位有符号SQ1.15，对应FFT(Hann*x)/1024；蝶形就近舍入，中点向正无穷，再饱和到16位。
+ * 乘积、旋转与加减保留保护位，最终右移16位，合并Q15旋转系数与每级1/2缩放；fft_overflow报告蝶形截幅。
+ * out_magnitude为无符号UQ1.15线性相对幅度，0..0x8000对应0..1FS，不表示功率或dBFS。
+ * 整数平方根向下取整；普通正频率谱线乘4，直流/奈奎斯特乘2，补偿单边谱及约1/2的Hann相干增益。
+ * amplitude_clipped报告幅度超过1FS，不等同于音频通路错误。
+ * Hann、旋转与平方共用一个18×18有符号乘法器；平方根用16次移位减法迭代，无额外乘除法器。
  */
 module lcd_fft1024
 #(

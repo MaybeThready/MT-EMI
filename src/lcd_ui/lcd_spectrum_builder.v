@@ -1,17 +1,11 @@
 /**
- * Fixed1024-point Hann spectrum -> linear-frequency REL.MAG vertical bars.
- * clk_sys/rst_n: common system domain/rst_sys_n. The capture-window handshake,
- * synchronous PCM read and release follow lcd_pcm_capture's existing contract.
- * Frequency configuration is a compile-time rational sample rate NUM/DEN Hz;
- * default98245614/2048 comes from the existing PLL/tick, not a clock change.
- * Only bins0..floor(FREQ_VIEW_MAX_HZ*1024/Fs) are produced by the FFT core.
- * Each bin is spread to columns with an add/subtract phase accumulator. When
- * several bins share a column, keep their maximum magnitude. No variable divide.
- * External column_wr_* writes two16-bit words/column: top,bottom,low9=y.
- * The caller owns one shared column SDP for wave/spectrum and excludes readers
- * while busy. This module has no duplicate column RAM or per-column FFT/DSP.
- * seq/peak/flags and spectrum_valid commit only after every column is written.
- * Spectrum amplitude is UQ1.15 after gain correction; vertical axis0..1FS.
+ * 1024点Hann频谱映射为线性频率轴的相对幅度纵向条形。
+ * 统一使用clk_sys/rst_sys_n；PCM窗口握手、同步读取与释放遵循lcd_pcm_capture协议。
+ * 采样率由编译期有理数NUM/DEN配置，默认98245614/2048Hz来自现有PLL和采样节拍，不改变时钟。
+ * FFT仅输出0..floor(FREQ_VIEW_MAX_HZ*1024/Fs)谱线；用加减相位累加器扩展到显示列。
+ * 多个谱线落入同一列时取最大幅度，无变量除法；每列写两个16位字，上/下端点使用低9位y坐标。
+ * 调用方维护波形/频谱共享列缓存，busy期间禁止读缓存；本模块不复制列RAM，也不为每列实例化FFT或DSP。
+ * 所有列写完后才一并提交序号、峰值、标志与spectrum_valid；增益修正后幅度为UQ1.15，纵轴0..1FS。
  */
 module lcd_spectrum_builder
 #(

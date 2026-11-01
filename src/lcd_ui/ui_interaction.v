@@ -1,22 +1,14 @@
 /**
- * UIInterface display handoff and scene scheduling (V2, 528 bits).
- * Scope: receive complete UI states and issue frozen scenes to drawers.
- * Includes continuous played-PCM capture and one shared waveform/spectrum cache.
- * Font drawing / LCD word generation remain later stages.
- * clk_sys/rst_n must share the UI clock and rst_sys_n; no CDC is required.
- * display_in_* connects directly to user_interface.display_out_*.
- * Input is accepted while a previous scene is stalled or being rendered.
- * scene_state/highlight_mask/default_mask remain fixed until render_done.
- * out_valid && out_ready accepts one job; render_done may acknowledge that
- * same edge or pulse later. Never derive input ready from the drawing engine.
- * Prompt counters use only clog2(HIGHLIGHT_MS+1) bits. Millisecond enable
- * is predecoded one count ahead, with identical tick phase, not a new clock.
- * Activity lasts HIGHLIGHT_MS; reset events also show DEFAULT. No keyboard
- * lighting/held_keys interface. Spectrum is1024-point Hann,linear REL.MAG.
- * audio_in_* connects to i2s_driver.audio_out_lcd/out_valid_lcd/out_ready_lcd:
- * accepts every played sample (including underrun silence), never gates I2S.
- * Column cache and scene metadata stay fixed until render_done. A new PCM
- * build only runs outside a render task; no second column bank is needed.
+ * UI显示接收与冻结场景调度模块，快照宽度528位。
+ * 接收完整UI状态，向drawers发布冻结场景；内部包含连续播放PCM采集和波形/频谱共享列缓存。
+ * 文字绘制与LCD绘图字生成由后级drawers负责；clk_sys/rst_n与UI同域，复位接rst_sys_n，无跨时钟域传输。
+ * display_in_*对接user_interface.display_out_*；旧场景等待或绘制期间仍可接受新快照。
+ * scene_state、highlight_mask和default_mask保持到render_done；out_valid && out_ready接受一项绘制任务。
+ * render_done可在任务接受同拍或后续单拍确认，输入ready不得由绘图引擎背压决定。
+ * 提示计时器位宽为clog2(HIGHLIGHT_MS+1)，毫秒使能提前一计数预译码，保持原相位，不产生新时钟。
+ * 活动提示持续HIGHLIGHT_MS毫秒，复位参数事件另有默认值提示；不提供键盘灯或held_keys接口。
+ * 频谱采用1024点Hann窗与线性相对幅度；audio_in_*连接I2S实际播放镜像，包含欠载静音，不阻塞I2S。
+ * 列缓存及场景元数据保持到render_done；新窗口仅在绘制任务之外构建，无需第二份列缓存。
  */
 module ui_interaction
 #(

@@ -1,4 +1,6 @@
-/** Combinational palette contract: verify all 16 RGB666 entries independently. */
+/**
+ * 调色板组合接口自检：独立检查全部16项RGB666颜色编码。
+ */
 `timescale 1ns/1ps
 module lcd_palette_tb;
     reg [3:0] pixel_index;

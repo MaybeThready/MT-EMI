@@ -1,3 +1,5 @@
+# I2S实际播放镜像到LCD频谱的联合回归。
+# 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do
