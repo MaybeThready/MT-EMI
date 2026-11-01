@@ -123,7 +123,8 @@ module user_interface_preset_tb;
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
         .configuration_error(configuration_error),
-        .sample_overrun(sample_overrun)
+        .sample_overrun(sample_overrun),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
 
     // 近似实际 PLL 周期；smp/scan 分别为 2048/8192 个系统周期。

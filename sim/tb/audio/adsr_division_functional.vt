@@ -1,0 +1,23 @@
+`timescale 1ns/1ps
+/** 联合功能仿真用32拍无符号定点除法模型；不替代厂商IP时序验证。
+ * 输入与原IP相同，整数商4位、小数部分32位，每拍流水接收。
+ */
+module adsr_division(input clk, input rstn, input [3:0] dividend,
+    input [19:0] divisor, output [31:0] remainder, output [3:0] quotient);
+    reg [35:0] result_r [0:31];
+    integer i;
+    always @(posedge clk or negedge rstn)
+    begin
+        if (!rstn)
+        begin
+            for (i = 0; i < 32; i = i + 1) result_r[i] <= 36'd0;
+        end
+        else
+        begin
+            result_r[0] <= divisor == 20'd0 ? 36'd0 : {dividend,32'd0} / divisor;
+            for (i = 1; i < 32; i = i + 1) result_r[i] <= result_r[i-1];
+        end
+    end
+    assign remainder = result_r[31][31:0];
+    assign quotient = result_r[31][35:32];
+endmodule

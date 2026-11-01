@@ -88,7 +88,13 @@ module knob_parameter_controller
     input [191:0] preset_load_parameters,
     input [15:0] preset_load_balance_gain,
     output [15:0] preset_current_balance_gain,
-    output [191:0] preset_current_parameters
+    output [191:0] preset_current_parameters,
+    // NEW display-only current edit value and committed action notifications.
+    // No ready: these outputs must never gate parameter/audio/storage logic.
+    output [15:0] display_master_gain, // UQ1.15, current bank (not audio snapshot).
+    output display_update,            // One cycle after applying an edit/load.
+    output [21:0] display_activity_mask, // V2 parameter IDs0..21, include limits.
+    output [21:0] display_reset_mask     // Same-value reset is still an event.
 );
     reg [127:0] advanced_r, advanced_next, advanced_snapshot_r, advanced_previous;
     // 每个16位字段独立比较并寄存，下一拍汇总；避免128位比较生成长进位链。
@@ -757,6 +763,85 @@ module knob_parameter_controller
             delay_mix_percent_previous <= delay_mix_percent_r;
             distortion_mix_percent_previous <= distortion_mix_percent_r;
             chorus_mix_percent_previous <= chorus_mix_percent_r;
+        end
+    end
+
+    reg display_update_r;
+    reg [21:0] display_activity_r, display_reset_r;
+    reg [21:0] action_activity, action_reset;
+    integer display_knob;
+    integer parameter_id;
+    assign display_master_gain = master_gain_r;
+    assign display_update = display_update_r;
+    assign display_activity_mask = display_activity_r;
+    assign display_reset_mask = display_reset_r;
+
+    // Decode accepted/captured actions, not value differences. Thus a turn at
+    // MIN/MAX and pressing an already-default knob remain visible to the UI.
+    always @(*)
+    begin
+        action_activity = 22'd0;
+        action_reset = 22'd0;
+        parameter_id = 0;
+        if (edit_enable_captured && !edit_target_captured && mode_captured < 2'd2)
+        begin
+            for (display_knob = 0; display_knob < 8; display_knob = display_knob + 1)
+            begin
+                case (display_knob)
+                    0: parameter_id = (mode_captured == 2'd0) ? 0 : 1;
+                    1: parameter_id = (mode_captured == 2'd0) ? 2 : 3;
+                    2: parameter_id = 4;
+                    3: parameter_id = 5;
+                    default: parameter_id = ((mode_captured == 2'd0) ? 6 : 10) + display_knob - 4;
+                endcase
+                if (knob_delta_captured[display_knob] != 2'sd0 || knob_pressed_event_captured[display_knob])
+                    action_activity[parameter_id] = 1'b1;
+                if (knob_pressed_event_captured[display_knob]) action_reset[parameter_id] = 1'b1;
+            end
+        end
+        if (mode_captured == 2'd2)
+        begin
+            for (display_knob = 0; display_knob < 2; display_knob = display_knob + 1)
+            begin
+                parameter_id = 14 + 2 * effect_select_captured + display_knob;
+                if (effect_reset_captured || (edit_enable_captured &&
+                    (knob_delta_captured[display_knob] != 2'sd0 || knob_pressed_event_captured[display_knob])))
+                    action_activity[parameter_id] = 1'b1;
+                if (effect_reset_captured || (edit_enable_captured && knob_pressed_event_captured[display_knob]))
+                    action_reset[parameter_id] = 1'b1;
+            end
+            if (effect_reset_captured)
+            begin
+                action_activity[10 + effect_select_captured] = 1'b1;
+                action_reset[10 + effect_select_captured] = 1'b1;
+            end
+        end
+    end
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            display_update_r <= 1'b0;
+            display_activity_r <= 22'd0;
+            display_reset_r <= 22'd0;
+        end
+        else
+        begin
+            display_update_r <= 1'b0;
+            display_activity_r <= 22'd0;
+            display_reset_r <= 22'd0;
+            if (current_state == STATE_CALCULATE_FRAME)
+            begin
+                display_update_r <= 1'b1;
+                display_activity_r <= action_activity;
+                display_reset_r <= action_reset;
+            end
+            if (preset_wave_load_pending_r)
+            begin
+                display_update_r <= 1'b1;
+                display_activity_r <= 22'h3fffef; // Every loaded field except master bit4.
+                display_reset_r <= 22'd0;        // Loading a preset is not DEFAULT.
+            end
         end
     end
 endmodule

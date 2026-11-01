@@ -51,7 +51,8 @@ module user_interface_keyboard_tb;
         .knob_states(knob_states), .knob_dirs(8'hff), .knob_pressed(8'd0), .bend_value(bend_value),
         .master_volume(master_volume), .balance_volume(), .configuration_error(configuration_error),
         .wavetable_0(), .wavetable_1(), .wavetable_interp(), .init_phase(), .attack_ticks(),
-        .decay_ticks(), .sustain_level(), .release_ticks(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix()
+        .decay_ticks(), .sustain_level(), .release_ticks(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix(),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
     always @(posedge clk_sys)
     begin

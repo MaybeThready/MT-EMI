@@ -90,7 +90,8 @@ module test_keyboard_interaction
         .storage_catalog_valid(1'b1), .storage_slot_present(16'd0),
         .menu_page(), .menu_selection(), .menu_slot(),
         .menu_save(), .menu_result_status(),
-        .menu_slot_known(), .menu_slot_present()
+        .menu_slot_known(), .menu_slot_present(),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
 
     wire signed [20:0] rack_audio;

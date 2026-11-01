@@ -1,0 +1,432 @@
+/**
+ * 真实i2s_driver -> ui_interaction/双窗/列缓存：输入队列参考、独立BCLK引脚
+ * 解码、逐样本镜像比对、逐列SDP比对；另一I2S永久LCD背压以比较音频业务。
+ * USE_REAL_TICKER=1使用现有sys_ticker的2048周期采样；0只压缩tick间距为64周期，
+ * 仍运行真实I2S驱动/32位串行帧。LONG_STALL验证跨多个整窗的绘制停顿与恢复。
+ * 不强制UI/音频内部状态，不接模拟mixer代替被测接收逻辑。
+ */
+`timescale 1ns/1ps
+module ui_audio_receive_tb;
+    parameter USE_REAL_TICKER = 0;
+    parameter LONG_STALL = 1;
+    parameter SPECTRUM_TEST = 0;
+    localparam COLUMNS = 544;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg signed [15:0] audio_data = 16'sd0;
+    reg in_valid = 1'b0;
+    wire in_ready, reference_ready;
+    wire i2s_tick_up, i2s_tick_down, smp_tick_up;
+    wire i2s_bclk, i2s_lrck, i2s_dout;
+    wire reference_bclk, reference_lrck, reference_dout;
+    wire signed [15:0] audio_out_lcd;
+    wire lcd_valid, lcd_ready;
+    reg [527:0] display_state = 528'd0;
+    reg display_valid = 1'b0, out_ready = 1'b0, render_done = 1'b0;
+    wire display_ready, out_valid;
+    wire [527:0] scene_state;
+    wire [21:0] highlight_mask, default_mask;
+    wire scene_wave_valid, scene_pcm_valid, scene_spectrum_valid;
+    wire [31:0] scene_spectrum_seq;
+    wire scene_spectrum_clipped, scene_fft_overflow;
+    wire [31:0] scene_wave_seq, scene_dropped_windows, dropped_windows;
+    wire [15:0] scene_output_peak, column_rd_data;
+    reg column_rd_en = 1'b0;
+    reg [10:0] column_rd_addr = 11'd0;
+    wire protocol_error, configuration_error;
+    reg test_passed = 1'b0;
+
+    generate
+        if (USE_REAL_TICKER != 0)
+        begin : real_ticks
+            sys_ticker sys_ticker_u (
+                .clk_sys(clk_sys), .rst_n(rst_n), .i2s_tick_up(i2s_tick_up),
+                .i2s_tick_down(i2s_tick_down), .smp_tick_up(smp_tick_up),
+                .smp_tick_down(), .scan_tick_up(), .scan_tick_down()
+            );
+        end
+        else
+        begin : accelerated_ticks
+            reg [5:0] count_r;
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n) count_r <= 6'd0;
+                else count_r <= count_r + 6'd1;
+            end
+            assign i2s_tick_up = count_r[0];
+            assign i2s_tick_down = !count_r[0];
+            assign smp_tick_up = (count_r == 6'd0);
+        end
+    endgenerate
+
+    i2s_driver i2s_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .i2s_tick_up(i2s_tick_up),
+        .i2s_tick_down(i2s_tick_down), .smp_tick_up(smp_tick_up),
+        .audio_data(audio_data), .in_valid(in_valid), .in_ready(in_ready),
+        .audio_out_lcd(audio_out_lcd), .out_valid_lcd(lcd_valid), .out_ready_lcd(lcd_ready),
+        .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck), .i2s_dout(i2s_dout), .sd_mode_n()
+    );
+    i2s_driver i2s_driver_u1 (
+        .clk_sys(clk_sys), .rst_n(rst_n), .i2s_tick_up(i2s_tick_up),
+        .i2s_tick_down(i2s_tick_down), .smp_tick_up(smp_tick_up),
+        .audio_data(audio_data), .in_valid(in_valid), .in_ready(reference_ready),
+        .audio_out_lcd(), .out_valid_lcd(), .out_ready_lcd(1'b0),
+        .i2s_bclk(reference_bclk), .i2s_lrck(reference_lrck), .i2s_dout(reference_dout), .sd_mode_n()
+    );
+    ui_interaction #(.WAVE_COLUMNS(COLUMNS)) ui_interaction_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(display_state),
+        .display_in_valid(display_valid), .display_in_ready(display_ready),
+        .audio_in(audio_out_lcd), .audio_in_valid(lcd_valid), .audio_in_ready(lcd_ready),
+        .scene_state(scene_state), .highlight_mask(highlight_mask), .default_mask(default_mask),
+        .out_valid(out_valid), .out_ready(out_ready), .render_done(render_done),
+        .scene_wave_valid(scene_wave_valid), .scene_wave_seq(scene_wave_seq),
+        .scene_output_peak(scene_output_peak), .scene_pcm_valid(scene_pcm_valid),
+        .scene_dropped_windows(scene_dropped_windows), .column_rd_en(column_rd_en),
+        .column_rd_addr(column_rd_addr), .column_rd_data(column_rd_data),
+        .dropped_windows(dropped_windows), .protocol_error(protocol_error),
+        .configuration_error(configuration_error),
+        .scene_spectrum_valid(scene_spectrum_valid), .scene_spectrum_seq(scene_spectrum_seq), .scene_spectrum_clipped(scene_spectrum_clipped), .scene_fft_overflow(scene_fft_overflow)
+    );
+
+    reg [15:0] accepted [0:16383];
+    reg signed [15:0] expected_played [0:16383];
+    reg signed [15:0] played [0:16383];
+    integer accepted_count = 0, consumed_count = 0, frame_count = 0, mirror_count = 0;
+    integer decoded_left = 0, decoded_right = 0, silent_frames = 0;
+    integer last_frame_cycle = 0, cycle_count = 0;
+    reg source_accepted = 1'b0;
+    reg [31:0] source_random = 32'hc9147a35;
+    reg stalled = 1'b0;
+    reg [15:0] stalled_data;
+
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            accepted_count = 0;
+            consumed_count = 0;
+            frame_count = 0;
+            mirror_count = 0;
+            silent_frames = 0;
+            last_frame_cycle = 0;
+            cycle_count = 0;
+            source_accepted = 1'b0;
+            stalled = 1'b0;
+        end
+        else
+        begin
+            cycle_count = cycle_count + 1;
+            if (!lcd_ready) $fatal(1, "LCD capture backpressured an actual played sample");
+            if (stalled && (!in_valid || audio_data !== stalled_data))
+                $fatal(1, "test source violated input handshake");
+            stalled = in_valid && !in_ready;
+            stalled_data = audio_data;
+            source_accepted = in_valid && in_ready;
+            if (source_accepted)
+            begin
+                accepted[accepted_count] = audio_data;
+                accepted_count = accepted_count + 1;
+            end
+            if (smp_tick_up)
+            begin
+                if (last_frame_cycle != 0 && cycle_count-last_frame_cycle != (USE_REAL_TICKER ? 2048 : 64))
+                    $fatal(1, "sample period mismatch");
+                last_frame_cycle = cycle_count;
+                if (consumed_count < accepted_count)
+                begin
+                    expected_played[frame_count] = accepted[consumed_count];
+                    consumed_count = consumed_count + 1;
+                end
+                else
+                begin
+                    expected_played[frame_count] = 16'sd0;
+                    silent_frames = silent_frames + 1;
+                end
+                frame_count = frame_count + 1;
+            end
+            if (lcd_valid && lcd_ready)
+            begin
+                if (mirror_count >= frame_count || audio_out_lcd !== expected_played[mirror_count])
+                    $fatal(1, "mirror did not contain the actual frame value at sample=%0d",mirror_count);
+                played[mirror_count] = audio_out_lcd;
+                mirror_count = mirror_count + 1;
+            end
+            #1;
+            if ({in_ready,i2s_bclk,i2s_lrck,i2s_dout} !==
+                {reference_ready,reference_bclk,reference_lrck,reference_dout})
+                $fatal(1, "LCD changed I2S serial audio or upstream ready");
+            if (protocol_error || configuration_error) $fatal(1, "unexpected UI/audio protocol error");
+        end
+    end
+
+    // Deterministic gaps force real underrun silence; otherwise keep the
+    // source valid/data stable until the original I2S input accepts it.
+    always @(negedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            in_valid = 1'b0;
+            source_random = 32'hc9147a35;
+        end
+        else if (!in_valid || source_accepted)
+        begin
+            source_random = {source_random[30:0],source_random[31]^source_random[21]^source_random[1]^source_random[0]};
+            in_valid = ((frame_count % 17) >= 3);
+            case (accepted_count % 13)
+                0: audio_data = 16'sh8000;
+                1: audio_data = 16'sh7fff;
+                2: audio_data = 16'sd0;
+                default: audio_data = source_random[15:0];
+            endcase
+        end
+    end
+
+    reg decoder_started = 1'b0, decoder_channel = 1'b1;
+    reg [15:0] decoded_word = 16'd0;
+    integer decoder_bits = 0;
+    always @(negedge rst_n)
+    begin
+        decoder_started = 1'b0;
+        decoder_channel = 1'b1;
+        decoder_bits = 0;
+        decoded_word = 16'd0;
+        decoded_left = 0;
+        decoded_right = 0;
+    end
+    always @(posedge i2s_bclk)
+    begin
+        if (rst_n)
+        begin
+            if (!decoder_started)
+            begin
+                // LRCK becomes left while the preceding right D0 is sampled.
+                if (!i2s_lrck)
+                begin
+                    decoder_started = 1'b1;
+                    decoder_channel = 1'b0;
+                    decoder_bits = 0;
+                    decoded_word = 16'd0;
+                end
+            end
+            else
+            begin
+                decoded_word = {decoded_word[14:0],i2s_dout};
+                if (decoder_bits == 15)
+                begin
+                    if (i2s_lrck === decoder_channel) $fatal(1, "I2S LRCK not one bit before MSB");
+                    if (!decoder_channel)
+                    begin
+                        if (decoded_left >= mirror_count || decoded_word !== played[decoded_left])
+                            $fatal(1, "pin-decoded left PCM differs from mirror sample=%0d word=%h",decoded_left,decoded_word);
+                        decoded_left = decoded_left + 1;
+                    end
+                    else
+                    begin
+                        if (decoded_word !== 16'd0) $fatal(1, "right channel is not silent");
+                        decoded_right = decoded_right + 1;
+                    end
+                    decoder_channel = i2s_lrck;
+                    decoder_bits = 0;
+                    decoded_word = 16'd0;
+                end
+                else
+                begin
+                    if (i2s_lrck !== decoder_channel) $fatal(1, "early LRCK transition");
+                    decoder_bits = decoder_bits + 1;
+                end
+            end
+        end
+    end
+
+    task offer_ui;
+        input [31:0] seq;
+        begin
+            @(negedge clk_sys);
+            display_state = 528'd0;
+            display_state[31:0] = seq;
+            display_state[500] = (SPECTRUM_TEST != 0);
+            display_valid = 1'b1;
+            @(negedge clk_sys);
+            display_valid = 1'b0;
+            if (!display_ready) $fatal(1, "UI input unexpectedly stalled");
+        end
+    endtask
+    task accept_scene;
+        begin
+            wait (out_valid);
+            @(negedge clk_sys);
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+        end
+    endtask
+    task complete_scene;
+        begin
+            @(negedge clk_sys);
+            render_done = 1'b1;
+            @(negedge clk_sys);
+            render_done = 1'b0;
+        end
+    endtask
+
+    function integer map_y;
+        input signed [15:0] sample;
+        integer raw;
+        begin
+            raw = sample;
+            map_y = 303 - (((raw + 32768) * 207 + 32768) / 65536);
+        end
+    endfunction
+
+    integer base, i, j, k, first, after_last, minimum, maximum, y, peak, magnitude;
+    real spectrum_amplitude [0:85];
+    real dft_real, dft_imag, angle, window_value, raw_value;
+    integer b, p, spectrum_bin;
+    task check_scene;
+        begin
+            if ((SPECTRUM_TEST ? !scene_spectrum_valid : !scene_wave_valid) || !scene_pcm_valid) $fatal(1, "completed PCM not advertised");
+            base = scene_wave_seq * 1024;
+            if (base+1024 > mirror_count) $fatal(1, "scene window uses unreceived PCM");
+            peak = 0;
+            for (i = base; i < base+1024; i = i+1)
+            begin
+                magnitude = played[i];
+                if (magnitude < 0) magnitude = -magnitude;
+                if (magnitude > peak) peak = magnitude;
+            end
+            if (scene_output_peak !== peak[15:0]) $fatal(1, "frozen peak/window sequence mismatch");
+            if (SPECTRUM_TEST)
+            begin
+                if (!scene_state[500] || scene_wave_valid || scene_spectrum_seq!==scene_wave_seq || scene_fft_overflow)
+                    $fatal(1,"spectrum kind/sequence/overflow mismatch");
+                // Direct O(N*K) floating DFT, deliberately not the radix2 RTL
+                // or integer golden model. Its only input is accepted PCM.
+                for (b=0; b<86; b=b+1)
+                begin
+                    dft_real=0.0; dft_imag=0.0;
+                    for (p=0; p<1024; p=p+1)
+                    begin
+                        window_value=0.5-0.5*$cos(6.283185307179586*p/1024.0);
+                        angle=6.283185307179586*b*p/1024.0;
+                        raw_value=$itor($signed(played[base+p]));
+                        dft_real=dft_real+raw_value*window_value*$cos(angle);
+                        dft_imag=dft_imag-raw_value*window_value*$sin(angle);
+                    end
+                    spectrum_amplitude[b]=$sqrt(dft_real*dft_real+dft_imag*dft_imag)/1024.0*((b==0) ? 2.0 : 4.0);
+                    if (spectrum_amplitude[b]>32768.0) spectrum_amplitude[b]=32768.0;
+                end
+            end
+            first = 0;
+            for (j = 0; j < COLUMNS; j = j+1)
+            begin
+                if (SPECTRUM_TEST)
+                begin
+                    spectrum_bin=((j+1)*86+COLUMNS-1)/COLUMNS-1;
+                    minimum=303-$rtoi(spectrum_amplitude[spectrum_bin]*207.0/32768.0+0.5);
+                    maximum=303;
+                end
+                else
+                begin
+                    after_last = ((j+1)*1024+COLUMNS-1)/COLUMNS;
+                    minimum = 479;
+                    maximum = 0;
+                    for (k = (first == 0 ? 0 : first-1); k < after_last; k = k+1)
+                    begin
+                        y = map_y(played[base+k]);
+                        if (y < minimum) minimum = y;
+                        if (y > maximum) maximum = y;
+                    end
+                end
+                @(negedge clk_sys);
+                column_rd_en = 1'b1;
+                column_rd_addr = 2*j;
+                @(posedge clk_sys);
+                #1;
+                if ((SPECTRUM_TEST && (column_rd_data+1 < minimum || column_rd_data > minimum+1)) ||
+                    (!SPECTRUM_TEST && column_rd_data !== minimum[15:0])) $fatal(1, "integrated y_min seq=%0d col=%0d",scene_wave_seq,j);
+                @(negedge clk_sys);
+                column_rd_addr = 2*j+1;
+                @(posedge clk_sys);
+                #1;
+                if (column_rd_data !== maximum[15:0]) $fatal(1, "integrated y_max seq=%0d col=%0d",scene_wave_seq,j);
+                first = after_last;
+            end
+            @(negedge clk_sys);
+            column_rd_en = 1'b0;
+        end
+    endtask
+
+    reg [688:0] held_scene;
+    reg checking_held = 1'b0;
+    wire [688:0] scene_bundle = {scene_state,highlight_mask,default_mask,
+        scene_wave_valid,scene_pcm_valid,scene_wave_seq,scene_output_peak,scene_dropped_windows,
+        scene_spectrum_valid,scene_spectrum_seq,scene_spectrum_clipped,scene_fft_overflow};
+    // Frozen waveform and spectrum validity/tags/flags are checked together.
+    always @(negedge clk_sys)
+    begin
+        if (rst_n && checking_held && scene_bundle !== held_scene)
+            $fatal(1, "active render scene or audio metadata changed");
+    end
+
+    initial
+    begin
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        offer_ui(32'd1);
+        accept_scene;
+        if (scene_wave_valid || scene_spectrum_valid || scene_pcm_valid) $fatal(1, "invented PCM before first complete window");
+        if (LONG_STALL != 0)
+        begin
+            held_scene = scene_bundle;
+            checking_held = 1'b1;
+            wait (mirror_count >= 3200);
+            if (dropped_windows < 32'd2) $fatal(1, "whole-window drop coverage missing");
+            offer_ui(32'd2);
+            checking_held = 1'b0;
+        end
+        complete_scene;
+        accept_scene;
+        if (scene_wave_seq !== 32'd0) $fatal(1, "first complete window was replaced");
+        if (LONG_STALL != 0 && scene_state[31:0] !== 32'd2) $fatal(1, "UI latest not retained during audio stall");
+        check_scene;
+        if (LONG_STALL != 0)
+        begin
+            held_scene = scene_bundle;
+            checking_held = 1'b1;
+            wait (mirror_count >= 5500);
+            check_scene;
+            checking_held = 1'b0;
+            complete_scene;
+            accept_scene;
+            if (scene_wave_seq <= 32'd1 || scene_dropped_windows == 32'd0)
+                $fatal(1, "skipped complete-window sequence not reported");
+            check_scene;
+            complete_scene;
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            #1;
+            if (lcd_ready || out_valid || scene_wave_valid) $fatal(1, "audio/display reset");
+            repeat (4) @(negedge clk_sys);
+            rst_n = 1'b1;
+            offer_ui(32'd3);
+            accept_scene;
+            complete_scene;
+            accept_scene;
+            if (scene_wave_seq !== 32'd0) $fatal(1, "post-reset first sequence");
+            check_scene;
+        end
+        if (mirror_count < 1024 || decoded_left < 1024 || decoded_right < 1023 || silent_frames == 0)
+            $fatal(1, "serial/underrun coverage incomplete");
+        test_passed = 1'b1;
+        $display("UI_AUDIO_RECEIVE_PASS real_ticker=%0d long_stall=%0d spectrum=%0d mirror=%0d decoded_left=%0d right=%0d silent=%0d drops=%0d",USE_REAL_TICKER,LONG_STALL,SPECTRUM_TEST,mirror_count,decoded_left,decoded_right,silent_frames,dropped_windows);
+        $finish;
+    end
+
+    initial
+    begin
+        #80000000;
+        $fatal(1, "audio receive watchdog");
+    end
+endmodule

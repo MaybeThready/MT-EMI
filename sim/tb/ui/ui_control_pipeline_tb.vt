@@ -108,7 +108,8 @@ module ui_control_pipeline_tb;
         .out_valid(out_valid),
         .out_ready(out_ready),
         .protocol_error(protocol_error),
-        .configuration_error(configuration_error)
+        .configuration_error(configuration_error),
+        .display_model_commit(), .display_model_payload()
     );
 
     task reset_dut;

@@ -1,0 +1,40 @@
+/**
+ * 调色板组合接口自检：独立检查全部16项RGB666颜色编码。
+ */
+`timescale 1ns/1ps
+module lcd_palette_tb;
+    reg [3:0] pixel_index;
+    wire [17:0] pixel_rgb;
+    reg [17:0] expected [0:15];
+    reg test_passed = 1'b0;
+    integer i;
+    lcd_palette lcd_palette_u (.pixel_index(pixel_index), .pixel_rgb(pixel_rgb));
+    initial
+    begin
+        expected[0] = 18'h00000;
+        expected[1] = 18'h3ffff;
+        expected[2] = 18'h3ffc0;
+        expected[3] = 18'h00fff;
+        expected[4] = 18'h00fc0;
+        expected[5] = 18'h3f03f;
+        expected[6] = 18'h3f000;
+        expected[7] = 18'h0003f;
+        expected[8] = (4 * 4096) + (6 * 64) + 8;
+        expected[9] = (6 * 4096) + (9 * 64) + 12;
+        expected[10] = (10 * 4096) + (16 * 64) + 19;
+        expected[11] = (38 * 4096) + (43 * 64) + 46;
+        expected[12] = (20 * 4096) + (54 * 64) + 55;
+        expected[13] = (40 * 4096) + (56 * 64) + 26;
+        expected[14] = (63 * 4096) + (51 * 64) + 25;
+        expected[15] = (57 * 4096) + (59 * 64) + 60;
+        for (i = 0; i < 16; i = i + 1)
+        begin
+            pixel_index = i;
+            #1;
+            if (pixel_rgb !== expected[i]) $fatal(1, "Palette index %0d mismatch", i);
+        end
+        test_passed = 1'b1;
+        $display("LCD_PALETTE_PASS");
+        $finish;
+    end
+endmodule

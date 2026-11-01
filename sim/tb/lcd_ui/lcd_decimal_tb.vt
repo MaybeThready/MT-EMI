@@ -1,0 +1,41 @@
+/**
+ * 24位整数转BCD自检：覆盖转换范围、结果保持和转换中复位。
+ */
+`timescale 1ns/1ps
+module lcd_decimal_tb;
+    reg clk=1'b0,rst_n=1'b0,in_valid=1'b0,out_ready=1'b0;
+    always #5 clk=~clk;
+    reg [23:0] value=24'd0;
+    wire in_ready,out_valid;
+    wire [31:0] bcd;
+    integer i,j,expected,decoded,place;
+    reg [31:0] held;
+    reg test_passed=1'b0;
+    lcd_decimal lcd_decimal_u(.clk(clk),.rst_n(rst_n),.in_valid(in_valid),.in_ready(in_ready),
+        .binary_value(value),.out_valid(out_valid),.out_ready(out_ready),.bcd(bcd));
+    initial
+    begin
+        repeat(3) @(negedge clk);rst_n=1'b1;
+        for(i=0;i<40;i=i+1)
+        begin
+            wait(in_ready);@(negedge clk);
+            value=(i==0) ? 24'd0 : (i==1) ? 24'hffffff : (i*334961)&24'hffffff;
+            expected=value;in_valid=1'b1;
+            @(negedge clk);in_valid=1'b0;value=~value;
+            wait(out_valid);#1;decoded=0;place=1;
+            for(j=0;j<8;j=j+1)
+            begin
+                if(bcd[4*j +:4]>9) $fatal(1,"invalid BCD");
+                decoded=decoded+bcd[4*j +:4]*place;place=place*10;
+            end
+            if(decoded!=expected) $fatal(1,"BCD mismatch");held=bcd;
+            repeat(17) begin @(negedge clk);if(!out_valid || bcd!==held) $fatal(1,"BCD result not held");end
+            out_ready=1'b1;@(negedge clk);out_ready=1'b0;
+        end
+        wait(in_ready);@(negedge clk);in_valid=1'b1;
+        @(negedge clk);in_valid=1'b0;repeat(5) @(negedge clk);rst_n=1'b0;#1;
+        if(out_valid || in_ready) $fatal(1,"BCD reset");
+        repeat(3) @(negedge clk);rst_n=1'b1;@(negedge clk);if(!in_ready) $fatal(1,"BCD restart");
+        test_passed=1'b1;$display("LCD_DECIMAL_PASS 40vectors 24bit held_result reset");$finish;
+    end
+endmodule
