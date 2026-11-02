@@ -1,43 +1,36 @@
 /**
- * 2026-11-02 S2和弦：config[24]为演奏模式子菜单，[5:4]为候选0/1；[23]仍是保存上下文。
- * [31:25]保留0，子菜单仅page=1合法；页面身份为{page,submenu}，切换立即定位选中框。
- * TILE_COUNT扩至2048以容纳追加字形，16位字符RAM内原11位切片编号仍足够。
- * 第三版文字切片/图形列双缓冲场景，不使用全屏像素缓存。
- * 全部状态使用clk_sys/rst_sys_n；坐标与地址为无符号整数，不涉及Q格式。
- * word_valid && word_ready仅写后台，背压期间发送方保持载荷。
- * kind=0：地址为row*ceil(H_ACTIVE/8)+col，单格8×16；data[12:0]为切片编号（小于2048），
- * data[16:13]为前景色，[31:17]保留为0；文字透明，背景由几何层生成。
- * 内部以16位保存11位编号和4位颜色，保持6个字符SDP块；不兼容旧版ASCII绘图字。
- * 特殊地址4095写页面config：[2:0]页，[3]模式1，[5:4]选项/效果，[9:6]槽号，[10]恢复项，
- * [18:11]活动卡片掩码，[22:19]消息颜色，[23]保存上下文，[24]子菜单，[31:25]为0。
- * kind=1：地址为x，[8:0]为最小y，[17:9]为最大y且包含端点，[21:18]颜色，[22]使能，[31:23]为0。
- * 非法字被接收但不写入，并锁存address_error；写完后保持present_valid，直到安全帧边界握手提交。
- * 等待提交时停止写入；交换后先清空新后台，无隐式前台复制，支持稀疏重建。
- * 四拍扫描流水依次处理地址寄存、SDP读、字形与合成；H_ACTIVE范围1..1024，V_ACTIVE范围1..512。
- * 菜单选中条在安全帧边界分六帧移动，可从当前位置重新定向，不阻塞后续UI任务。
+ * 第四版文字切片/图形列双缓冲，clk_sys域，不使用全屏像素缓存。
+ * 继承正式版四拍扫描/安全帧边界交换和16位文字RAM映射；握手背压期间载荷不变。
+ * kind=0文字格式不变，4095写config；[25]频谱，[30:26]峰值段数，[31]保留0。
+ * kind=1地址为x；[8:0]顶部，[17:9]底部，[21:18]色，[22]使能；
+ * [31:23]为频谱峰值帽绝对y（511无峰值），与列数据同bank原子提交。
+ * 演奏图范围x40..615/y88..327；图形阈值在扫描合成前寄存。
+ * 仅演奏页使用16相位颜色，每8个安全帧边界推进；菜单选择直接定位。
+ * pixel_phase与pixel_index同拍输出；坐标/计数无符号整数，RGB为6位无符号通道。
  */
 module lcd_scene
 #(
     parameter H_ACTIVE = 800,
     parameter V_ACTIVE = 480,
-    parameter TILE_COUNT = 2048
+    parameter TILE_COUNT = 1977
 )(
-    input clk,
-    input rst_n,
-    input word_valid,
-    output word_ready,
-    input word_kind,
-    input [11:0] word_addr,
-    input [31:0] word_data,
-    input present_valid,
-    output present_ready,
-    input frame_boundary,
-    output frame_active,
-    output address_error,
-    input scan_active,
-    input [9:0] scan_x,
-    input [8:0] scan_y,
-    output [3:0] pixel_index
+    input wire clk,
+    input wire rst_n,
+    input wire word_valid,
+    output wire word_ready,
+    input wire word_kind,
+    input wire [11:0] word_addr,
+    input wire [31:0] word_data,
+    input wire present_valid,
+    output wire present_ready,
+    input wire frame_boundary,
+    output wire frame_active,
+    output wire address_error,
+    input wire scan_active,
+    input wire [9:0] scan_x,
+    input wire [8:0] scan_y,
+    output wire [3:0] pixel_index,
+    output wire [3:0] pixel_phase
 );
     localparam CHAR_COLS = (H_ACTIVE + 7) / 8;
     localparam CHAR_COUNT = CHAR_COLS * ((V_ACTIVE + 15) / 16);
@@ -72,8 +65,12 @@ module lcd_scene
     wire [31:0] selected_config=bank_s0 ? config_r[1] : config_r[0];
     wire [31:0] incoming_config=front_bank_r ? config_r[0] : config_r[1];
     reg [31:0] config_s1;
-    reg [8:0] selection_y_r,origin_y_r,target_y_r,selection_y_s1;
-    reg [2:0] motion_phase_r;
+    reg [8:0] selection_y_r,selection_y_s1;
+    reg [6:0] animation_count_r;
+    reg [3:0] phase_s0,phase_s1,pixel_phase_r;
+    reg [8:0] halo_top_s1,halo_bottom_s1,cap_bottom_s1;
+    reg [3:0] wave_color_s1;
+
     wire [2:0] current_page=front_bank_r ? config_r[1][2:0] : config_r[0][2:0];
     wire current_submenu=front_bank_r ? config_r[1][24] : config_r[0][24];
     wire [8:0] incoming_target=9'd156+{1'b0,incoming_config[5:4],6'd0};
@@ -88,11 +85,11 @@ module lcd_scene
     assign accept = word_valid && word_ready;
     assign commit = present_valid && present_ready;
     assign valid_word = word_kind ?
-    ((word_addr < H_ACTIVE) && (word_data[31:23] == 9'd0) &&
+    ((word_addr < H_ACTIVE) && ((word_data[31:23] == 9'd511) || (word_data[31:23] < V_ACTIVE)) &&
     (!word_data[22] || ((word_data[8:0] <= word_data[17:9]) && (word_data[17:9] < V_ACTIVE)))) :
     (((word_addr < CHAR_COUNT) && (word_data[31:17] == 15'd0) && (word_data[12:0]<TILE_COUNT)) ||
-    ((word_addr==12'd4095) && word_data[31:25]==7'd0 &&
-     (!word_data[24] || (word_data[2:0]==3'd1 && !word_data[5]))));
+    ((word_addr==12'd4095) && !word_data[31] && word_data[30:26]<=5'd16 &&
+    (!word_data[24] || (word_data[2:0]==3'd1 && !word_data[5]))));
     assign write_addr = clearing ? clear_addr_r[11:0] : word_addr;
     assign selected_char = bank_s0 ? {15'd0,char_data[1][14:11],2'd0,char_data[1][10:0]} :
     {15'd0,char_data[0][14:11],2'd0,char_data[0][10:0]};
@@ -100,6 +97,7 @@ module lcd_scene
     assign frame_active = front_valid_r;
     assign address_error = address_error_r;
     assign pixel_index = pixel_index_r;
+    assign pixel_phase = pixel_phase_r;
     // A row is only 5 bits. Explicit constant shifts/adds avoid the unregistered
     // MULT12X12 inferred from row*CHAR_COLS in the failing implementation.
     function [11:0] character_row_offset;
@@ -140,7 +138,8 @@ module lcd_scene
     );
     generate
         for (bank_index = 0; bank_index < 2; bank_index = bank_index + 1)
-        begin : scene_banks
+        begin
+            : scene_banks
             lcd_sdp_ram #(.DATA_WIDTH(16), .DEPTH(CHAR_COUNT), .ADDR_WIDTH(12)) char_ram_u (
             .clk(clk), .rst_n(rst_n),
             .wr_en((front_bank_r != bank_index) && ((clearing && (clear_addr_r < CHAR_COUNT)) ||
@@ -222,6 +221,13 @@ module lcd_scene
             pixel_index_r <= 4'd0;
             config_s1<=32'd0;
             selection_y_s1<=9'd156;
+            phase_s0<=4'd0;
+            phase_s1<=4'd0;
+            pixel_phase_r<=4'd0;
+            halo_top_s1<=9'd88;
+            halo_bottom_s1<=9'd327;
+            cap_bottom_s1<=9'd511;
+            wave_color_s1<=4'd12;
         end
         else
         begin
@@ -235,65 +241,47 @@ module lcd_scene
             config_s1<=selected_config;
             selection_y_s1<=selection_y_r;
             graph_s1 <= selected_graph;
+            phase_s0<=animation_count_r[6:3];
+            phase_s1<=phase_s0;
+            pixel_phase_r<=(config_s1[2:0]==3'd0) ? phase_s1 : 4'd0;
+            halo_top_s1<=(selected_graph[8:0]<9'd90) ? 9'd88 : selected_graph[8:0]-9'd2;
+            halo_bottom_s1<=(selected_graph[17:9]>9'd325) ? 9'd327 : selected_graph[17:9]+9'd2;
+            cap_bottom_s1<=selected_graph[31:23]+9'd1;
+            wave_color_s1<=(x_s0<10'd184) ? 4'd12 : (x_s0<10'd328) ? 4'd1 : (x_s0<10'd472) ? 4'd2 : 4'd3;
             pixel_index_r <= visible_r[1] ? composed : 4'd0;
         end
     end
     always @(*)
     begin
-        composed = background;
-        if (graph_s1[22] && (y_s1 >= graph_s1[8:0]) && (y_s1 <= graph_s1[17:9]))
-        composed = graph_s1[21:18];
-        if (glyph_row[7-x_s1[2:0]]) composed = char_s1[16:13];
-    end
-    // Only local integer geometry is animated. Metadata and text remain frozen.
-    // Change coordinates at the same safe memory-frame boundary as bank swap.
-    function [8:0] ease_position;
-        input [8:0] first,last;
-        input [2:0] phase;
-        reg signed [17:0] delta,scaled;
+        composed=background;
+        if (config_s1[2:0]==3'd0 && graph_s1[22] && x_s1>=10'd40 && x_s1<=10'd615 && y_s1>=9'd88 && y_s1<=9'd327)
         begin
-            delta=$signed({1'b0,last})-$signed({1'b0,first});
-            case(phase)
-                3'd0:scaled=(delta<<<2)+delta;
-                3'd1:scaled=(delta<<<4)+delta;
-                3'd2:scaled=delta<<<5;
-                3'd3:scaled=(delta<<<5)+(delta<<<4)-delta;
-                3'd4:scaled=(delta<<<6)-(delta<<<2)-delta;
-                default:scaled=delta<<<6;
-            endcase
-            ease_position=$signed({1'b0,first})+(scaled>>>6);
+            if (!config_s1[25])
+            begin
+                if (y_s1>=halo_top_s1 && y_s1<=halo_bottom_s1) composed=4'd4;
+                if (y_s1>=graph_s1[8:0] && y_s1<=graph_s1[17:9]) composed=wave_color_s1;
+            end
+            else if (x_s1[3:0]!=4'd8 && x_s1[3:0]!=4'd7)
+            begin
+                if (y_s1>=graph_s1[8:0] && y_s1<=graph_s1[17:9] && y_s1[2:0]<3'd6)
+                composed=(y_s1<9'd148) ? 4'd3 : (y_s1<9'd208) ? 4'd2 : (y_s1<9'd268) ? 4'd1 : 4'd12;
+                if (graph_s1[31:23]!=9'd511 && y_s1>=graph_s1[31:23] && y_s1<=cap_bottom_s1) composed=4'd15;
+            end
         end
-    endfunction
+        if (glyph_row[7-x_s1[2:0]]) composed=char_s1[16:13];
+    end
+    // 菜单没有持续运动；颜色计数按面板真实安全帧推进，与业务提交频率解耦。
     always @(posedge clk or negedge rst_n)
     begin
-        if(!rst_n)
+        if (!rst_n)
         begin
             selection_y_r<=9'd156;
-            origin_y_r<=9'd156;
-            target_y_r<=9'd156;
-            motion_phase_r<=3'd6;
+            animation_count_r<=7'd0;
         end
-        else if(frame_boundary)
+        else if (frame_boundary)
         begin
-            if(commit && (incoming_config[2:0]==3'd1 || incoming_config[2:0]==3'd6) &&
-            (incoming_config[2:0]!=current_page || incoming_config[24]!=current_submenu || !front_valid_r))
-            begin
-                selection_y_r<=incoming_target;
-                origin_y_r<=incoming_target;
-                target_y_r<=incoming_target;
-                motion_phase_r<=3'd6;
-            end
-            else if(commit && (incoming_config[2:0]==3'd1 || incoming_config[2:0]==3'd6) && incoming_target!=target_y_r)
-            begin
-                origin_y_r<=selection_y_r;
-                target_y_r<=incoming_target;
-                motion_phase_r<=3'd0;
-            end
-            else if(motion_phase_r<3'd6)
-            begin
-                selection_y_r<=ease_position(origin_y_r,target_y_r,motion_phase_r);
-                motion_phase_r<=motion_phase_r+3'd1;
-            end
+            animation_count_r<=animation_count_r+7'd1;
+            if (commit) selection_y_r<=incoming_target;
         end
     end
     always @(*)
@@ -302,19 +290,26 @@ module lcd_scene
         card_x=10'd0;
         card_y=9'd0;
         if(y_s1<9'd48 || y_s1>=9'd452) background=4'd9;
+        if (x_s1>=10'd16 && x_s1<10'd20 && y_s1>=9'd16 && y_s1<9'd38) background=4'd12;
         if(y_s1==9'd47 && x_s1>=10'd24 && x_s1<10'd776) background=4'd10;
         case(config_s1[2:0])
             3'd0:
             begin
-                if(x_s1>=10'd48 && x_s1<=10'd591 && y_s1>=9'd96 && y_s1<=9'd303 &&
-                (x_s1==10'd48 || x_s1==10'd184 || x_s1==10'd320 || x_s1==10'd456 || x_s1==10'd591 ||
-                y_s1==9'd96 || y_s1==9'd148 || y_s1==9'd200 || y_s1==9'd252 || y_s1==9'd303)) background=4'd10;
-                if(x_s1==10'd608 && y_s1>=9'd64 && y_s1<=9'd320) background=4'd10;
+                if(x_s1>=10'd40 && x_s1<=10'd615 && y_s1>=9'd88 && y_s1<=9'd327 &&
+                (x_s1==10'd40 || x_s1==10'd184 || x_s1==10'd328 || x_s1==10'd472 || x_s1==10'd615 ||
+                y_s1==9'd88 || y_s1==9'd148 || y_s1==9'd208 || y_s1==9'd268 || y_s1==9'd327)) background=4'd10;
+                if(x_s1==10'd632 && y_s1>=9'd64 && y_s1<=9'd340) background=4'd10;
+
+                for (card=0;card<16;card=card+1)
+                begin
+                    if (x_s1>=10'd656+card*7 && x_s1<10'd661+card*7 && y_s1>=9'd240 && y_s1<9'd248)
+                    background=(card<config_s1[30:26]) ? ((card>=14) ? 4'd14 : (card>=11) ? 4'd6 : 4'd12) : 4'd10;
+                end
                 for(card=0;card<8;card=card+1)
                 begin
                     card_x=10'd16+(card%4)*10'd192;
-                    card_y=(card<4) ? 9'd336 : 9'd392;
-                    if(x_s1>=card_x && x_s1<card_x+10'd186 && y_s1>=card_y && y_s1<card_y+9'd56)
+                    card_y=(card<4) ? 9'd352 : 9'd400;
+                    if(x_s1>=card_x && x_s1<card_x+10'd186 && y_s1>=card_y && y_s1<card_y+9'd40)
                     begin
                         background=config_s1[11+card] ? 4'd10 : 4'd9;
                         if(config_s1[11+card] && x_s1<card_x+10'd3) background=4'd12;

@@ -5,7 +5,7 @@
  */
 `timescale 1ns/1ps
 module lcd_waveform_builder_tb;
-    parameter COLUMNS = 544;
+    parameter COLUMNS = 576;
     GSR GSR (.GSRI(1'b1));
     reg clk_sys = 1'b0;
     always #5 clk_sys = ~clk_sys;
@@ -28,7 +28,8 @@ module lcd_waveform_builder_tb;
     genvar invalid_case;
     generate
         for (invalid_case = 0; invalid_case < 4; invalid_case = invalid_case + 1)
-        begin : invalid_parameters
+        begin
+            : invalid_parameters
             lcd_waveform_builder #(
                 .WAVE_COLUMNS((invalid_case == 0) ? 0 : (invalid_case == 1) ? 1025 : 544),
                 .GRAPH_Y_MIN((invalid_case == 3) ? 303 : 96),
@@ -45,7 +46,7 @@ module lcd_waveform_builder_tb;
         end
     endgenerate
 
-    lcd_waveform_builder #(.WAVE_COLUMNS(COLUMNS)) lcd_waveform_builder_u (
+    lcd_waveform_builder #(.WAVE_COLUMNS(COLUMNS),.GRAPH_Y_MIN(88),.GRAPH_Y_MAX(327)) lcd_waveform_builder_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .build_enable(build_enable),
         .start_valid(start_valid), .start_ready(start_ready), .window_seq(window_seq),
         .pcm_rd_en(pcm_rd_en), .pcm_rd_addr(pcm_rd_addr), .pcm_rd_data(pcm_rd_data),
@@ -90,7 +91,7 @@ module lcd_waveform_builder_tb;
         integer raw;
         begin
             raw = sample;
-            map_y = 303 - (((raw + 32768) * 207 + 32768) / 65536);
+            map_y = 327 - (((raw + 32768) * 239 + 32768) / 65536);
         end
     endfunction
 

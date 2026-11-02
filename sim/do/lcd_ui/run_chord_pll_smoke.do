@@ -1,3 +1,6 @@
+set MT_RUN_NAME run_chord_pll_smoke
+unset -nocomplain MT_LOG_TARGET
+do do/common/output_paths.do
 # Run from formal sim/. Maintained chord regression; no synthesis/PnR.
 onerror {quit -code 1 -force}
 onbreak {}

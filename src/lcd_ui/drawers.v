@@ -1,41 +1,41 @@
 /**
- * 2026-11-02 S2和弦：接受快照[509:511]模式/子菜单/候选，与页面程序一起冻结。
- * 仅拒绝page!=1时置位的子菜单；候选和已确认模式允许在演奏页保留。
- * 第三版LCD页面绘制调度器，使用clk_sys/rst_sys_n，不参与音频业务背压。
- * in_valid && in_ready接受一份528位快照、22项活动/默认标记及图形元数据。
- * 仅在当前任务持有列缓存期间读取；同步读延迟一拍，地址2*j与2*j+1分别为上下端点。
- * 共绘制544列，屏幕范围x=48..591、y=96..303；word/present采用lcd_scene的V3协议。
- * 背压期间保持绘图字；present成功后才产生render_done，复位取消未提交任务。
- * 采用独热寄存控制、分拍常量缩放和共享24周期BCD转换器，不使用全屏缓存或变量除法。
+ * 第四版LCD页面绘制调度器，统一clk_sys/rst_n，独立于音频背压。
+ * in_valid&&in_ready冻结528位场景、活动/默认掩码、PCM元数据及实际帧计数。
+ * 列缓存同步读一拍，2*j/2*j+1为上下端点；576列映射x40..615/y88..327。
+ * 波形保留min/max；频谱每16列归并为36柱，峰值保持10个实际面板帧后2像素/帧回落。
+ * 只保留36份8位相对高度及4位保持计数，峰值坐标复用原32位列字高9位。
+ * word/present在背压时保持载荷，提交后render_done；重置取消未提交任务。
+ * 文字数字缩放和BCD保持正式版分拍实现，无变量除法、乘法器或整屏帧缓存。
  */
 module drawers
 (
-    input clk_sys, input rst_n,
-    input in_valid, output in_ready,
-    input [527:0] scene_state,
-    input [21:0] highlight_mask, input [21:0] default_mask,
-    input scene_wave_valid, input scene_spectrum_valid, input scene_pcm_valid,
-    input [15:0] scene_output_peak,
-    input scene_fft_overflow, input scene_spectrum_clipped,
-    output column_rd_en, output [10:0] column_rd_addr, input [15:0] column_rd_data,
-    output word_valid, input word_ready, output word_kind,
-    output [11:0] word_addr, output [31:0] word_data,
-    output present_valid, input present_ready,
-    output render_done, output protocol_error
+    input wire clk_sys, input wire rst_n,
+    input wire in_valid, output wire in_ready,
+    input wire [15:0] frame_count,
+    input wire [527:0] scene_state,
+    input wire [21:0] highlight_mask, input wire [21:0] default_mask,
+    input wire scene_wave_valid, input wire scene_spectrum_valid, input wire scene_pcm_valid,
+    input wire [15:0] scene_output_peak,
+    input wire scene_fft_overflow, input wire scene_spectrum_clipped,
+    output wire column_rd_en, output wire [10:0] column_rd_addr, input wire [15:0] column_rd_data,
+    output wire word_valid, input wire word_ready, output wire word_kind,
+    output wire [11:0] word_addr, output wire [31:0] word_data,
+    output wire present_valid, input wire present_ready,
+    output wire render_done, output wire protocol_error
 );
-    localparam IDLE=5'd0, CONFIG=5'd1, OBJECT=5'd2, INFO=5'd3,
-    TEXT_READ=5'd4, TEXT_WAIT=5'd5, TEXT_SEND=5'd6, NEXT=5'd7,
-    DEC_START=5'd8, DEC_WAIT=5'd9, FORMAT=5'd10, DIGIT=5'd11,
-    SUFFIX=5'd12, NUM_READY=5'd13, GLYPH_READ=5'd14, GLYPH_WAIT=5'd15,
-    GLYPH_SEND=5'd16, COL_TOP=5'd17, WAIT_TOP=5'd18,
-    COL_BOTTOM=5'd19, WAIT_BOTTOM=5'd20, GRAPH_SEND=5'd21,
-    PRESENT=5'd22, DONE=5'd23, INFO_DECIDE=5'd24, OBJECT_DECIDE=5'd25,
-    SCALE_A=5'd26, SCALE_B=5'd27, SCALE_C=5'd28, SCALE_D=5'd29,
-    STARTUP=5'd30, CONFIG_PREP=5'd31;
+    localparam IDLE=6'd0, CONFIG=6'd1, OBJECT=6'd2, INFO=6'd3,
+    TEXT_READ=6'd4, TEXT_WAIT=6'd5, TEXT_SEND=6'd6, NEXT=6'd7,
+    DEC_START=6'd8, DEC_WAIT=6'd9, FORMAT=6'd10, DIGIT=6'd11,
+    SUFFIX=6'd12, NUM_READY=6'd13, GLYPH_READ=6'd14, GLYPH_WAIT=6'd15,
+    GLYPH_SEND=6'd16, COL_TOP=6'd17, WAIT_TOP=6'd18,
+    COL_BOTTOM=6'd19, WAIT_BOTTOM=6'd20, GRAPH_SEND=6'd21,
+    PRESENT=6'd22, DONE=6'd23, INFO_DECIDE=6'd24, OBJECT_DECIDE=6'd25,
+    SCALE_A=6'd26, SCALE_B=6'd27, SCALE_C=6'd28, SCALE_D=6'd29,
+    STARTUP=6'd30, CONFIG_PREP=6'd31, GROUP_READ=6'd32, GROUP_DECIDE=6'd33, GROUP_WRITE=6'd34;
     // Registered one-hot controls: no page/ROM result may pass through the
-    // next-state decoder into a same-cycle word-valid/CE output.
-    reg [31:0] state /* synthesis syn_preserve = 1 */;
-    reg [31:0] next_state;
+    // next-state decoder into a same-cycle word-valid/CE output wire.
+    reg [34:0] state /* synthesis syn_preserve = 1 */;
+    reg [34:0] next_state;
     reg [527:0] snapshot_r;
     reg [21:0] activity_r,defaults_r;
     reg wave_r,spectrum_r,pcm_r,overflow_r,clipped_r,error_r;
@@ -80,13 +80,24 @@ module drawers
     wire [6:0] character=ascii_r[8*char_index_r +:8];
     wire [12:0] glyph_tile;
     reg [2:0] tile_dx,tile_dy;
-    wire [3:0] last_tile=(style_r==2'd0) ? 4'd0 : (style_r==2'd1) ? 4'd3 : 4'd8;
+    wire [3:0] last_tile=(style_r==2'd0) ? 4'd0 : (style_r==2'd2) ? 4'd8 : 4'd3;
     wire [6:0] character_x=(style_r==2'd0) ? char_index_r :
-    (style_r==2'd1) ? (char_index_r<<1) : ((char_index_r<<1)+char_index_r);
+    (style_r==2'd2) ? ((char_index_r<<1)+char_index_r) : (char_index_r<<1);
     reg [11:0] address_r;
     reg [31:0] data_r;
     reg [9:0] column_r;
     reg [8:0] column_top_r;
+    reg [8:0] group_top_r;
+    reg [3:0] emit_r;
+    reg [7:0] peak_height [0:35];
+    reg [3:0] peak_hold [0:35];
+    reg [7:0] old_height_r,new_height_r,result_height_r;
+    reg [3:0] old_hold_r,result_hold_r;
+    reg [15:0] previous_frame_r;
+    reg [7:0] elapsed_r;
+    reg history_r,history_job_r;
+    wire [15:0] elapsed_frames=frame_count-previous_frame_r;
+    wire [8:0] decay_pixels=({1'b0,elapsed_r}-{5'd0,old_hold_r})<<1;
     integer i;
     assign in_ready=state[IDLE];
     assign render_done=state[DONE];
@@ -132,15 +143,15 @@ module drawers
         reg [31:0] chars;
         begin
             case(kind)
-                4'd1:chars=32'h00002520;
-                4'd2:chars=32'h00736d20;
-                4'd3:chars=32'h00007820;
-                4'd4:chars=32'h67656420;
-                4'd5:chars=32'h007a4820;
-                4'd6:chars=32'h706d7320;
-                4'd7:chars=32'h00534620;
-                4'd8:chars=32'h00746320;
-                4'd9:chars=32'h32332f20;
+                4'd1:chars=35'h00002520;
+                4'd2:chars=35'h00736d20;
+                4'd3:chars=35'h00007820;
+                4'd4:chars=35'h67656420;
+                4'd5:chars=35'h007a4820;
+                4'd6:chars=35'h706d7320;
+                4'd7:chars=35'h00534620;
+                4'd8:chars=35'h00746320;
+                4'd9:chars=35'h32332f20;
                 default:chars=32'd0;
             endcase
             suffix_char=(index<4) ? chars[8*index +:8] : 8'd0;
@@ -157,34 +168,16 @@ module drawers
         if(required_digits<=decimals_r) required_digits={1'b0,decimals_r}+4'd1;
         tile_dx=3'd0;
         tile_dy=3'd0;
-        case(style_r)
-            2'd1:
-            begin
-                tile_dx={2'd0,tile_index_r[0]};
-                tile_dy={2'd0,tile_index_r[1]};
-            end
-            2'd2:
-            begin
-                if(tile_index_r<4'd3) tile_dx=tile_index_r;
-                else if(tile_index_r<4'd6)
-                begin
-                    tile_dx=tile_index_r-4'd3;
-                    tile_dy=3'd1;
-                end
-                else
-                begin
-                    tile_dx=tile_index_r-4'd6;
-                    tile_dy=3'd2;
-                end
-            end
-            default:
-            begin
-            end
-        endcase
-    end
-    always @(*)
-    begin
-        character_id=5'd0;
+        if (style_r!=2'd0 && style_r!=2'd2)
+        begin
+            tile_dx={2'd0,tile_index_r[0]};
+            tile_dy={2'd0,tile_index_r[1]};
+        end
+        if (style_r==2'd2)
+        begin
+            tile_dx=(tile_index_r<4'd3) ? tile_index_r : (tile_index_r<4'd6) ? tile_index_r-4'd3 : tile_index_r-4'd6;
+            tile_dy=(tile_index_r<4'd3) ? 3'd0 : (tile_index_r<4'd6) ? 3'd1 : 3'd2;
+        end
         case(character)
             // Generated by finish_drawers.py from the bundled alphabet.
             7'd48: character_id=5'd0;
@@ -224,45 +217,48 @@ module drawers
     begin
         next_state=state;
         case(1'b1)
-            state[STARTUP]:next_state=32'h00000001;
-            state[IDLE]:if(in_valid) next_state=32'h80000000;
-            state[CONFIG_PREP]:next_state=32'h00000002;
-            state[CONFIG]:if(word_ready) next_state=32'h00000004;
-            state[OBJECT]:next_state=32'h02000000;
-            state[OBJECT_DECIDE]:next_state=object_valid_r ? (object_number_r ? ((scale_r==3'd0) ? 32'h00000100 : 32'h04000000) : 32'h00000008) :
-            ((snapshot_r[422:420]==3'd0 && (wave_r || spectrum_r)) ? 32'h00020000 : 32'h00400000);
-            state[INFO]:next_state=32'h01000000;
-            state[INFO_DECIDE]:next_state=(text_count_r==8'd0) ? 32'h00000080 : 32'h00000010;
-            state[SCALE_A]:next_state=32'h08000000;
-            state[SCALE_B]:next_state=32'h10000000;
-            state[SCALE_C]:next_state=32'h20000000;
-            state[SCALE_D]:next_state=32'h00000100;
-            state[TEXT_READ]:next_state=32'h00000020;
-            state[TEXT_WAIT]:next_state=32'h00000040;
-            state[TEXT_SEND]:if(word_ready) next_state=(text_index_r+8'd1==text_count_r) ? 32'h00000080 : 32'h00000010;
-            state[NEXT]:next_state=32'h00000004;
-            state[DEC_START]:if(decimal_ready) next_state=32'h00000200;
-            state[DEC_WAIT]:if(decimal_valid) next_state=32'h00000400;
-            state[FORMAT]:next_state=32'h00000800;
-            state[DIGIT]:if(!(decimals_r!=0 && digit_left_r==decimals_r && !dot_r) && digit_left_r==1) next_state=32'h00001000;
-            state[SUFFIX]:if(suffix_char(suffix_r,suffix_index_r)==8'd0) next_state=32'h00002000;
-            state[NUM_READY]:next_state=32'h00004000;
-            state[GLYPH_READ]:next_state=32'h00008000;
-            state[GLYPH_WAIT]:next_state=32'h00010000;
-            state[GLYPH_SEND]:if(word_ready) next_state=(tile_index_r==last_tile && char_index_r+1==ascii_count_r) ? 32'h00000080 : 32'h00004000;
-            state[COL_TOP]:next_state=32'h00040000;
-            state[WAIT_TOP]:next_state=32'h00080000;
-            state[COL_BOTTOM]:next_state=32'h00100000;
-            state[WAIT_BOTTOM]:next_state=32'h00200000;
-            state[GRAPH_SEND]:if(word_ready) next_state=(column_r==10'd543) ? 32'h00400000 : 32'h00020000;
-            state[PRESENT]:if(present_ready) next_state=32'h00800000;
-            state[DONE]:next_state=32'h00000001;
-            default:next_state=32'h00000001;
+            state[STARTUP]:next_state=35'h00000001;
+            state[IDLE]:if(in_valid) next_state=35'h80000000;
+            state[CONFIG_PREP]:next_state=35'h00000002;
+            state[CONFIG]:if(word_ready) next_state=35'h00000004;
+            state[OBJECT]:next_state=35'h02000000;
+            state[OBJECT_DECIDE]:next_state=object_valid_r ? (object_number_r ? ((scale_r==3'd0) ? 35'h00000100 : 35'h04000000) : 35'h00000008) :
+            ((snapshot_r[422:420]==3'd0 && (wave_r || spectrum_r)) ? 35'h00020000 : 35'h00400000);
+            state[INFO]:next_state=35'h01000000;
+            state[INFO_DECIDE]:next_state=(text_count_r==8'd0) ? 35'h00000080 : 35'h00000010;
+            state[SCALE_A]:next_state=35'h08000000;
+            state[SCALE_B]:next_state=35'h10000000;
+            state[SCALE_C]:next_state=35'h20000000;
+            state[SCALE_D]:next_state=35'h00000100;
+            state[TEXT_READ]:next_state=35'h00000020;
+            state[TEXT_WAIT]:next_state=35'h00000040;
+            state[TEXT_SEND]:if(word_ready) next_state=(text_index_r+8'd1==text_count_r) ? 35'h00000080 : 35'h00000010;
+            state[NEXT]:next_state=35'h00000004;
+            state[DEC_START]:if(decimal_ready) next_state=35'h00000200;
+            state[DEC_WAIT]:if(decimal_valid) next_state=35'h00000400;
+            state[FORMAT]:next_state=35'h00000800;
+            state[DIGIT]:if(!(decimals_r!=0 && digit_left_r==decimals_r && !dot_r) && digit_left_r==1) next_state=35'h00001000;
+            state[SUFFIX]:if(suffix_char(suffix_r,suffix_index_r)==8'd0) next_state=35'h00002000;
+            state[NUM_READY]:next_state=35'h00004000;
+            state[GLYPH_READ]:next_state=35'h00008000;
+            state[GLYPH_WAIT]:next_state=35'h00010000;
+            state[GLYPH_SEND]:if(word_ready) next_state=(tile_index_r==last_tile && char_index_r+1==ascii_count_r) ? 35'h00000080 : 35'h00004000;
+            state[COL_TOP]:next_state=35'h00040000;
+            state[WAIT_TOP]:next_state=35'h00080000;
+            state[COL_BOTTOM]:next_state=35'h00100000;
+            state[WAIT_BOTTOM]:next_state=(spectrum_r && column_r[3:0]!=4'd15) ? 35'h00020000 : spectrum_r ? 35'h100000000 : 35'h00200000;
+            state[GROUP_READ]:next_state=35'h200000000;
+            state[GROUP_DECIDE]:next_state=35'h400000000;
+            state[GROUP_WRITE]:next_state=35'h00200000;
+            state[GRAPH_SEND]:if(word_ready) next_state=(spectrum_r && emit_r!=4'd15) ? 35'h00200000 : (column_r==10'd575) ? 35'h00400000 : 35'h00020000;
+            state[PRESENT]:if(present_ready) next_state=35'h00800000;
+            state[DONE]:next_state=35'h00000001;
+            default:next_state=35'h00000001;
         endcase
     end
     always @(posedge clk_sys or negedge rst_n)
     begin
-        if(!rst_n) state<=32'h40000000;
+        if(!rst_n) state<=35'h40000000;
         else state<=next_state;
     end
     always @(posedge clk_sys or negedge rst_n)
@@ -314,6 +310,22 @@ module drawers
             data_r<=32'd0;
             column_r<=10'd0;
             column_top_r<=9'd0;
+            group_top_r<=9'd327;
+            emit_r<=4'd0;
+            old_height_r<=8'd0;
+            new_height_r<=8'd0;
+            result_height_r<=8'd0;
+            old_hold_r<=4'd0;
+            result_hold_r<=4'd0;
+            previous_frame_r<=16'd0;
+            elapsed_r<=8'd0;
+            history_r<=1'b0;
+            history_job_r<=1'b0;
+            for (i=0;i<36;i=i+1)
+            begin
+                peak_height[i]<=8'd0;
+                peak_hold[i]<=4'd0;
+            end
         end
         else
         begin
@@ -330,6 +342,14 @@ module drawers
                 clipped_r<=scene_spectrum_clipped;
                 object_index_r<=6'd0;
                 column_r<=10'd0;
+                group_top_r<=9'd327;
+                history_job_r<=history_r;
+                history_r<=(scene_state[422:420]==3'd0 && scene_spectrum_valid);
+                if (scene_state[422:420]==3'd0 && scene_spectrum_valid)
+                begin
+                    previous_frame_r<=frame_count;
+                    elapsed_r<=(elapsed_frames>16'd255) ? 8'd255 : elapsed_frames[7:0];
+                end
                 if((scene_wave_valid && scene_spectrum_valid) ||
                 (scene_wave_valid && scene_state[500]) ||
                 (scene_spectrum_valid && !scene_state[500]) ||
@@ -465,13 +485,63 @@ module drawers
                 else tile_index_r<=tile_index_r+4'd1;
             end
             if(state[WAIT_TOP]) column_top_r<=column_rd_data[8:0];
-            if(state[WAIT_BOTTOM])
+            if (state[WAIT_BOTTOM])
             begin
-                address_r<=12'd48+column_r;
-                data_r<={9'd0,1'b1,4'd12,column_rd_data[8:0],column_top_r};
-                if(column_top_r>column_rd_data[8:0] || column_rd_data[8:0]>9'd479) error_r<=1'b1;
+                address_r<=12'd40+column_r;
+                data_r<={9'd511,1'b1,4'd12,column_rd_data[8:0],column_top_r};
+                if (column_top_r>column_rd_data[8:0] || column_rd_data[8:0]>9'd327 || column_top_r<9'd88) error_r<=1'b1;
+                if (spectrum_r)
+                begin
+                    if (column_top_r<group_top_r) group_top_r<=column_top_r;
+                    if (column_r[3:0]!=4'd15) column_r<=column_r+10'd1;
+                end
             end
-            if(state[GRAPH_SEND] && word_ready) column_r<=column_r+10'd1;
+            // 串行先读取峰值状态，再比较，再写入；不串接36选1与更新加法。
+            if (state[GROUP_READ])
+            begin
+                old_height_r<=peak_height[column_r[9:4]];
+                old_hold_r<=peak_hold[column_r[9:4]];
+                new_height_r<=9'd327-group_top_r;
+            end
+            if (state[GROUP_DECIDE])
+            begin
+                if (!history_job_r || new_height_r>=old_height_r)
+                begin
+                    result_height_r<=new_height_r;
+                    result_hold_r<=4'd10;
+                end
+                else if (elapsed_r<={4'd0,old_hold_r})
+                begin
+                    result_height_r<=old_height_r;
+                    result_hold_r<=old_hold_r-elapsed_r;
+                end
+                else
+                begin
+                    result_height_r<=(decay_pixels>=old_height_r || old_height_r-decay_pixels<new_height_r) ? new_height_r : old_height_r-decay_pixels;
+                    result_hold_r<=4'd0;
+                end
+            end
+            if (state[GROUP_WRITE])
+            begin
+                peak_height[column_r[9:4]]<=result_height_r;
+                peak_hold[column_r[9:4]]<=result_hold_r;
+                address_r<=12'd40+{column_r[9:4],4'd0};
+                data_r<={(9'd327-{1'b0,result_height_r}),1'b1,4'd12,9'd327,group_top_r};
+                emit_r<=4'd0;
+            end
+            if (state[GRAPH_SEND] && word_ready)
+            begin
+                if (spectrum_r && emit_r!=4'd15)
+                begin
+                    address_r<=address_r+12'd1;
+                    emit_r<=emit_r+4'd1;
+                end
+                else
+                begin
+                    column_r<=column_r+10'd1;
+                    group_top_r<=9'd327;
+                end
+            end
         end
     end
 endmodule
