@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦接口/逻辑变动：play_mode随琴键/压力/弯音输入握手缓存；物理键号送力度，独立7位音高送频率表；按住切模式不改旧音，命令→反馈→回收顺序不变。
+ */
+/**
  * 键盘与弯音处理顶层 v6：命令交付、音频反馈、回收顺序执行
  * v6：命令确认及整组反馈各寄存一拍，隔开机架到分配器的组合握手链。
  * v4 版本修改：寄存基频与倍率的共同有效标志，隔开握手判断与整组装载。
@@ -26,6 +29,7 @@ module keyboard_note_pipeline
     input clk_sys,
     input rst_n,
     input scan_tick_up,
+    input play_mode,
     input smp_tick_up,
     input [KEY_NUM-1:0] key_states,
     input [15:0] key_velocity [KEY_NUM-1:0],
@@ -64,6 +68,9 @@ module keyboard_note_pipeline
     reg frame_pending_r;
     wire frame_accept;
     reg queued_r;
+    reg queued_play_mode_r;
+    wire [6:0] event_note_number [MAX_POLYPHONY-1:0];
+    reg [6:0] latest_note_number_r [MAX_POLYPHONY-1:0];
     reg admission_r;
     reg [KEY_NUM-1:0] queued_keys_r;
     reg [15:0] queued_pressure_r [KEY_NUM-1:0];
@@ -110,6 +117,7 @@ module keyboard_note_pipeline
         if (!rst_n)
         begin
             queued_r <= 1'b0;
+            queued_play_mode_r <= 1'b0;
             admission_r <= 1'b1;
             queued_keys_r <= '0;
             queued_bend_r <= 16'h8000;
@@ -121,6 +129,7 @@ module keyboard_note_pipeline
             if (frame_accept)
             begin
                 queued_r <= 1'b1;
+                queued_play_mode_r <= play_mode;
                 queued_keys_r <= key_states;
                 queued_bend_r <= bend_value;
                 for (queue_index = 0; queue_index < KEY_NUM; queue_index = queue_index + 1)
@@ -197,16 +206,16 @@ module keyboard_note_pipeline
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH)
     ) keyboard_event_handler_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
-        .key_states(queued_keys_r), .key_velocity(queued_pressure_r), .note_busy(feedback_busy_r),
+        .play_mode(queued_play_mode_r), .key_states(queued_keys_r), .key_velocity(queued_pressure_r), .note_busy(feedback_busy_r),
         .note_busy_valid(feedback_accept), .feedback_done(feedback_done),
-        .note_on(event_on), .note_off(event_off), .key_id(event_key_id),
+        .note_on(event_on), .note_off(event_off), .key_id(event_key_id), .note_number(event_note_number),
         .occupied(event_occupied), .held(event_held), .frame_velocity(event_pressure),
         .in_valid(handler_valid), .in_ready(handler_ready), .out_valid(event_valid), .out_ready(event_ready)
     );
     note_frequency_mapper #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY), .KEY_ID_WIDTH(KEY_ID_WIDTH)
     ) note_frequency_mapper_u (
-        .clk_sys(clk_sys), .rst_n(rst_n), .key_id(latest_key_id_r), .occupied(latest_occupied_r),
+        .clk_sys(clk_sys), .rst_n(rst_n), .note_number(latest_note_number_r), .occupied(latest_occupied_r),
         .in_valid(conversion_valid), .in_ready(frequency_ready), .note_freq(base_frequency),
         .out_valid(frequency_valid), .out_ready(pitch_input_accept)
     );
@@ -266,7 +275,10 @@ module keyboard_note_pipeline
             event_bend_r <= 16'h8000;
             latest_bend_r <= 16'h8000;
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+            begin
                 latest_key_id_r[voice] <= '0;
+                latest_note_number_r[voice] <= 7'd0;
+            end
             for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
                 latest_pressure_r[key_index] <= 16'd0;
         end
@@ -294,7 +306,10 @@ module keyboard_note_pipeline
                 latest_occupied_r <= event_occupied;
                 latest_held_r <= event_held;
                 for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                begin
                     latest_key_id_r[voice] <= event_key_id[voice];
+                    latest_note_number_r[voice] <= event_note_number[voice];
+                end
                 for (key_index = 0; key_index < KEY_NUM; key_index = key_index + 1)
                     latest_pressure_r[key_index] <= event_pressure[key_index];
             end

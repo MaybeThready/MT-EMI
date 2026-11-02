@@ -1,0 +1,34 @@
+`timescale 1ns/1ps
+/** Functional synchronous memories for long UI/audio regressions. Exact data
+ * from the formal wavetable asset; one-cycle reads, same clock on RAM ports.
+ * These models are simulation-only and never listed in MT-EMI.gprj.
+ * memory_ip_equivalence_tb compares the used configuration against vendor RTL.
+ */
+module wavetable_memory_model(output [15:0] dout,input clk,input oce,input ce,input reset,input [13:0] ad);
+    reg [15:0] memory [0:16383];
+    reg [15:0] data_r;
+    initial $readmemh("../assets/audio/wavetables.hex",memory);
+    always @(posedge clk)
+    begin
+        if(ce) data_r<=memory[ad];
+    end
+    assign dout=data_r;
+endmodule
+module audio_memory_model(output [23:0] dout,input clka,input cea,input clkb,input ceb,
+    input oce,input reset,input [16:0] ada,input [23:0] din,input [16:0] adb);
+    reg [23:0] memory [0:81919];
+    reg [23:0] data_r;
+    integer i;
+    initial
+    begin
+        data_r=0;
+        for(i=0;i<81920;i=i+1) memory[i]=0;
+    end
+    always @(posedge clka) if(cea) memory[ada]<=din;
+    always @(posedge clkb)
+    begin
+        if(reset) data_r<=0;
+        else if(ceb) data_r<=memory[adb];
+    end
+    assign dout=data_r;
+endmodule

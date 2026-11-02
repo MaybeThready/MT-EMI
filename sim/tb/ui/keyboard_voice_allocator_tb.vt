@@ -29,7 +29,21 @@ module keyboard_voice_allocator_tb;
     integer source, scan_count, frame, voice, key_index, cycles, stall;
     reg [4095:0] assets;
     reg [4095:0] filename;
+    // S2 direct allocator compatibility: ordinary one-tone requests.
+    wire [1:0] tone_count_legacy [KEY_NUM-1:0];
+    wire [6:0] tone_note_legacy [3*KEY_NUM-1:0];
+    genvar legacy_key;
+    generate
+        for(legacy_key=0;legacy_key<KEY_NUM;legacy_key=legacy_key+1)
+        begin : legacy_tones
+            assign tone_count_legacy[legacy_key]=2'd1;
+            assign tone_note_legacy[3*legacy_key]=7'd60+legacy_key;
+            assign tone_note_legacy[3*legacy_key+1]=7'd0;
+            assign tone_note_legacy[3*legacy_key+2]=7'd0;
+        end
+    endgenerate
     keyboard_voice_allocator #(.KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY)) keyboard_voice_allocator_u (
+        .tone_count(tone_count_legacy), .tone_note(tone_note_legacy), .note_number(),
         .clk_sys(clk_sys), .rst_n(rst_n), .press_event(press_event), .release_event(release_event),
         .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
         .note_on(note_on), .note_off(note_off), .key_id(key_id), .occupied(occupied), .held(held),

@@ -1,19 +1,17 @@
 /**
- * 共享字形切片ROM，使用8位GW5A SDPB同步读取。
- * tile_id与glyph_y定位8×16单色切片的一行，glyph_row高位对应左侧像素。
- * clk/rst_n连接clk_sys/rst_sys_n；rd_en上升沿接受地址，结果延迟一拍并保持，不涉及Q格式。
- * 字形位图源自DejaVu字体，许可文件：assets/lcd_ui/LICENSE-DejaVu.txt。
+ * 2026-11-02 S2和弦：追加普通/和弦模式文字，原切片编号与静态文字地址不变。
+ * 2048项有效数据；clk/rst_n接clk_sys/rst_sys_n，rd_en接受后同步一拍输出并保持。
+ * DejaVu字库许可见assets/lcd_ui/LICENSE-DejaVu.txt；由generate_chord_text.py生成。
  */
-module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, input [3:0] glyph_y, output [7:0] glyph_row);
-    wire [16:0] address = {tile_id,glyph_y};
-    wire [31:0] bank_data [0:14];
+module lcd_tile_rom(input clk, input rst_n, input rd_en, input [12:0] tile_id, input [3:0] glyph_y, output [7:0] glyph_row);
+    wire [16:0] address={tile_id,glyph_y};
+    wire [31:0] bank_data [0:15];
     reg [3:0] bank_r;
-    wire [7:0] value = bank_data[bank_r][7:0];
-    assign glyph_row = value;
+    assign glyph_row=bank_data[bank_r][7:0];
     always @(posedge clk or negedge rst_n)
     begin
-        if (!rst_n) bank_r <= '0;
-        else if (rd_en) bank_r <= address >> 11;
+        if(!rst_n) bank_r<='0;
+        else if(rd_en) bank_r<=address >> 11;
     end
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -82,9 +80,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h000000003d634361611f01033e00000000060606060706060606060706000000),
         .INIT_RAM_3F(256'h0000000060c080000000008040000000000000001818191b1e1e1b1818181818)
     ) rom_u0 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 0)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==0)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[0]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -153,9 +150,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h0000000000000000000000000000007fc0800000000080400000000000000000),
         .INIT_RAM_3F(256'h0000000000000000000000000000006000000000000000000000000000000098)
     ) rom_u1 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 1)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==1)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[1]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -224,9 +220,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h606060606060e0e00000000000000000c88c0682838180000000000000000000),
         .INIT_RAM_3F(256'h1111f11010101010000000000000000008080f08080808080000000000000000)
     ) rom_u2 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 2)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==2)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[2]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -295,9 +290,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h00000000cf888898181818183f181800000000008080c1ff4363223636141c1c),
         .INIT_RAM_3F(256'h00000000f48c0c84847c040cf8000000000000003c21216161606060fc606000)
     ) rom_u3 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 3)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==3)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[3]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -366,9 +360,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'hfff8f8ff7f1f00607f7f1f0000000000f87c3c3c3c3c3c7cf8f0c00000000000),
         .INIT_RAM_3F(256'h7f7cf8f8f0f8f87c7f3f1f0000000000f8f878f8f8f878f8f8f0c00000000000)
     ) rom_u4 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 4)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==4)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[4]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -437,9 +430,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h0000f0f0f0f0000000000000e0e0e0e00000ffffffff808080808080ffffffff),
         .INIT_RAM_3F(256'h0000010101010101010101010101010100007e7e7e7e7e7e7e7e7e7e7e7e7e7e)
     ) rom_u5 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 5)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==5)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[5]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -508,9 +500,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h0000000000000000000f0f1f1f1f3f3e000000000000000000c0c0c0c0c0c0c0),
         .INIT_RAM_3F(256'h000000000000000000000103070f0f0f000000000000000000e0e0e0f0f0f8f8)
     ) rom_u6 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 6)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==6)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[6]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -579,9 +570,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h0c1c1633610000000000000000000000fe8686c4780000000000000000000000),
         .INIT_RAM_3F(256'h000000000000000000000000303071d1303030307e3030000000000000000000)
     ) rom_u7 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 7)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==7)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[7]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -650,9 +640,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'hfc7c7e3e3e3f1f1f1f0f0000000000007c7cfcf8f8f8f0f0f0e0000000000000),
         .INIT_RAM_3F(256'hc0c0c0c0c0c0c0c0c0c00000c0c0c0c007070707070707078787000007070707)
     ) rom_u8 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 8)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==8)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[8]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -721,9 +710,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h00000000000000000000c0c000000000000c0c0c8c8c8c8c8c0e0f0d00000000),
         .INIT_RAM_3F(256'h000f3f307060606070303f0f0000000000000103070607070603010000000000)
     ) rom_u9 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 9)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==9)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[9]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -792,9 +780,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h30181f070000000000000000000000000387fe7c000000000000000000000000),
         .INIT_RAM_3F(256'hc1e3ffdec0c0c0c000000000000000003070f0b0303030300000000000000000)
     ) rom_u10 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 10)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==10)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[10]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -863,9 +850,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h00000000000007070f0f1f1e3efcf8fc0000000000003e3e3e3e3e3e3e3f3f3f),
         .INIT_RAM_3F(256'h000000000000feffff0100ffffff070f000000000000c1878f0f1f1f1f1f1f0f)
     ) rom_u11 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 11)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==11)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[11]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -934,9 +920,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h7838b878787870f0f0e0c00000000000787b7b7b3838383c1f0f070000000000),
         .INIT_RAM_3F(256'h000000000000000000c0e0f0f0707878000000000000000000070f1f3c383838)
     ) rom_u12 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 12)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==12)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[12]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -1005,9 +990,8 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_3E(256'h9e9edefefefe7e7e3e0000000000000007030301000000000000000000000000),
         .INIT_RAM_3F(256'h00001e1e1e1e1effffffff1e1e1e1e1e000000000000003f3f3f3f383c1e0e0f)
     ) rom_u13 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 13)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==13)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[13]), .BLKSELA(3'b000), .BLKSELB(3'b000));
     SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
         .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
@@ -1066,18 +1050,87 @@ module lcd_tile_rom (input clk, input rst_n, input rd_en, input [12:0] tile_id, 
         .INIT_RAM_34(256'h0000031f3f3f3c302000000000030f1f8000000107fffffffc00000000000000),
         .INIT_RAM_35(256'h000000000e0f0f0701000000000000000000f8feffff1f0f07070f1ffffefcf0),
         .INIT_RAM_36(256'h000001010101000001010101010000001e0f0f0f1ffffffef800000000000000),
-        .INIT_RAM_37(256'h000000000000000000000000000000000000e0e0e0e00000e0e0e0e0f0f87c3e),
-        .INIT_RAM_38(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_39(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3A(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3B(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3C(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3D(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3E(256'h0000000000000000000000000000000000000000000000000000000000000000),
-        .INIT_RAM_3F(256'h0000000000000000000000000000000000000000000000000000000000000000)
+        .INIT_RAM_37(256'h000000004040404141424444485050600000e0e0e0e00000e0e0e0e0f0f87c3e),
+        .INIT_RAM_38(256'h00000000e111090909090911e10000000000000061a2a4242424242221202020),
+        .INIT_RAM_39(256'h00000000080808080808081cf300000000000000020202020202028372000000),
+        .INIT_RAM_3A(256'h00000000d232121212f21232e2020202000000002326242426232062c1000000),
+        .INIT_RAM_3B(256'h0000000000000000000000808080404000000004060202020101010000000000),
+        .INIT_RAM_3C(256'h00000000010101010101010101000000000000007f0808080808080808086838),
+        .INIT_RAM_3D(256'h000000001e214040404040211e00000000000000020202020202028478000000),
+        .INIT_RAM_3E(256'h000000001e2140407f4141221c000000000000000e109090909090103e101000),
+        .INIT_RAM_3F(256'h0000000088c808080808080c0b08c888000000000f102040404040404020100f)
     ) rom_u14 (
-        .CLKA(clk), .CLKB(clk), .CEA(1'b0),
-        .CEB(rst_n && rd_en && ((address >> 11) == 14)), .OCE(1'b1), .RESET(!rst_n),
-        .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==14)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
         .DI(32'd0), .DO(bank_data[14]), .BLKSELA(3'b000), .BLKSELB(3'b000));
+    SDPB #(.READ_MODE(1'b0), .BIT_WIDTH_0(8), .BIT_WIDTH_1(8),
+        .RESET_MODE("ASYNC"), .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
+        .INIT_RAM_00(256'h00000000f008040404040408f0000000000000001011121212121221c0000000),
+        .INIT_RAM_01(256'h000000007a860202020202867a0202020000000080808181818181c0b8000000),
+        .INIT_RAM_02(256'h000000001f2000011e3020201f000000000000007c82010101033c030101837c),
+        .INIT_RAM_03(256'h3030303030303f3f3030303030303f3f00000000008080800000008000000000),
+        .INIT_RAM_04(256'hc7c6c6c7c3c0c0c0c2c3c1c0c0c0c0c0000000000000c0f0381818181830f0c0),
+        .INIT_RAM_05(256'h010103030306060e0c0c1800000000000f070303ffff030306fef80000000000),
+        .INIT_RAM_06(256'h181818181818181c1e1f190000000000f0b0b018181c0c0e0606030000000000),
+        .INIT_RAM_07(256'h06060606060606060efcf800000000000c0c0c0c0c0c0c0e1ffbf00000000000),
+        .INIT_RAM_08(256'h38180c0c0c0c0c1838f0e000000000001c383030303030381c0f070000000000),
+        .INIT_RAM_09(256'hf071313131313170f0f030303030303070e0c0c0c0c0c060703f1f0000000000),
+        .INIT_RAM_0A(256'h40000000e0e06060c080000000000000e0c08080ffff80c0e17f1f0000000000),
+        .INIT_RAM_0B(256'h000000000000000000008080c0c0e0e00000000000000000000f0f0100000000),
+        .INIT_RAM_0C(256'h00000000000000000000000000000c0c00000000000000000000000000001818),
+        .INIT_RAM_0D(256'h000000000000000000000000000030f000000000000000000000000000000606),
+        .INIT_RAM_0E(256'h3030303030303031313333363e3c3c38000000000000000000000000000080c0),
+        .INIT_RAM_0F(256'h0e1c18181818181c0e070300000000001e36366666c6c6868606060606060606),
+        .INIT_RAM_10(256'h30303030303030383c3f3300000000001c0c06060606060c1cf8f00000000000),
+        .INIT_RAM_11(256'h06060606060606070ffdf800000000000c0c0c0c0c0c0c0e0fcfcc0000000000),
+        .INIT_RAM_12(256'h1c18181c0f030000080f070000000000030303030303030387fe7c0000000000),
+        .INIT_RAM_13(256'h303030303030303030303030303030303c1c0c0cfcfc0c0c18f8e00000000000),
+        .INIT_RAM_14(256'h6060606060606070f8df870000000000c0c0c0c0c0c0c0e0f0ffcf0000000000),
+        .INIT_RAM_15(256'he1c08080808080c0e17f3f0000000000303131313131313170e0c00000000000),
+        .INIT_RAM_16(256'h870301010101010387fff90101010101c3c76666666666c3c381000000000000),
+        .INIT_RAM_17(256'h02000000ffff03030efcf80000000000878e8c8c8f8f8c868783808080808080),
+        .INIT_RAM_18(256'h0000000000000000000000000000ccfc00000000000000000000000000000e1e),
+        .INIT_RAM_19(256'h0000000000000000000000000000008100000000000000000000000000006060),
+        .INIT_RAM_1A(256'h0000000000000000000000000000fcfe0000000000000000000000000000f9ff),
+        .INIT_RAM_1B(256'h0e0200000000000000000000020efcf01e3830706060606060607030381c0f03),
+        .INIT_RAM_1C(256'h0c0c0c0c0c0c0c0c1cf8f00000000000181818181818181c1e1f191818181818),
+        .INIT_RAM_1D(256'h703018181818183070e0c000000000003870606060606070381f0f0000000000),
+        .INIT_RAM_1E(256'h783818181818183878f89818181818183870606060606030381f0f0000000000),
+        .INIT_RAM_1F(256'h30303030303030387cefc300000000006060606060606070787f670000000000),
+        .INIT_RAM_20(256'h70e0c0c0c0c0c0e0703f1f0000000000181818181818181838f0e00000000000),
+        .INIT_RAM_21(256'hc381000000000081c3ff7c0000000000e163333333333361e1c0800000000000),
+        .INIT_RAM_22(256'h81000000ffff010187fe7c0000000000c3c7c6c6c7c7c6c3c3c1c0c0c0c0c0c0),
+        .INIT_RAM_23(256'h0000000000000000000000000000c0e000000000808080800000000000000000),
+        .INIT_RAM_24(256'h00000000000000000000000000007cff000000000000000000000000000098f8),
+        .INIT_RAM_25(256'h0000000011131212139190515050303000000000404042454548485050506060),
+        .INIT_RAM_26(256'h000000000f102020202020100f00000000060101e919090909f90919f1000101),
+        .INIT_RAM_27(256'h0000000000000000000000008100000000000000088848484848488c0b000000),
+        .INIT_RAM_28(256'h000000000404040404040404e4000404000000007282828282828283f2808000),
+        .INIT_RAM_29(256'h00000000888880808080888880808080000000007ac68282c27e02463c000000),
+        .INIT_RAM_2A(256'h000000000304080808080804c300000000000000040404040404040605000000),
+        .INIT_RAM_2B(256'h00000000f008040404040408f100000000000000c021121212121221c0000000),
+        .INIT_RAM_2C(256'h00000000000000000f00000000000000000000007080808080808080f0808000),
+        .INIT_RAM_2D(256'h00000000020202ff82424222120a0a060000000080808080f880808080000000),
+        .INIT_RAM_2E(256'h0000000008080808ff0808080800000000000000000000800000000000000000),
+        .INIT_RAM_2F(256'h000000000000008080804040202010f00000000002010100800000000000000f),
+        .INIT_RAM_30(256'h000000000780404040c080c04040c603000000007f40404040407f404040407f),
+        .INIT_RAM_31(256'h00000000e031020202020201000030e000000000030408101010101010080403),
+        .INIT_RAM_32(256'h0000000010101010101010103c10100e0000000081818181818181c2bc000000),
+        .INIT_RAM_33(256'h0000000020202020202020312f00000000000000909090909090909897008080),
+        .INIT_RAM_34(256'h000000000f88444241c080c04048cc070000000082828282828282c63c000000),
+        .INIT_RAM_35(256'h0000000010101010101011111214141800000000e00000000080402020204080),
+        .INIT_RAM_36(256'h0000000078840202020202847800000000000000182829494989090808080808),
+        .INIT_RAM_37(256'h0000000082828282828282c7bc0000000000000040404040404040605c000000),
+        .INIT_RAM_38(256'h00000000f48c040484fc048c78000000000000000809090909080818f0000000),
+        .INIT_RAM_39(256'h000000000788404040c083c04040c80700000000808080808080808080808080),
+        .INIT_RAM_3A(256'h00000000e232020202020203020232e200000000c02010101030c030101030c0),
+        .INIT_RAM_3B(256'h000000003c428181818181423c000000000000000404040404040408f0000000),
+        .INIT_RAM_3C(256'h000000000080404f48c484c24140c0000000000020202020202020302e000000),
+        .INIT_RAM_3D(256'h000000001f10101010101f101010101f00000000202020f82020202020a0a060),
+        .INIT_RAM_3E(256'h00000000e818090909f90918f000000000000000c12312121331e031101030c0),
+        .INIT_RAM_3F(256'h0000000082848890e09088848280808000000000788400000000008478000000)
+    ) rom_u15 (
+        .CLKA(clk), .CLKB(clk), .CEA(1'b0), .CEB(rst_n && rd_en && ((address >> 11)==15)),
+        .OCE(1'b1), .RESET(!rst_n), .ADA(14'd0), .ADB({address[10:0], 3'd0}),
+        .DI(32'd0), .DO(bank_data[15]), .BLKSELA(3'b000), .BLKSELB(3'b000));
 endmodule

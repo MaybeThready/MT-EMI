@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦：config[24]为演奏模式子菜单，[5:4]为候选0/1；[23]仍是保存上下文。
+ * [31:25]保留0，子菜单仅page=1合法；页面身份为{page,submenu}，切换立即定位选中框。
+ * TILE_COUNT扩至2048以容纳追加字形，16位字符RAM内原11位切片编号仍足够。
  * 第三版文字切片/图形列双缓冲场景，不使用全屏像素缓存。
  * 全部状态使用clk_sys/rst_sys_n；坐标与地址为无符号整数，不涉及Q格式。
  * word_valid && word_ready仅写后台，背压期间发送方保持载荷。
@@ -6,7 +9,7 @@
  * data[16:13]为前景色，[31:17]保留为0；文字透明，背景由几何层生成。
  * 内部以16位保存11位编号和4位颜色，保持6个字符SDP块；不兼容旧版ASCII绘图字。
  * 特殊地址4095写页面config：[2:0]页，[3]模式1，[5:4]选项/效果，[9:6]槽号，[10]恢复项，
- * [18:11]活动卡片掩码，[22:19]消息颜色，[23]保存上下文，[31:24]为0。
+ * [18:11]活动卡片掩码，[22:19]消息颜色，[23]保存上下文，[24]子菜单，[31:25]为0。
  * kind=1：地址为x，[8:0]为最小y，[17:9]为最大y且包含端点，[21:18]颜色，[22]使能，[31:23]为0。
  * 非法字被接收但不写入，并锁存address_error；写完后保持present_valid，直到安全帧边界握手提交。
  * 等待提交时停止写入；交换后先清空新后台，无隐式前台复制，支持稀疏重建。
@@ -17,7 +20,7 @@ module lcd_scene
 #(
     parameter H_ACTIVE = 800,
     parameter V_ACTIVE = 480,
-    parameter TILE_COUNT = 1903
+    parameter TILE_COUNT = 2048
 )(
     input clk,
     input rst_n,
@@ -72,6 +75,7 @@ module lcd_scene
     reg [8:0] selection_y_r,origin_y_r,target_y_r,selection_y_s1;
     reg [2:0] motion_phase_r;
     wire [2:0] current_page=front_bank_r ? config_r[1][2:0] : config_r[0][2:0];
+    wire current_submenu=front_bank_r ? config_r[1][24] : config_r[0][24];
     wire [8:0] incoming_target=9'd156+{1'b0,incoming_config[5:4],6'd0};
     wire [8:0] slot_y=9'd124+{1'b0,config_s1[8:6],5'd0};
     reg [3:0] background;
@@ -87,7 +91,8 @@ module lcd_scene
     ((word_addr < H_ACTIVE) && (word_data[31:23] == 9'd0) &&
     (!word_data[22] || ((word_data[8:0] <= word_data[17:9]) && (word_data[17:9] < V_ACTIVE)))) :
     (((word_addr < CHAR_COUNT) && (word_data[31:17] == 15'd0) && (word_data[12:0]<TILE_COUNT)) ||
-    ((word_addr==12'd4095) && word_data[31:24]==8'd0));
+    ((word_addr==12'd4095) && word_data[31:25]==7'd0 &&
+     (!word_data[24] || (word_data[2:0]==3'd1 && !word_data[5]))));
     assign write_addr = clearing ? clear_addr_r[11:0] : word_addr;
     assign selected_char = bank_s0 ? {15'd0,char_data[1][14:11],2'd0,char_data[1][10:0]} :
     {15'd0,char_data[0][14:11],2'd0,char_data[0][10:0]};
@@ -271,7 +276,7 @@ module lcd_scene
         else if(frame_boundary)
         begin
             if(commit && (incoming_config[2:0]==3'd1 || incoming_config[2:0]==3'd6) &&
-            (incoming_config[2:0]!=current_page || !front_valid_r))
+            (incoming_config[2:0]!=current_page || incoming_config[24]!=current_submenu || !front_valid_r))
             begin
                 selection_y_r<=incoming_target;
                 origin_y_r<=incoming_target;

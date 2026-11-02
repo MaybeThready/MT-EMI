@@ -57,6 +57,7 @@ module ui_control_pipeline_tb;
         .BATCH_ID_WIDTH(BATCH_ID_WIDTH),
         .WAVE_SELECT_STEPS(4)
     ) ui_control_pipeline_u (
+        .keyboard_context_valid(), .keyboard_context_ready(1'b1), .keyboard_context_batch_id(), .keyboard_context_play_mode(),
         .reverb_feedback(), .reverb_damping(), .delay_time(), .delay_feedback(), .distortion_gain(), .distortion_tone(), .chorus_rate(), .chorus_depth(), .menu_effect(), .menu_effect_reset(), .menu_advanced_parameters(),
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),

@@ -1,4 +1,8 @@
 /**
+ * 2026-11-02 S2：新增handler_button_batch_id输出，与handler_button_states同次
+ * button_out_valid&&button_out_ready交付，供和弦模式context配对；不改变排序规则。
+ */
+/**
  * ui_input_frame_joiner 模块 v2
  * v2版本修改：单独判断协议错误，报错和停机时刻不变。
  * 协调按钮和旋钮的处理顺序，避免切换模式时用错旋钮步长。
@@ -30,6 +34,7 @@ module ui_input_frame_joiner
     input knob_in_valid,
     output knob_in_ready,
     output [3:0] handler_button_states,
+    output [BATCH_ID_WIDTH-1:0] handler_button_batch_id,
     output button_out_valid,
     input button_out_ready,
     input [1:0] context_mode,
@@ -105,6 +110,7 @@ module ui_input_frame_joiner
     assign context_ready = rst_n && (current_state == STATE_WAIT_CONTROL_CONTEXT);
     assign frame_done_ready = rst_n && (current_state == STATE_WAIT_FRAME_COMMIT);
     assign handler_button_states = button_states_r;
+    assign handler_button_batch_id = button_batch_id_r;
     assign handler_knob_states = knob_states_r;
     assign handler_knob_dirs = knob_dirs_r;
     assign handler_knob_pressed = knob_pressed_r;

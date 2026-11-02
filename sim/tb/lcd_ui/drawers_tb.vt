@@ -1,4 +1,5 @@
 /**
+ * 2026-11-02 在原44页金标准中仅追加演奏页普通模式提示；原指令不变。
  * 绘图调度回归：随机背压、冻结快照、全部页面与22个参数、完整列读取、present后完成及复位取消。
  * 使用真实字形/文字SDPB，并逐条核对44页的绘图字及提交标记。
  */
@@ -28,9 +29,10 @@ module drawers_tb;
     reg [44:0] stalled_word;
     reg was_stalled=1'b0;
     reg outstanding=1'b0,committed=1'b0;
-    localparam EXPECTED_COUNT=22310;
+    localparam EXPECTED_COUNT=22505;
     reg [45:0] expected_commands[0:EXPECTED_COUNT-1];
     integer expected_index=0;
+    reg [4095:0] results_dir;
     reg test_passed=1'b0;
     task check_command;
         input [45:0] actual;
@@ -101,12 +103,14 @@ module drawers_tb;
     begin
         if($value$plusargs("CASES=%d",case_count)) begin end
         if(case_count!=44) $fatal(1,"golden regression requires44 cases");
-        $readmemh("../assets/lcd_ui/draw/expected_words.hex",expected_commands);
+        $readmemh("../assets/lcd_ui/chord/regression_words.hex",expected_commands);
         $readmemh("../assets/lcd_ui/draw/states.hex",cases);
         $readmemh("../assets/lcd_ui/draw/activity.hex",acts);
         $readmemh("../assets/lcd_ui/draw/defaults.hex",defs);
         $readmemh("../assets/lcd_ui/draw/metadata.hex",metas);
-        fd=$fopen("lcd_ui/results/draw_words.txt","w");
+        if(!$value$plusargs("RESULTS=%s",results_dir)) results_dir="../ai_workspace/sim/work_formal_chord_lcd_units/results";
+        fd=$fopen($sformatf("%0s/draw_words.txt",results_dir),"w");
+        if(fd==0) $fatal(1,"Cannot open drawing trace");
         repeat(4) @(negedge clk);rst_n=1'b1;
         for(case_id=0;case_id<case_count;case_id=case_id+1)
         begin

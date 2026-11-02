@@ -20,6 +20,7 @@ module keyboard_note_pipeline_tb;
     integer cycles;
     integer reset_stage;
     keyboard_note_pipeline #(.KEY_NUM(3), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
+        .play_mode(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .note_busy(note_busy),
         .bend_value(16'h8000),

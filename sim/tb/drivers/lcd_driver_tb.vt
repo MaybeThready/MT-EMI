@@ -1,4 +1,5 @@
 /**
+ * 2026-11-02 和弦字库扩至2048项，非法切片边界改为2048；原像素金标准仍核对原编号。
  * V3驱动面板采样沿自检：逐像素核对当前透明tile字形、背景闭合框、图形列及消隐。
  * 三次安全场景提交检查清空、写保护和无撕裂；覆盖二/四/六分频、非整字符尺寸及800×480。
  * 使用独立保存的首/中/末ROM银行切片参考，不再使用旧ASCII字格式。
@@ -236,7 +237,7 @@ module lcd_driver_tb;
         // Invalid address, reversed range, reserved bits: consume but do not corrupt.
         send_word(1'b1,H_ACTIVE,32'd0);
         send_word(1'b0,CELLS,32'd0);
-        send_word(1'b0,0,(32'd15<<13)|32'd1903); // 字形编号越界，不得覆盖合法文字。
+        send_word(1'b0,0,(32'd15<<13)|32'd2048); // 字形编号越界，不得覆盖合法文字。
         if(V_ACTIVE>1) send_word(1'b1,0,(32'd1<<22)|32'd1);
         send_word(1'b1,0,32'h80000000);
         if(!address_error) $fatal(1,"Invalid word not reported");

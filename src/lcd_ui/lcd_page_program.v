@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦：page=1+[510]绘制普通/和弦两项；[511]为候选，[509]为已确认模式。
+ * 演奏页追加模式提示；scene_config[24]标识子菜单，[5:4]承载0/1候选。
+ * 保留原[23]保存上下文，[31:25]=0；不改端口、数值格式和原文字编号。
  * 第三版冻结场景的页面对象译码，坐标采用无符号切片坐标。
  * 仅输出原始number_value与number_scale；分拍数值换算由drawers完成，不在字段选择路径串接算术。
  * object_index遍历有限页面对象列表，object_valid为0表示结束。
@@ -57,6 +60,7 @@ module lcd_page_program
     reg [2:0] minimum_digits_r;
     assign minimum_digits=minimum_digits_r;
     wire [2:0] page=s[422:420];
+    wire play_submenu=(page==3'd1) && s[510];
     wire mode1=(s[417:416]==2'd1);
     wire fine=s[418], view=s[500], save=s[429];
     wire [3:0] slot=s[428:425];
@@ -80,8 +84,8 @@ module lcd_page_program
     reg [3:0] advanced_suffix_0,advanced_suffix_1;
     reg min_hit;
     integer k,parameter_index;
-    assign scene_config={8'd0,save,message_color,active_cards,s[436],slot,
-    ((page==3'd6) ? effect : s[424:423]),mode1,page};
+    assign scene_config={7'd0,play_submenu,save,message_color,active_cards,s[436],slot,
+    (play_submenu ? {1'b0,s[511]} : ((page==3'd6) ? effect : s[424:423])),mode1,page};
     function [15:0] base;
         input integer index;
         begin
@@ -632,11 +636,38 @@ module lcd_page_program
                             minimum_digits_r = 3'd1;
                         end
                     end
+                    6'd45:
+                    begin
+                        object_col_r=7'd75;
+                        object_row_r=5'd0;
+                        object_color_r=4'd12;
+                        string_id_r=s[509] ? 8'd144 : 8'd143;
+                    end
                     default: object_valid_r=1'b0;
                 endcase
             end
             3'd1:
             begin
+                if(play_submenu)
+                begin
+                    case(object_index)
+                        6'd0: begin object_col_r=7'd3; object_row_r=5'd0; string_id_r=8'd1; end
+                        6'd1: begin object_col_r=7'd19; object_row_r=5'd0; string_id_r=8'd57; end
+                        6'd2: begin object_col_r=7'd5; object_row_r=5'd4; string_id_r=8'd145; end
+                        6'd3: begin object_col_r=7'd6; object_row_r=5'd10; object_color_r=4'd11; string_id_r=8'd59; end
+                        6'd4: begin object_col_r=7'd12; object_row_r=5'd10; string_id_r=8'd146; end
+                        6'd5: begin object_col_r=7'd6; object_row_r=5'd14; object_color_r=4'd11; string_id_r=8'd61; end
+                        6'd6: begin object_col_r=7'd12; object_row_r=5'd14; string_id_r=8'd147; end
+                        6'd7: begin object_col_r=7'd12; object_row_r=5'd18; object_color_r=4'd11; string_id_r=8'd148; end
+                        6'd8: begin object_col_r=7'd3; object_row_r=5'd28; object_color_r=4'd11; string_id_r=8'd149; end
+                        6'd9: begin object_col_r=7'd27; object_row_r=5'd28; object_color_r=4'd11; string_id_r=8'd150; end
+                        6'd10: begin object_col_r=7'd51; object_row_r=5'd28; object_color_r=4'd11; string_id_r=8'd151; end
+                        6'd11: begin object_col_r=7'd75; object_row_r=5'd28; object_color_r=4'd11; string_id_r=8'd152; end
+                        default: object_valid_r=1'b0;
+                    endcase
+                end
+                else
+                begin
                 case (object_index)
                     6'd0:
                     begin
@@ -745,6 +776,7 @@ module lcd_page_program
                     end
                     default: object_valid_r=1'b0;
                 endcase
+                end
             end
             3'd6:
             begin

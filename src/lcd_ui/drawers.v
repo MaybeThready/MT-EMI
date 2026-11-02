@@ -1,4 +1,6 @@
 /**
+ * 2026-11-02 S2和弦：接受快照[509:511]模式/子菜单/候选，与页面程序一起冻结。
+ * 仅拒绝page!=1时置位的子菜单；候选和已确认模式允许在演奏页保留。
  * 第三版LCD页面绘制调度器，使用clk_sys/rst_sys_n，不参与音频业务背压。
  * in_valid && in_ready接受一份528位快照、22项活动/默认标记及图形元数据。
  * 仅在当前任务持有列缓存期间读取；同步读延迟一拍，地址2*j与2*j+1分别为上下端点。
@@ -330,7 +332,8 @@ module drawers
                 column_r<=10'd0;
                 if((scene_wave_valid && scene_spectrum_valid) ||
                 (scene_wave_valid && scene_state[500]) ||
-                (scene_spectrum_valid && !scene_state[500]) || scene_state[511:509]!=3'd0) error_r<=1'b1;
+                (scene_spectrum_valid && !scene_state[500]) ||
+                (scene_state[510] && scene_state[422:420]!=3'd1)) error_r<=1'b1;
             end
             if(state[CONFIG_PREP])
             begin

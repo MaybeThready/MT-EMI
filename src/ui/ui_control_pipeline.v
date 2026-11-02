@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦接口/逻辑变动：新增带批号keyboard_context_*标准握手，按钮处理后模式一对二分别记账，控制支路不等待琴键才发布；快照[509:511]提供演奏模式/子菜单/候选。
+ */
+/**
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
  * 控制链模块 v2：连接按钮、旋钮和参数设置，输出整组音色参数。
  * v2 版本修改：接入菜单命令、音色读写和整组参数装载。
@@ -81,8 +84,13 @@ module ui_control_pipeline
     output menu_slot_present,
     // NEW: internal UI display model. Public LCD traffic still goes only via
     // user_interface. Commit is a one-cycle pulse without ready; payload is
-    // V2 state[527:32],496 bits. Top fills errors/busy/bend and owns sequence.
+    // V2 extension state[527:32],496 bits; payload[477:479] is chord/menu state.
+    // Top fills errors/busy/bend and owns sequence. LCD consumer update is deferred.
     output display_model_commit,
+    output keyboard_context_valid,
+    input keyboard_context_ready,
+    output [BATCH_ID_WIDTH-1:0] keyboard_context_batch_id,
+    output keyboard_context_play_mode,
     output [495:0] display_model_payload
 );
     // 目录由存储驱动在上电扫描后提供；未知不能显示为“空槽”。
@@ -109,6 +117,7 @@ module ui_control_pipeline
     wire preset_load_valid;
     wire preset_load_ready;
     wire [3:0] handler_button_states;
+    wire [BATCH_ID_WIDTH-1:0] handler_button_batch_id;
     wire button_out_valid;
     wire button_out_ready;
     wire [3:0] button_pressed_event;
@@ -157,6 +166,42 @@ module ui_control_pipeline
     wire [6:0] bank_delay_mix_percent;
     wire [6:0] bank_distortion_mix_percent;
     wire [6:0] bank_chorus_mix_percent;
+    // One state context forks to joiner and keyboard; each destination accepts once.
+    wire state_context_valid, state_context_ready;
+    wire play_mode, menu_play_mode_active, menu_play_mode_selection;
+    reg joiner_context_delivered_r, keyboard_context_delivered_r;
+    reg [BATCH_ID_WIDTH-1:0] keyboard_batch_r;
+    reg [BATCH_ID_WIDTH-1:0] button_event_batch_r;
+    assign context_valid = state_context_valid && !joiner_context_delivered_r;
+    assign keyboard_context_valid = state_context_valid && !keyboard_context_delivered_r;
+    assign keyboard_context_batch_id = keyboard_batch_r;
+    assign keyboard_context_play_mode = play_mode;
+    assign state_context_ready = (joiner_context_delivered_r || context_ready)
+        && (keyboard_context_delivered_r || keyboard_context_ready);
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            joiner_context_delivered_r <= 1'b0;
+            keyboard_context_delivered_r <= 1'b0;
+            keyboard_batch_r <= '0;
+            button_event_batch_r <= '0;
+        end
+        else
+        begin
+            // The button handler may prefetch the next batch while the previous
+            // context is stalled. Bind its tag when control_state accepts that event.
+            if (button_out_valid && button_out_ready) button_event_batch_r <= handler_button_batch_id;
+            if (button_event_valid && button_event_ready) keyboard_batch_r <= button_event_batch_r;
+            if (context_valid && context_ready) joiner_context_delivered_r <= 1'b1;
+            if (keyboard_context_valid && keyboard_context_ready) keyboard_context_delivered_r <= 1'b1;
+            if (state_context_valid && state_context_ready)
+            begin
+                joiner_context_delivered_r <= 1'b0;
+                keyboard_context_delivered_r <= 1'b0;
+            end
+        end
+    end
     ui_input_frame_joiner #(
         .BATCH_ID_WIDTH(BATCH_ID_WIDTH)
     ) ui_input_frame_joiner_u (
@@ -175,6 +220,7 @@ module ui_control_pipeline
         .knob_in_valid(knob_in_valid),
         .knob_in_ready(knob_in_ready),
         .handler_button_states(handler_button_states),
+        .handler_button_batch_id(handler_button_batch_id),
         .button_out_valid(button_out_valid),
         .button_out_ready(button_out_ready),
         .context_mode(context_mode),
@@ -230,13 +276,14 @@ module ui_control_pipeline
         .button_held(button_held),
         .in_valid(button_event_valid),
         .in_ready(button_event_ready),
-        .mode(context_mode), .display_view(display_view),
+        .play_mode(play_mode), .menu_play_mode_active(menu_play_mode_active),
+        .menu_play_mode_selection(menu_play_mode_selection), .mode(context_mode), .display_view(display_view),
         .fine_adjust(context_fine_adjust),
         .edit_enable(context_edit_enable),
         .edit_target(context_edit_target),
         .clear_wave_progress(context_clear_wave_progress),
-        .context_valid(context_valid),
-        .context_ready(context_ready)
+        .context_valid(state_context_valid),
+        .context_ready(state_context_ready)
     );
 
     knob_event_handler knob_event_handler_u (
@@ -397,6 +444,9 @@ module ui_control_pipeline
         display_candidate[405] = storage_catalog_valid;
         display_candidate[421:406] = storage_catalog_valid ? storage_slot_present : 16'd0;
         display_candidate[468] = display_view;
+        display_candidate[477] = play_mode;
+        display_candidate[478] = menu_play_mode_active;
+        display_candidate[479] = menu_play_mode_selection;
     end
     always @(posedge clk_sys or negedge rst_n)
     begin

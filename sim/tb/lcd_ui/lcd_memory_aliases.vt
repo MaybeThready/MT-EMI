@@ -1,0 +1,20 @@
+// Fast-memory aliases used only by run_chord_system.do, never by a GPRJ.
+module lcd_fft_coeff_rom(input clk,input rst_n,input en,input [9:0] phase,output signed [16:0] coefficient);
+    lcd_fft_coeff_rom_model model_u(.*);
+endmodule
+module lcd_tile_rom(input clk,input rst_n,input rd_en,input [12:0] tile_id,input [3:0] glyph_y,output [7:0] glyph_row);
+    lcd_tile_rom_model model_u(.*);
+endmodule
+module lcd_text_rom(input clk,input rst_n,input rd_en,input [11:0] entry_addr,output [31:0] entry_data);
+    lcd_text_rom_model model_u(.*);
+endmodule
+module lcd_glyph_rom(input clk,input rst_n,input rd_en,input [1:0] font_style,input [4:0] character_id,input [3:0] tile_index,output [12:0] tile_id);
+    lcd_glyph_rom_model model_u(.*);
+endmodule
+module lcd_sdp_ram #(
+    parameter DATA_WIDTH=16,parameter DEPTH=3000,parameter ADDR_WIDTH=12
+)(input clk,input rst_n,input wr_en,input [ADDR_WIDTH-1:0] wr_addr,
+  input [DATA_WIDTH-1:0] wr_data,input rd_en,input [ADDR_WIDTH-1:0] rd_addr,
+  output [DATA_WIDTH-1:0] rd_data);
+    lcd_sdp_ram_model #(.DATA_WIDTH(DATA_WIDTH),.DEPTH(DEPTH),.ADDR_WIDTH(ADDR_WIDTH)) model_u(.*);
+endmodule

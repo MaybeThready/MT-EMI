@@ -1,4 +1,5 @@
 /**
+ * 2026-11-02 S2和弦新增string143..152，原编号不变。
  * 静态文字元数据查询表，返回无符号切片程序起始地址和条目数。
  * 组合查询采用逻辑实现；调用方先寄存结果，再判空并读取文字程序。
  */
@@ -152,6 +153,16 @@ module lcd_text_info(input [7:0] string_id, output [11:0] start_addr, output [7:
     8'd140: info=20'haa10e;
     8'd141: info=20'haaf16;
     8'd142: info=20'hac516;
+    8'd143: info=20'hadb0f;
+    8'd144: info=20'haea10;
+    8'd145: info=20'hafa1d;
+    8'd146: info=20'hb1726;
+    8'd147: info=20'hb3d23;
+    8'd148: info=20'hb6017;
+    8'd149: info=20'hb770b;
+    8'd150: info=20'hb820b;
+    8'd151: info=20'hb8d0a;
+    8'd152: info=20'hb9708;
     default: info=20'd0;
     endcase
     end

@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦：快照[509]已确认模式、[510]子菜单、[511]候选。
+ * 接受三个位并随latest/scene冻结；仅子菜单置位而page!=1时报协议错。
+ * 候选可保留在其他页面，不参与活动事件OR；显示背压仍不影响PCM。
  * UI显示接收与冻结场景调度模块，快照宽度528位。
  * 接收完整UI状态，向drawers发布冻结场景；内部包含连续播放PCM采集和波形/频谱共享列缓存。
  * 文字绘制与LCD绘图字生成由后级drawers负责；clk_sys/rst_n与UI同域，复位接rst_sys_n，无跨时钟域传输。
@@ -312,7 +315,7 @@ module ui_interaction
                 dirty_r <= 1'b1;
                 pending_activity_r <= ((state == FREEZE_SCENE) ? 22'd0 : pending_activity_r) | input_activity;
                 pending_reset_r <= ((state == FREEZE_SCENE) ? 22'd0 : pending_reset_r) | input_reset;
-                if (display_in_state[511:509] != 3'd0)
+                if (display_in_state[510] && display_in_state[422:420] != 3'd1)
                     protocol_error_r <= 1'b1;
             end
             if (render_done && state != WAIT_RENDER && !(state == SEND_SCENE && out_ready))

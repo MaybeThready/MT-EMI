@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦接口/逻辑变动：新增独立play_mode=0普通/1和弦；page=1+menu_play_mode_active表示子菜单，B2普通/B3和弦/B1确认回演奏/B4取消回主菜单。mode=0/1/2仍仅控制旋钮对象。
+ */
+/**
  * 按钮控制模块 v3：设置演奏模式、微调、菜单及音色读写命令。
  * v3 版本修改：音色命令 valid 直接使用异步清零寄存器，去掉重复复位门控。
  * mode: 演奏模式0/1，高级模式2；fine_adjust: 演奏界面按住 B4 时微调。
@@ -23,6 +26,9 @@ module ui_control_state
     input in_valid,
     output in_ready,
     output [1:0] mode,
+    output play_mode,
+    output menu_play_mode_active,
+    output menu_play_mode_selection,
     output fine_adjust,
     output display_view,  // NEW: 0=WAVE,1=SPECTRUM; only PLAY B3 toggles, reset0.
     output edit_enable,
@@ -52,6 +58,10 @@ module ui_control_state
     reg next_state;
     reg [1:0] mode_r;
     reg display_view_r;
+    reg play_mode_r, menu_play_mode_active_r, menu_play_mode_selection_r;
+    assign play_mode = play_mode_r;
+    assign menu_play_mode_active = menu_play_mode_active_r;
+    assign menu_play_mode_selection = menu_play_mode_selection_r;
     assign display_view = display_view_r;
     localparam PAGE_PLAY = 3'd0;
     localparam PAGE_MAIN_MENU = 3'd1;
@@ -131,9 +141,12 @@ module ui_control_state
                     if (button_pressed_event[0]) menu_page_next = PAGE_MAIN_MENU;
                 PAGE_MAIN_MENU:
                 begin
-                    if (button_pressed_event[3] || (button_pressed_event[0] && menu_selection_r == 2'd0))
-                        menu_page_next = PAGE_PLAY;
-                    else if (button_pressed_event[0])
+                    if (menu_play_mode_active_r)
+                    begin
+                        if (!button_pressed_event[3] && button_pressed_event[0]) menu_page_next = PAGE_PLAY;
+                    end
+                    else if (button_pressed_event[3]) menu_page_next = PAGE_PLAY;
+                    else if (button_pressed_event[0] && menu_selection_r != 2'd0)
                         menu_page_next = (menu_selection_r == 2'd3) ? PAGE_EFFECT_LIST : PAGE_SELECT_SLOT;
                 end
                 PAGE_SELECT_SLOT:
@@ -162,6 +175,9 @@ module ui_control_state
         if (!rst_n)
         begin
             mode_r <= 2'd0;
+            play_mode_r <= 1'b0;
+            menu_play_mode_active_r <= 1'b0;
+            menu_play_mode_selection_r <= 1'b0;
             display_view_r <= 1'b0;
             effect_select_r <= 2'd0;
             effect_reset_r <= 1'b0;
@@ -208,10 +224,27 @@ module ui_control_state
                     end
                     PAGE_MAIN_MENU:
                     begin
-                        if (button_pressed_event[3] || (button_pressed_event[0] && menu_selection_r == 2'd0))
+                        if (menu_play_mode_active_r)
+                        begin
+                            if (button_pressed_event[3]) menu_play_mode_active_r <= 1'b0;
+                            else if (button_pressed_event[0])
+                            begin
+                                play_mode_r <= menu_play_mode_selection_r;
+                                menu_play_mode_active_r <= 1'b0;
+                                clear_wave_progress_r <= 1'b1;
+                            end
+                            else if (button_pressed_event[1]) menu_play_mode_selection_r <= 1'b0;
+                            else if (button_pressed_event[2]) menu_play_mode_selection_r <= 1'b1;
+                        end
+                        else if (button_pressed_event[3])
                         begin
                             fine_adjust_r <= button_held[3];
                             clear_wave_progress_r <= 1'b1;
+                        end
+                        else if (button_pressed_event[0] && menu_selection_r == 2'd0)
+                        begin
+                            menu_play_mode_active_r <= 1'b1;
+                            menu_play_mode_selection_r <= play_mode_r;
                         end
                         else if (button_pressed_event[0])
                         begin
