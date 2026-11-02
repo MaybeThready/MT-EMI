@@ -14,11 +14,13 @@
  * frame_done: 一拍完成通知，不是valid/ready接口；此时velocity全部来自最近完整轮询。
  * 轮询期间velocity可逐项更新，调用者只能在frame_done时整组捕获，不可直接连接UI。
  * ADC故障丢弃半帧并关闭两片4067；调用者保留上次完整帧，恢复后从键0重新采集。
+ * ADC_EXTERNAL=1时转换请求/结果通过顶层shared_adc_manager，模块内部不再例化ADC。
  * KEY_NUM固定24；SYS_CLK_HZ单位Hz，其余时序参数为系统周期数。
  */
 module keyboard_pressure_scanner
 #(
     parameter integer KEY_NUM = 24,
+    parameter integer ADC_EXTERNAL = 0,  // 1时由顶层共享ADC管理器提供转换结果
     parameter integer SYS_CLK_HZ = 98_304_000,
     parameter integer ADC_CLK_DIV = 64,
     parameter integer ADC_STARTUP_TICKS = 98_304,
@@ -43,7 +45,14 @@ module keyboard_pressure_scanner
     output mux_en_b_n,
     output [15:0] velocity [KEY_NUM-1:0],
     output frame_done,
-    output adc_error
+    output adc_error,
+    output adc_req_valid,
+    input adc_req_ready,
+    input adc_result_valid,
+    output adc_result_ready,
+    input [13:0] adc_result_code,
+    input adc_sample_error,
+    input adc_fault
 );
     localparam integer WAIT_MAX1 = (MUX_BREAK_TICKS > ADDRESS_SETUP_TICKS) ? MUX_BREAK_TICKS : ADDRESS_SETUP_TICKS;
     localparam integer WAIT_MAX = (WAIT_MAX1 > MUX_SETTLE_TICKS) ? WAIT_MAX1 : MUX_SETTLE_TICKS;
@@ -76,6 +85,7 @@ module keyboard_pressure_scanner
     wire result_valid, result_ready;
     wire [13:0] result_code;
     wire sample_error;
+    wire adc_error_internal;
     integer i;
     genvar key;
 
@@ -86,6 +96,8 @@ module keyboard_pressure_scanner
     assign frame_done = frame_done_r;
     assign request_valid = (stc == S_REQUEST);
     assign result_ready = (stc == S_WAIT);
+    assign adc_req_valid = request_valid;
+    assign adc_result_ready = result_ready;
     assign rounded_product = product_r + 46'd32768;
 
     generate
@@ -110,17 +122,31 @@ module keyboard_pressure_scanner
         end
     endgenerate
 
-    keyboard_adc #(
-        .SYS_CLK_HZ(SYS_CLK_HZ), .ADC_CLK_DIV(ADC_CLK_DIV),
-        .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS), .ADC_TIMEOUT_TICKS(ADC_TIMEOUT_TICKS),
-        .SAMPLE_COUNT_SEL(ADC_SAMPLE_COUNT_SEL), .RATE_CHANGE_SEL(ADC_RATE_CHANGE_SEL),
-        .FSCAL_VALUE(ADC_FSCAL_VALUE), .OFFSET_VALUE(ADC_OFFSET_VALUE)
-    ) keyboard_adc_u (
-        .clk_sys(clk_sys), .rst_n(rst_n),
-        .in_valid(request_valid), .in_ready(request_ready),
-        .out_ready(result_ready), .out_valid(result_valid), .sample_code(result_code),
-        .sample_error(sample_error), .adc_error(adc_error)
-    );
+    generate
+        if (ADC_EXTERNAL)
+        begin : g_external_adc
+            assign request_ready = adc_req_ready;
+            assign result_valid = adc_result_valid;
+            assign result_code = adc_result_code;
+            assign sample_error = adc_sample_error;
+            assign adc_error = adc_fault;
+        end
+        else
+        begin : g_internal_adc
+            keyboard_adc #(
+                .SYS_CLK_HZ(SYS_CLK_HZ), .ADC_CLK_DIV(ADC_CLK_DIV),
+                .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS), .ADC_TIMEOUT_TICKS(ADC_TIMEOUT_TICKS),
+                .SAMPLE_COUNT_SEL(ADC_SAMPLE_COUNT_SEL), .RATE_CHANGE_SEL(ADC_RATE_CHANGE_SEL),
+                .FSCAL_VALUE(ADC_FSCAL_VALUE), .OFFSET_VALUE(ADC_OFFSET_VALUE)
+            ) keyboard_adc_u (
+                .clk_sys(clk_sys), .rst_n(rst_n), .adc_channel(3'd0),
+                .in_valid(request_valid), .in_ready(request_ready),
+                .out_ready(result_ready), .out_valid(result_valid), .sample_code(result_code),
+                .sample_error(sample_error), .adc_error(adc_error_internal)
+            );
+            assign adc_error = adc_error_internal;
+        end
+    endgenerate
 
     fsm #(
         .W(4), .INITIAL_STATE(S_IDLE)

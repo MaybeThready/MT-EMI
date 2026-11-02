@@ -17,6 +17,11 @@ module test_velocity_auto_tb;
         .DEBOUNCE_TICKS(16), .MUX_SETTLE_TICKS(16), .ADC_STARTUP_TICKS(128)
     ) dut_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .data_a(1'b0), .data_b(1'b0),
+        .bend_position(16'h8000),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0), .scan_tick_out(),
         .load_n(), .key_clk(), .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
         .i2s_bclk(), .i2s_lrck(), .i2s_dout(), .sd_mode_n(), .status_led(status_led)
     );
@@ -27,8 +32,8 @@ module test_velocity_auto_tb;
         if (!mux_en_a_n && !mux_en_b_n) $fatal(1, "Both muxes enabled");
         channel = !mux_en_a_n ? mux_addr : (!mux_en_b_n ? 16 + mux_addr : -1);
         if (channel >= 24) $fatal(1, "Invalid mux channel");
-        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.channel_id = channel;
-        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.voltage_code =
+        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.channel_id = channel;
+        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.voltage_code =
             (channel >= 0) ? codes[channel] : 14'd0;
         if (rst_n && dut_u.fault_r) $fatal(1, "Auto diagnostic fault");
         if (dut_u.audio_monitor_valid && dut_u.audio_monitor != 16'd0) nonzero_pcm = nonzero_pcm + 1;

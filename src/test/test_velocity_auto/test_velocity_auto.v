@@ -31,6 +31,11 @@ module test_velocity_auto
         .MAX_POLYPHONY(1), .AUTO_KEY_TEST(1), .AUDIO_SHIFT(1)
     ) test_velocity_core_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .data_a(data_a), .data_b(data_b),
+        .bend_position(16'h8000),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0), .scan_tick_out(),
         .load_n(load_n), .key_clk(key_clk), .mux_addr(mux_addr),
         .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck), .i2s_dout(i2s_dout),

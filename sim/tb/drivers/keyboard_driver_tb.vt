@@ -114,7 +114,11 @@ module keyboard_driver_tb();
         .key_velocity(velocity_fast),
         .out_valid(out_valid[FAST]),
         .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
-        .adc_error(), .event_overflow()
+        .adc_error(), .event_overflow(),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0)
     );
 
     keyboard_driver #(
@@ -132,7 +136,11 @@ module keyboard_driver_tb();
         .key_velocity(velocity_default),
         .out_valid(out_valid[DEFAULT]),
         .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
-        .adc_error(), .event_overflow()
+        .adc_error(), .event_overflow(),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0)
     );
 
     keyboard_driver #(
@@ -157,7 +165,11 @@ module keyboard_driver_tb();
         .key_velocity(velocity_zero),
         .out_valid(out_valid[ZERO]),
         .mux_addr(), .mux_en_a_n(), .mux_en_b_n(),
-        .adc_error(), .event_overflow()
+        .adc_error(), .event_overflow(),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0)
     );
 
     sys_ticker sys_ticker_u (

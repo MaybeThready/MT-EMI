@@ -142,7 +142,11 @@ module keyboard_pressure_scanner_tb();
         .out_ready(out_ready), .load_n(load_n), .key_clk(key_clk),
         .key_states(key_states), .key_velocity(key_velocity), .out_valid(out_valid),
         .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
-        .adc_error(adc_error), .event_overflow(event_overflow)
+        .adc_error(adc_error), .event_overflow(event_overflow),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0)
     );
 
     generate
@@ -197,10 +201,10 @@ module keyboard_pressure_scanner_tb();
             active_key = 16 + mux_addr;
         else
             active_key = -1;
-        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.channel_id = active_key;
-        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.voltage_code =
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.channel_id = active_key;
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.voltage_code =
             (active_key >= 0 && active_key < 24) ? codes[active_key] : 14'd0;
-        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.stall_mode = stall_mode;
+        keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.stall_mode = stall_mode;
     end
 
     always @(posedge clk_sys)
@@ -234,9 +238,9 @@ module keyboard_pressure_scanner_tb();
             previous_addr = mux_addr;
             old_active = active_key;
 
-            if (keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count != model_requests_seen)
+            if (keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.request_count != model_requests_seen)
             begin
-                model_requests_seen = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count;
+                model_requests_seen = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.request_count;
                 if (active_key < 0 || active_key > 23 || cycle_count - enabled_since < SETTLE_TICKS)
                     fail($sformatf("ADC requested on invalid/unsettled channel"));
                 channel_requests[active_key] = channel_requests[active_key] + 1;
@@ -434,7 +438,7 @@ module keyboard_pressure_scanner_tb();
         while (active_key != 5) @(negedge clk_sys);
         stall_mode = 1;
         frames_before = completed_frames;
-        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.sample_error)
+        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.sample_error)
             @(negedge clk_sys);
         wait_cycles(2);
         if (!adc_error || completed_frames != frames_before || !mux_en_a_n || !mux_en_b_n)
@@ -446,7 +450,7 @@ module keyboard_pressure_scanner_tb();
         while (active_key != 18) @(negedge clk_sys);
         stall_mode = 2;
         frames_before = completed_frames;
-        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.sample_error)
+        while (!keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.sample_error)
             @(negedge clk_sys);
         wait_cycles(2);
         if (completed_frames != frames_before || !mux_en_a_n || !mux_en_b_n)
@@ -503,10 +507,10 @@ module keyboard_pressure_scanner_tb();
         wait_cycles(2 * PERIOD);
         wait_cycles(40000);
         frames_before = completed_frames;
-        requests_before = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count;
+        requests_before = keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.request_count;
         wait_cycles(5000);
         if (completed_frames != frames_before ||
-            keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.keyboard_adc_u.adc_u.request_count != requests_before)
+            keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.request_count != requests_before)
             fail("Pressure acquisition started without scan_tick_up");
         tick_enabled = 1'b1;
         wait_frames(2);

@@ -18,10 +18,11 @@
  *
  * 外部链路：3.3V供电的线性电位器 -> MCP6002电压跟随器 -> 电阻分压 -> ADC。
  * 电阻值不参与RTL计算，按分压后实测电压校准；默认仍按0/0.5/1V对应两端/中心。
- * BEND_NUM: 1..2，只实例化一个 ADCLRC；ADC_FIRST_CHANNEL=0/1选择ADCV/ADCT为第0路。
+ * BEND_NUM: 1..2，独立模式只实例化一个ADCLRC；ADC_FIRST_CHANNEL=0/1选择ADCV/ADCT为第0路。
  *   默认1，从J4的ADCT开始；两路时第1路读取另一通道，参数0可恢复旧ADCV优先顺序。
- * NOTE: dev的keyboard_adc仍独占ADCLRC，当前不是统一ADC；本模块用于独立弯音采集。
- *   J3/J4共用ADCLRC，修改通道不解决硬核占用；整机不能同时实例化两个独立ADCLRC。
+ * ADC_EXTERNAL=1时不例化ADCLRC，请求与结果改由顶层shared_adc_manager交付；
+ *   该模式当前用于单轮ADCT联合测试，外部管理器负责通道选择与超时恢复。
+ * J3/J4共用ADCLRC；整机不能同时实例化两个独立硬核。
  * SYS_CLK_HZ / ADC_CLK_DIV: 系统频率(Hz) / ADC 偶数分频比；默认 ADC 时钟 1.536MHz。
  * ADC_STARTUP_TICKS: 使能后的额外稳定等待，单位系统周期；默认约 1ms，属于实现裕量。
  * ADC_TIMEOUT_TICKS: 一次请求等待上限，默认 4096 个 ADC 时钟周期。
@@ -41,6 +42,7 @@
 module pitch_bend_driver
 #(
     parameter integer BEND_NUM = 1,
+    parameter integer ADC_EXTERNAL = 0,  // 1时通过顶层共享ADC管理器读取ADCT
     parameter integer DEBOUNCE_TICKS = 98304,
     parameter integer SYS_CLK_HZ = 98304000,
     parameter integer ADC_CLK_DIV = 64,
@@ -66,7 +68,14 @@ module pitch_bend_driver
     input out_ready,
     output [15:0] bend_value [BEND_NUM-1:0],
     output out_valid,
-    output adc_error
+    output adc_error,
+    output adc_req_valid,
+    input adc_req_ready,
+    input adc_result_valid,
+    output adc_result_ready,
+    input [13:0] adc_result_code,
+    input adc_sample_error,
+    input adc_fault
 );
     localparam [3:0] S_POWER_SETTLE = 4'd0,
                      S_WAIT_SCAN = 4'd1,
@@ -150,13 +159,15 @@ module pitch_bend_driver
     integer output_lane;
 
     assign out_valid = out_valid_r;
-    assign adc_error = adc_error_r;
+    assign adc_error = adc_error_r || (ADC_EXTERNAL && adc_fault);
     // 硬核异步复位使用寄存信号，不能直接译码多位 FSM 状态，以免出现复位毛刺。
     assign adc_reset_n = rst_n && adc_reset_release_r;
     assign adc_wait_active = (stc == S_REQUEST_ADC) || (stc == S_WAIT_RESULT);
-    assign adc_timed_out = (adc_wait_r >= ADC_TIMEOUT_TICKS - 1);
+    assign adc_timed_out = !ADC_EXTERNAL && (adc_wait_r >= ADC_TIMEOUT_TICKS - 1);
     assign clk_adc = clk_adc_r;
     assign adc_channel = {2'b00, ADC_FIRST_CHANNEL[0] ^ input_index_r};
+    assign adc_req_valid = ADC_EXTERNAL && (stc == S_REQUEST_ADC);
+    assign adc_result_ready = ADC_EXTERNAL && (stc == S_WAIT_RESULT);
     assign interval_elapsed = (interval_r >= DEBOUNCE_TICKS);
     assign target_code = {raw_code_r, 8'd0};
     assign filter_difference = $signed({1'b0, target_code}) -
@@ -194,32 +205,42 @@ module pitch_bend_driver
     end
 
     // ADC_CLK 是硬 IP 的专用工作时钟；用户状态机不在该时钟域运行。
-    ADCLRC #(
-        .DYN_BKEN("FALSE"),
-        .BUF_SERDES_Q1_EN(3'b000),
-        .BUF_BK2_EN(6'b000000), .BUF_BK3_EN(6'b000000),
-        .BUF_BK4_EN(6'b000000), .BUF_BK5_EN(6'b000000),
-        .BUF_BK10_EN(5'b00000), .BUF_BK11_EN(5'b00000),
-        .CLK_SEL(1'b1), .PIOCLK_SEL(1'b0), .DIV_CTL(2'd0),
-        .VSEN_CTL(3'b000), .VSEN_CTL_SEL(1'b1), .ADC_MODE(1'b1),
-        .SAMPLE_CNT_SEL(ADC_SAMPLE_COUNT_SEL), .RATE_CHANGE_CTRL(ADC_RATE_CHANGE_SEL)
-    ) adc_u (
-        .ADCINBK2A(1'b0), .ADCINBK2B(1'b0),
-        .ADCINBK3A(1'b0), .ADCINBK3B(1'b0),
-        .ADCINBK4A(1'b0), .ADCINBK4B(1'b0),
-        .ADCINBK5A(1'b0), .ADCINBK5B(1'b0),
-        .VSENCTL(adc_channel),
-        .FSCAL_VALUE(ADC_FSCAL_VALUE), .OFFSET_VALUE(ADC_OFFSET_VALUE),
-        .ADCEN(rst_n), .CLK(clk_adc), .DRSTN(adc_reset_n),
-        .ADCREQI(adc_request_r), .ADCRDY(adc_ready), .ADCVALUE(adc_value)
-    );
+    generate
+        if (ADC_EXTERNAL)
+        begin : g_external_adc
+            assign adc_ready_sync = 1'b0;
+            assign adc_value = adc_result_code;
+        end
+        else
+        begin : g_internal_adc
+            ADCLRC #(
+                .DYN_BKEN("FALSE"),
+                .BUF_SERDES_Q1_EN(3'b000),
+                .BUF_BK2_EN(6'b000000), .BUF_BK3_EN(6'b000000),
+                .BUF_BK4_EN(6'b000000), .BUF_BK5_EN(6'b000000),
+                .BUF_BK10_EN(5'b00000), .BUF_BK11_EN(5'b00000),
+                .CLK_SEL(1'b1), .PIOCLK_SEL(1'b0), .DIV_CTL(2'd0),
+                .VSEN_CTL(3'b000), .VSEN_CTL_SEL(1'b1), .ADC_MODE(1'b1),
+                .SAMPLE_CNT_SEL(ADC_SAMPLE_COUNT_SEL), .RATE_CHANGE_CTRL(ADC_RATE_CHANGE_SEL)
+            ) adc_u (
+                .ADCINBK2A(1'b0), .ADCINBK2B(1'b0),
+                .ADCINBK3A(1'b0), .ADCINBK3B(1'b0),
+                .ADCINBK4A(1'b0), .ADCINBK4B(1'b0),
+                .ADCINBK5A(1'b0), .ADCINBK5B(1'b0),
+                .VSENCTL(adc_channel),
+                .FSCAL_VALUE(ADC_FSCAL_VALUE), .OFFSET_VALUE(ADC_OFFSET_VALUE),
+                .ADCEN(rst_n), .CLK(clk_adc), .DRSTN(adc_reset_n),
+                .ADCREQI(adc_request_r), .ADCRDY(adc_ready), .ADCVALUE(adc_value)
+            );
 
-    signal_sync #(
-        .W(1), .INITIAL_VALUE(0)
-    ) adc_ready_sync_u (
-        .clk(clk_sys), .rst_n(rst_n),
-        .signal_in(adc_ready), .signal_out(adc_ready_sync)
-    );
+            signal_sync #(
+                .W(1), .INITIAL_VALUE(0)
+            ) adc_ready_sync_u (
+                .clk(clk_sys), .rst_n(rst_n),
+                .signal_in(adc_ready), .signal_out(adc_ready_sync)
+            );
+        end
+    endgenerate
 
     fsm #(
         .W(4), .INITIAL_STATE(S_POWER_SETTLE)
@@ -237,12 +258,17 @@ module pitch_bend_driver
             S_SETTLE_INPUT:
                 stn = (timer_r == INPUT_SETTLE_TICKS - 1) ? S_REQUEST_ADC : S_SETTLE_INPUT;
             S_REQUEST_ADC:
-                stn = adc_timed_out ? S_RECOVER_ADC :
-                      ((timer_r == REQUEST_TICKS - 1) ? S_WAIT_RESULT : S_REQUEST_ADC);
+                stn = ADC_EXTERNAL ? (adc_req_ready ? S_WAIT_RESULT : S_REQUEST_ADC) :
+                      (adc_timed_out ? S_RECOVER_ADC :
+                       ((timer_r == REQUEST_TICKS - 1) ? S_WAIT_RESULT : S_REQUEST_ADC));
             S_WAIT_RESULT:
-                stn = adc_timed_out ? S_RECOVER_ADC :
-                      ((busy_seen_r && adc_ready_sync) ?
-                       ((discarded_r < ADC_DISCARD_SAMPLES) ? S_REQUEST_ADC : S_FILTER) : S_WAIT_RESULT);
+                stn = ADC_EXTERNAL ?
+                      (adc_sample_error ? S_WAIT_SCAN :
+                       (adc_result_valid ?
+                        ((discarded_r < ADC_DISCARD_SAMPLES) ? S_REQUEST_ADC : S_FILTER) : S_WAIT_RESULT)) :
+                      (adc_timed_out ? S_RECOVER_ADC :
+                       ((busy_seen_r && adc_ready_sync) ?
+                        ((discarded_r < ADC_DISCARD_SAMPLES) ? S_REQUEST_ADC : S_FILTER) : S_WAIT_RESULT));
             S_FILTER:
                 stn = S_FORM_DISTANCE;
             S_FORM_DISTANCE:
@@ -301,6 +327,8 @@ module pitch_bend_driver
         end
         else
         begin
+            if (ADC_EXTERNAL && adc_sample_error)
+                adc_error_r <= 1'b1;
             if (stc == S_WAIT_SCAN && scan_tick_up && interval_elapsed)
                 interval_r <= '0;
             else if (!interval_elapsed)
@@ -360,7 +388,8 @@ module pitch_bend_driver
                         if (timer_r == INPUT_SETTLE_TICKS - 1)
                         begin
                             timer_r <= '0;
-                            adc_request_r <= 1'b1;
+                            if (!ADC_EXTERNAL)
+                                adc_request_r <= 1'b1;
                             busy_seen_r <= 1'b0;
                         end
                         else
@@ -368,7 +397,9 @@ module pitch_bend_driver
                     end
                     S_REQUEST_ADC:
                     begin
-                        if (timer_r == REQUEST_TICKS - 1)
+                        if (ADC_EXTERNAL)
+                            timer_r <= '0;
+                        else if (timer_r == REQUEST_TICKS - 1)
                         begin
                             timer_r <= '0;
                             adc_request_r <= 1'b0;
@@ -379,12 +410,14 @@ module pitch_bend_driver
                     S_WAIT_RESULT:
                     begin
                         // ADCRDY 已经两级同步；结果总线从完成起保持到下次转换，可整组锁存。
-                        if (busy_seen_r && adc_ready_sync)
+                        if ((ADC_EXTERNAL && adc_result_valid) ||
+                            (!ADC_EXTERNAL && busy_seen_r && adc_ready_sync))
                         begin
                             if (discarded_r < ADC_DISCARD_SAMPLES)
                             begin
                                 discarded_r <= discarded_r + 1'b1;
-                                adc_request_r <= 1'b1;
+                                if (!ADC_EXTERNAL)
+                                    adc_request_r <= 1'b1;
                                 busy_seen_r <= 1'b0;
                                 timer_r <= '0;
                             end
@@ -500,6 +533,8 @@ module pitch_bend_driver
         if (ADC_MIN_CODE < 0 || ADC_MAX_CODE > 2048 || CENTER_DEADBAND < 0 ||
             ADC_MIN_CODE >= CENTER_LOW || CENTER_HIGH >= ADC_MAX_CODE)
             $fatal(1, "pitch_bend_driver: require 0 <= MIN < CENTER-DEADBAND <= CENTER+DEADBAND < MAX <= 2048");
+        if (ADC_EXTERNAL && (BEND_NUM != 1 || ADC_FIRST_CHANNEL != 1))
+            $fatal(1, "pitch_bend_driver: shared ADC mode supports one ADCT wheel");
     end
     // synthesis translate_on
 endmodule

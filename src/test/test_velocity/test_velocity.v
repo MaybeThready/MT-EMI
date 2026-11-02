@@ -51,6 +51,11 @@ module test_velocity
         .PRESSURE_DEADBAND_CODE(PRESSURE_DEADBAND_CODE), .MUX_SETTLE_TICKS(MUX_SETTLE_TICKS)
     ) test_velocity_core_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .data_a(data_a), .data_b(data_b),
+        .bend_position(16'h8000),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0), .scan_tick_out(),
         .load_n(load_n), .key_clk(key_clk), .mux_addr(mux_addr),
         .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck), .i2s_dout(i2s_dout),
@@ -69,6 +74,7 @@ endmodule
 module test_velocity_core
 #(
     parameter integer MAX_POLYPHONY = 32,
+    parameter integer SHARED_ADC = 0,
     parameter integer AUDIO_SHIFT = 2,
     parameter integer DEBOUNCE_TICKS = 98304,
     parameter [335:0] PRESSURE_ZERO_CODES = {24{14'd0}},
@@ -83,6 +89,15 @@ module test_velocity_core
     input rst_n,
     input data_a,
     input data_b,
+    input [15:0] bend_position,  // UQ0.16；中心8000，供弯音联合测试复用
+    output pressure_adc_req_valid,
+    input pressure_adc_req_ready,
+    input pressure_adc_result_valid,
+    output pressure_adc_result_ready,
+    input [13:0] pressure_adc_result_code,
+    input pressure_adc_sample_error,
+    input pressure_adc_fault,
+    output scan_tick_out,  // 供同一系统时钟域的共享弯音驱动使用
     output load_n,
     output key_clk,
     output [3:0] mux_addr,
@@ -97,6 +112,7 @@ module test_velocity_core
     localparam integer KEY_NUM = 24;
     localparam integer AUDIO_MSB = 15 + $clog2(MAX_POLYPHONY);
     wire i2s_tick_up, i2s_tick_down, smp_tick_up, scan_tick_up;
+    assign scan_tick_out = scan_tick_up;
     wire [23:0] key_states;
     wire [23:0] driver_key_states;
     wire [15:0] key_velocity [23:0];
@@ -158,7 +174,8 @@ module test_velocity_core
     );
 
     keyboard_driver #(
-        .KEY_NUM(KEY_NUM), .PRESSURE_ENABLE(1), .DEBOUNCE_TICKS(DEBOUNCE_TICKS),
+        .KEY_NUM(KEY_NUM), .PRESSURE_ENABLE(1), .ADC_EXTERNAL(SHARED_ADC),
+        .DEBOUNCE_TICKS(DEBOUNCE_TICKS),
         .PRESSURE_ZERO_CODES(PRESSURE_ZERO_CODES), .PRESSURE_FULL_CODES(PRESSURE_FULL_CODES),
         .PRESSURE_DEADBAND_CODE(PRESSURE_DEADBAND_CODE),
         .MUX_SETTLE_TICKS(MUX_SETTLE_TICKS), .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS)
@@ -169,10 +186,16 @@ module test_velocity_core
         .load_n(load_n), .key_clk(key_clk), .key_states(driver_key_states),
         .key_velocity(key_velocity), .out_valid(keyboard_valid),
         .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
-        .adc_error(adc_error), .event_overflow(event_overflow)
+        .adc_error(adc_error), .event_overflow(event_overflow),
+        .pressure_adc_req_valid(pressure_adc_req_valid),
+        .pressure_adc_req_ready(pressure_adc_req_ready),
+        .pressure_adc_result_valid(pressure_adc_result_valid),
+        .pressure_adc_result_ready(pressure_adc_result_ready),
+        .pressure_adc_result_code(pressure_adc_result_code),
+        .pressure_adc_sample_error(pressure_adc_sample_error), .pressure_adc_fault(pressure_adc_fault)
     );
 
-    assign bend_value[0] = 16'h8000;
+    assign bend_value[0] = bend_position;
     user_interface #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY),
         .CHANNEL_NUM(1), .WAVE_SELECT_STEPS(4)
@@ -199,7 +222,8 @@ module test_velocity_core
         .storage_catalog_valid(1'b1), .storage_slot_present(16'd0),
         .menu_page(), .menu_selection(), .menu_slot(), .menu_save(),
         .menu_effect(), .menu_effect_reset(), .menu_advanced_parameters(),
-        .menu_result_status(), .menu_slot_known(), .menu_slot_present()
+        .menu_result_status(), .menu_slot_known(), .menu_slot_present(),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
 
     channel_rack #(.MAX_POLYPHONY(MAX_POLYPHONY)) channel_rack_u (
