@@ -32,7 +32,10 @@ module ADCLRC
 
     // 测试环境驱动的是模拟模型，不强制任何被测RTL信号。
     reg [13:0] voltage_code;
+    reg [13:0] bend_voltage_code;
     integer channel_id;
+    wire [13:0] selected_voltage = (VSENCTL == 3'd1) ? bend_voltage_code : voltage_code;
+    wire [31:0] selected_channel = (VSENCTL == 3'd1) ? 32'd24 : channel_id;
     integer stall_mode;
     reg request_prev;
     reg converting;
@@ -64,6 +67,7 @@ module ADCLRC
         request_start_time = 0.0;
         request_timing_valid = 1'b0;
         voltage_code = 14'd0;
+        bend_voltage_code = 14'd1024;
         channel_id = 0;
         stall_mode = 0;
         if (CLK_SEL !== 1'b1 || PIOCLK_SEL !== 1'b0 || DIV_CTL !== 2'd0)
@@ -137,8 +141,8 @@ module ADCLRC
         else
         begin
             request_prev <= ADCREQI;
-            if (VSENCTL !== 3'b000 || ADC_MODE !== 1'b1)
-                $fatal(1, "ADC is not using dedicated ADCV voltage mode");
+            if (VSENCTL > 3'd1 || ADC_MODE !== 1'b1)
+                $fatal(1, "ADC is not using dedicated ADCV/ADCT voltage mode");
             if ($isunknown(FSCAL_VALUE) || FSCAL_VALUE < 452 || FSCAL_VALUE > 840)
                 $fatal(1, "ADCLRC calibration: voltage-mode FSCAL must be 452..840");
             if ($isunknown(OFFSET_VALUE) || $signed(OFFSET_VALUE) < -410 ||
@@ -160,9 +164,9 @@ module ADCLRC
                 converting <= 1'b1;
                 age <= 0;
                 // 通道第一次转换返回上一通道残留，下一次才返回当前电压。
-                captured_code <= (channel_id == last_channel) ? voltage_code : previous_code;
-                last_channel <= channel_id;
-                previous_code <= voltage_code;
+                captured_code <= (selected_channel == last_channel) ? selected_voltage : previous_code;
+                last_channel <= selected_channel;
+                previous_code <= selected_voltage;
             end
             else if (converting)
             begin

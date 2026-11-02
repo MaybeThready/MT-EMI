@@ -1,5 +1,5 @@
-// 24-key pressure integration test, independent from the main project constraints.
-// J3 ADCV uses dedicated analog pins N12/P11; do not assign LVCMOS33 to them.
+// test_velocity: keyboard, two 4067 muxes, pressure ADCV and I2S.
+// J3 ADCV (N12/P11) uses dedicated analog pins; no digital IO constraints.
 IO_LOC "clk_core" P16;
 IO_PORT "clk_core" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
 IO_LOC "rst_n" K16;

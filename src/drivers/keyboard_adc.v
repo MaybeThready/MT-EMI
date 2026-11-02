@@ -1,10 +1,11 @@
 /**
- * Tang Mega 138K Pro ADCLRC 专用 ADCV 输入的单次转换适配器。
+ * Tang Mega 138K Pro ADCLRC 单次转换适配器，支持专用ADCV/ADCT输入选通。
  * 依据本机 Gowin V1.9.12.04 UG299-1.0.6E 和 gw5a/prim_sim.v。
  */
 /**
  * in_valid/in_ready: clk_sys 上升沿接受一次采样请求，不接收模拟电压数字引脚。
  * out_valid/out_ready: 交付保持稳定的14位无符号电压码，电压(V)=sample_code/2048。
+ * adc_channel请求前选好并保持：0=J3 ADCV，1=J4 ADCT；两组均为专用模拟脚。
  * ADCV 专用模拟输入接 J3.1/N12；负端 J3.3/P11 按板卡/ADC手册接模拟地。
  * 输入必须经模拟前端限制到0..1V；不为专用模拟引脚设置 LVCMOS33。
  * sample_error: 超时单拍通知；adc_error: 超时锁存标志，rst_n清除。
@@ -34,6 +35,7 @@ module keyboard_adc
     input rst_n,
     input in_valid,
     output in_ready,
+    input [2:0] adc_channel,  // 请求前由管理器选好并保持；0=ADCV，1=ADCT
     input out_ready,
     output out_valid,
     output [13:0] sample_code,
@@ -116,7 +118,7 @@ module keyboard_adc
         .ADCINBK3A(1'b0), .ADCINBK3B(1'b0),
         .ADCINBK4A(1'b0), .ADCINBK4B(1'b0),
         .ADCINBK5A(1'b0), .ADCINBK5B(1'b0),
-        .VSENCTL(3'b000),
+        .VSENCTL(adc_channel),
         .FSCAL_VALUE(FSCAL_VALUE),
         .OFFSET_VALUE(OFFSET_VALUE),
         .ADCEN(rst_n),

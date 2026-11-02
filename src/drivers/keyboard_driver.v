@@ -47,6 +47,7 @@ module keyboard_driver
     parameter integer LOAD_CYCLES = 16,          // >=1，并行装载系统周期数，须满足硬件时序
     parameter [15:0] DEFAULT_VELOCITY = 16'hFFFF, // UQ0.16，仅旧硬件模式固定力度
     parameter integer PRESSURE_ENABLE = 1,      // 1启用ADC压力，0仅旧硬件回归
+    parameter integer ADC_EXTERNAL = 0,         // 1由顶层共享ADC管理器供给压力采样
     parameter integer EVENT_FIFO_DEPTH = 16,
     parameter integer ADC_CLK_DIV = 64,         // 偶数，默认ADC时钟1.536MHz
     parameter integer ADC_STARTUP_TICKS = 98_304, // ADC使能后等待，单位系统周期
@@ -78,7 +79,14 @@ module keyboard_driver
     output mux_en_a_n,
     output mux_en_b_n,
     output adc_error,
-    output event_overflow
+    output event_overflow,
+    output pressure_adc_req_valid,
+    input pressure_adc_req_ready,
+    input pressure_adc_result_valid,
+    output pressure_adc_result_ready,
+    input [13:0] pressure_adc_result_code,
+    input pressure_adc_sample_error,
+    input pressure_adc_fault
 );
     localparam integer SCAN_CYCLES = (SCAN_HZ > 0 && SYS_CLK_HZ >= SCAN_HZ) ? SYS_CLK_HZ / SCAN_HZ : 1;
     localparam integer MAX_TICKS = (DEBOUNCE_TICKS > RELEASE_TICKS) ? DEBOUNCE_TICKS : RELEASE_TICKS;
@@ -174,7 +182,7 @@ module keyboard_driver
         if (PRESSURE_ENABLE)
         begin : g_pressure
             keyboard_pressure_scanner #(
-                .KEY_NUM(KEY_NUM),
+                .KEY_NUM(KEY_NUM), .ADC_EXTERNAL(ADC_EXTERNAL),
                 .SYS_CLK_HZ(SYS_CLK_HZ), .ADC_CLK_DIV(ADC_CLK_DIV),
                 .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS), .ADC_TIMEOUT_TICKS(ADC_TIMEOUT_TICKS),
                 .ADC_SAMPLE_COUNT_SEL(ADC_SAMPLE_COUNT_SEL), .ADC_RATE_CHANGE_SEL(ADC_RATE_CHANGE_SEL),
@@ -186,7 +194,12 @@ module keyboard_driver
             ) keyboard_pressure_scanner_u (
                 .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
                 .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
-                .velocity(pressure_velocity), .frame_done(pressure_frame_done), .adc_error(adc_error)
+                .velocity(pressure_velocity), .frame_done(pressure_frame_done), .adc_error(adc_error),
+                .adc_req_valid(pressure_adc_req_valid), .adc_req_ready(pressure_adc_req_ready),
+                .adc_result_valid(pressure_adc_result_valid),
+                .adc_result_ready(pressure_adc_result_ready),
+                .adc_result_code(pressure_adc_result_code),
+                .adc_sample_error(pressure_adc_sample_error), .adc_fault(pressure_adc_fault)
             );
         end
         else
@@ -196,6 +209,8 @@ module keyboard_driver
             assign mux_en_b_n = 1'b1;
             assign adc_error = 1'b0;
             assign pressure_frame_done = 1'b0;
+            assign pressure_adc_req_valid = 1'b0;
+            assign pressure_adc_result_ready = 1'b0;
             for (lane = 0; lane < KEY_NUM; lane = lane + 1)
             begin : g_unused_pressure
                 assign pressure_velocity[lane] = 16'd0;

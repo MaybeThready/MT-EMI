@@ -40,7 +40,8 @@ module keyboard_adc_tb
         .SYS_CLK_HZ(4_000_000), .ADC_CLK_DIV(4),
         .ADC_STARTUP_TICKS(8), .ADC_TIMEOUT_TICKS(16384)
     ) keyboard_adc_u (
-        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .clk_sys(clk_sys), .rst_n(rst_n), .adc_channel(3'd0),
+        .in_valid(in_valid), .in_ready(in_ready),
         .out_ready(out_ready), .out_valid(out_valid), .sample_code(sample_code),
         .sample_error(sample_error), .adc_error(adc_error)
     );

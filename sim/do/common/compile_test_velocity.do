@@ -61,10 +61,11 @@ vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/pitch_bend_controller.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/preset_record_codec.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_control_pipeline.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_control_state.v
+vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_display_snapshot.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_input_frame_joiner.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_parameter_encoder.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/ui_preset_controller.v
 vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/ui/user_interface.v
-vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/test/test_velocity.v
+vlog -sv +incdir+../src/audio -work $SIM_LIB ../src/test/test_velocity/test_velocity.v
 # The local ADC protocol model must take precedence over the vendor empty ADCLRC stub.
 vlog -sv -work $SIM_LIB tb/models/adclrc_model.vt
