@@ -54,6 +54,19 @@ module detuned_phase_group
     wire [63:0] base_product = freq_r[voice_index] * PHASE_INCR_K;
     wire [51:0] offset_product = base_increment_r * ratio_r;
     wire [31:0] half_offset = offset_r >> 1;
+    // Share the five 32-bit adders across all voices. Select the old phase
+    // once, compute the next phase once, then decode only the write enable.
+    wire [IDX_W+2:0] current_base = voice_index * 5;
+    wire [31:0] selected_phase_0 = phase_r[current_base];
+    wire [31:0] selected_phase_1 = phase_r[current_base+1];
+    wire [31:0] selected_phase_2 = phase_r[current_base+2];
+    wire [31:0] selected_phase_3 = phase_r[current_base+3];
+    wire [31:0] selected_phase_4 = phase_r[current_base+4];
+    wire [31:0] next_phase_0 = selected_phase_0 + base_increment_r;
+    wire [31:0] next_phase_1 = selected_phase_1 + base_increment_r - half_offset;
+    wire [31:0] next_phase_2 = selected_phase_2 + base_increment_r + half_offset;
+    wire [31:0] next_phase_3 = selected_phase_3 + base_increment_r - offset_r;
+    wire [31:0] next_phase_4 = selected_phase_4 + base_increment_r + offset_r;
 
     function [11:0] phase_to_address;
         input [31:0] value;
@@ -123,21 +136,16 @@ module detuned_phase_group
 
                 UPDATE_PHASE:
                 begin
-                    if (note_on_r[voice_index])
+                    for (i = 0; i < VOICE_NUM; i = i + 1)
                     begin
-                        phase_r[voice_index*5] <= '0;
-                        phase_r[voice_index*5+1] <= '0;
-                        phase_r[voice_index*5+2] <= '0;
-                        phase_r[voice_index*5+3] <= '0;
-                        phase_r[voice_index*5+4] <= '0;
-                    end
-                    else
-                    begin
-                        phase_r[voice_index*5] <= phase_r[voice_index*5] + base_increment_r;
-                        phase_r[voice_index*5+1] <= phase_r[voice_index*5+1] + base_increment_r - half_offset;
-                        phase_r[voice_index*5+2] <= phase_r[voice_index*5+2] + base_increment_r + half_offset;
-                        phase_r[voice_index*5+3] <= phase_r[voice_index*5+3] + base_increment_r - offset_r;
-                        phase_r[voice_index*5+4] <= phase_r[voice_index*5+4] + base_increment_r + offset_r;
+                        if (voice_index == i)
+                        begin
+                            phase_r[i*5]   <= note_on_r[i] ? 32'd0 : next_phase_0;
+                            phase_r[i*5+1] <= note_on_r[i] ? 32'd0 : next_phase_1;
+                            phase_r[i*5+2] <= note_on_r[i] ? 32'd0 : next_phase_2;
+                            phase_r[i*5+3] <= note_on_r[i] ? 32'd0 : next_phase_3;
+                            phase_r[i*5+4] <= note_on_r[i] ? 32'd0 : next_phase_4;
+                        end
                     end
                 end
 

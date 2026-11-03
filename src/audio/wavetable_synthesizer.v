@@ -55,7 +55,8 @@ module wavetable_synthesizer
     reg [IDX_W-1:0] voice_index;
     reg batch_index;
     reg signed [15:0] sample_r [0:4];
-    reg signed [35:0] blend_product_r;
+    reg [33:0] blend_magnitude_r;
+    reg blend_negative_r;
     reg signed [15:0] voice_point_r;
     reg signed [AUDIO_W-1:0] audio_sum_r;
 
@@ -102,10 +103,13 @@ module wavetable_synthesizer
         {{3{sample_r[3][15]}}, sample_r[3]} +
         {{3{sample_r[4][15]}}, sample_r[4]} -
         ({{3{sample_r[0][15]}}, sample_r[0]} <<< 2);
-    // 基础音 + detune*(四路之和-4*基础音)/8；乘积按 UQ0.16 缩放。
-    wire signed [35:0] rounded_blend = blend_product_r +
-        (blend_product_r[35] ? 36'sd262143 : 36'sd262144);
-    wire signed [17:0] side_adjust = rounded_blend >>> 19;
+    // |side_delta| <= 262140 fits 18 bits; magnitude product fits 34 bits.
+    // The original signed rounding is exactly sign * ((magnitude + 2^18) >> 19).
+    wire [17:0] side_magnitude = side_delta[18] ? -side_delta : side_delta;
+    wire [33:0] rounded_magnitude = blend_magnitude_r + 34'd262144;
+    wire signed [17:0] side_adjust = blend_negative_r ?
+        -$signed({3'b000, rounded_magnitude[33:19]}) :
+         $signed({3'b000, rounded_magnitude[33:19]});
     wire signed [17:0] combined_point =
         {{2{sample_r[0][15]}}, sample_r[0]} + side_adjust;
     wire signed [16:0] volume_coeff = $signed({1'b0, volume_lane_r});
@@ -148,7 +152,8 @@ module wavetable_synthesizer
             detune_r <= '0;
             voice_index <= '0;
             batch_index <= 1'b0;
-            blend_product_r <= '0;
+            blend_magnitude_r <= '0;
+            blend_negative_r <= 1'b0;
             voice_point_r <= '0;
             audio_sum_r <= '0;
             for (i = 0; i < OSC_NUM*5; i = i + 1)
@@ -200,7 +205,8 @@ module wavetable_synthesizer
 
                 MIX:
                 begin
-                    blend_product_r <= side_delta * $signed({1'b0, detune_r});
+                    blend_magnitude_r <= side_magnitude * detune_r;
+                    blend_negative_r <= side_delta[18];
                     volume_lane_r <= volume_r[voice_index];
                 end
 
