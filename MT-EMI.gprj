@@ -70,6 +70,8 @@
         <File path="src/test/test_pitch_bend/test_pitch_bend.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_static_music/test_static_music.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_ui/test_ui.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_full_system/test_full_system.v" type="file.verilog" enable="1"/>
+        <File path="src/test/test_full_system/test_full_system_inputs.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_velocity/test_velocity.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_velocity_auto/test_velocity_auto.v" type="file.verilog" enable="1"/>
         <File path="src/top.v" type="file.verilog" enable="1"/>
@@ -94,6 +96,7 @@
         <File path="src/ui/ui_preset_controller.v" type="file.verilog" enable="1"/>
         <File path="src/ui/user_interface.v" type="file.verilog" enable="1"/>
         <File path="src/MT-EMI.cst" type="file.cst" enable="1"/>
+        <File path="src/test/test_full_system/test_full_system.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_dynamic_music/test_dynamic_music.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_i2s/test_i2s.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_keyboard_interaction/test_keyboard_interaction.cst" type="file.cst" enable="0"/>
@@ -105,6 +108,7 @@
         <File path="src/test/test_velocity/test_velocity.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_velocity_auto/test_velocity_auto.cst" type="file.cst" enable="0"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
+        <File path="src/test/test_full_system/test_full_system.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_dynamic_music/test_dynamic_music.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_i2s/test_i2s.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_keyboard_interaction/test_keyboard_interaction.sdc" type="file.sdc" enable="0"/>

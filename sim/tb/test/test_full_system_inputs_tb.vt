@@ -1,0 +1,110 @@
+/**
+ * 四输入汇合随机背压测试：检查全部24项力度、状态保持、同拍更新和旋转事件只消费一次。
+ * 慢源缺席时其他源应继续交付；成功输出TEST_FULL_SYSTEM_INPUTS_PASS。
+ */
+`timescale 1ns/1ps
+module test_full_system_inputs_tb;
+    reg clk_sys=0,rst_n=0;
+    always #5 clk_sys=~clk_sys;
+    reg [23:0] key_states=0;
+    reg [15:0] key_velocity[23:0];
+    reg keyboard_valid=0,knob_valid=0,button_valid=0,bend_valid=0,out_ready=0;
+    wire keyboard_ready,knob_ready,button_ready,bend_ready,out_valid;
+    reg [7:0] knob_states=0,knob_dirs=0,knob_pressed=0;
+    reg [3:0] button_states=0;
+    reg [15:0] bend_value=16'h8000;
+    wire [23:0] out_keys;
+    wire [15:0] out_velocity[23:0];
+    wire [7:0] out_knob_states,out_knob_dirs,out_knob_pressed;
+    wire [3:0] out_buttons;
+    wire [15:0] out_bend;
+    reg [23:0] expected_keys=0;
+    reg [15:0] expected_velocity[23:0];
+    reg [7:0] expected_steps=0,expected_dirs=0,expected_pressed=0;
+    reg [3:0] expected_buttons=0;
+    reg [15:0] expected_bend=16'h8000;
+    reg expected_valid=0,test_passed=0;
+    reg key_taken=0,knob_taken=0,button_taken=0,bend_taken=0;
+    integer n,i,k,accepted=0,delivered=0,stalls=0;
+    reg [31:0] random_r=32'h4a721bad;
+    test_full_system_inputs dut(.*);
+    always @(posedge clk_sys)
+    begin
+        if(rst_n)
+        begin
+            key_taken=keyboard_valid && keyboard_ready;
+            knob_taken=knob_valid && knob_ready;
+            button_taken=button_valid && button_ready;
+            bend_taken=bend_valid && bend_ready;
+            if(out_valid!==expected_valid) $fatal(1,"valid mismatch");
+            if(out_valid)
+            begin
+                if(out_keys!==expected_keys || out_knob_states!==expected_steps ||
+                   out_knob_dirs!==expected_dirs || out_knob_pressed!==expected_pressed ||
+                   out_buttons!==expected_buttons || out_bend!==expected_bend)
+                    $fatal(1,"whole-frame snapshot mismatch");
+                for(i=0;i<24;i=i+1)
+                    if(out_velocity[i]!==expected_velocity[i]) $fatal(1,"velocity lane %0d mismatch",i);
+                if(out_ready) delivered=delivered+1;
+                else stalls=stalls+1;
+            end
+            if(keyboard_ready || knob_ready || button_ready || bend_ready)
+            begin
+                if(!(keyboard_ready && knob_ready && button_ready && bend_ready)) $fatal(1,"inconsistent slot capacity");
+                expected_valid=keyboard_valid || knob_valid || button_valid || bend_valid;
+                if(expected_valid)
+                begin
+                    accepted=accepted+1;
+                    expected_steps=knob_valid?knob_states:8'd0;
+                    if(keyboard_valid)
+                    begin
+                        expected_keys=key_states;
+                        for(i=0;i<24;i=i+1) expected_velocity[i]=key_velocity[i];
+                    end
+                    if(knob_valid) begin expected_dirs=knob_dirs;expected_pressed=knob_pressed;end
+                    if(button_valid) expected_buttons=button_states;
+                    if(bend_valid) expected_bend=bend_value;
+                end
+            end
+        end
+        else
+        begin
+            expected_valid=0;expected_keys=0;expected_steps=0;expected_dirs=0;
+            expected_pressed=0;expected_buttons=0;expected_bend=16'h8000;
+            for(i=0;i<24;i=i+1) expected_velocity[i]=0;
+        end
+    end
+    initial
+    begin
+        for(n=0;n<24;n=n+1) key_velocity[n]=0;
+        repeat(3) @(negedge clk_sys);rst_n=1;
+        // 各源单独到达，尤其只有旋钮和按钮时不能等待压力ADC。
+        for(n=0;n<600;n=n+1)
+        begin
+            random_r={random_r[30:0],random_r[31]^random_r[21]^random_r[1]^random_r[0]};
+            out_ready=random_r[3:2]!=0;
+            if(key_taken || !keyboard_valid)
+            begin
+                keyboard_valid=(n<16)?(n%4==0):random_r[4];key_states=random_r[23:0];
+                for(k=0;k<24;k=k+1) key_velocity[k]=random_r[15:0]+k;
+            end
+            if(knob_taken || !knob_valid)
+            begin knob_valid=(n<16)?(n%4==1):random_r[5];knob_states=random_r[7:0];knob_dirs=random_r[15:8];knob_pressed=random_r[23:16];end
+            if(button_taken || !button_valid) begin button_valid=(n<16)?(n%4==2):random_r[6];button_states=random_r[11:8];end
+            if(bend_taken || !bend_valid) begin bend_valid=(n<16)?(n%4==3):random_r[7];bend_value=random_r[31:16];end
+            @(negedge clk_sys);
+        end
+        // 同一拍消费旧帧并接受新帧，然后清空；再次异步复位恢复中心。
+        out_ready=1;keyboard_valid=0;knob_valid=0;button_valid=0;bend_valid=0;
+        repeat(3) @(negedge clk_sys);
+        out_ready=0;bend_valid=1;bend_value=16'hffff;
+        @(negedge clk_sys);bend_valid=0;
+        if(!out_valid || out_bend!=16'hffff) $fatal(1,"pending reset setup");
+        rst_n=0;#1;
+        if(out_valid || out_bend!=16'h8000) $fatal(1,"reset did not clear pending frame");
+        if(delivered<200 || stalls<40) $fatal(1,"insufficient backpressure coverage");
+        test_passed=1;
+        $display("TEST_FULL_SYSTEM_INPUTS_PASS accepted=%0d delivered=%0d stalls=%0d",accepted,delivered,stalls);
+        $stop;
+    end
+endmodule
