@@ -1,6 +1,6 @@
 /**
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
- * 旋钮参数模块 v6（S2 K4与高级参数）：修改音色参数，处理粗细调、限幅和恢复默认值。
+ * 高级音效页 K1/K2 调专属参数，K3 调演奏页共用的干湿比，K4 调该效果器的增益补偿。
  * v5 版本修改：音色先暂存并准备分组装载标记，下一拍握手时整组生效。
  * knob_delta: 每路 -1/0/+1 步；mode/fine_adjust: 本次使用的模式及微调开关。
  * 两路增益直接保存16位UQ1.15，其余参数按百分比、角度、毫秒保存；按下旋钮恢复默认，优先于同次转动。
@@ -55,7 +55,7 @@ module knob_parameter_controller
     input edit_target,
     input clear_wave_progress,
     input [1:0] effect_select,
-    input effect_reset,  // 随本批输入握手，恢复两项高级参数及当前干湿比
+    input effect_reset,  // 随本批输入握手，恢复两项高级参数、干湿比和增益补偿
     input in_valid,
     output in_ready,
     output frame_done_valid,
@@ -76,9 +76,12 @@ module knob_parameter_controller
     output [6:0] delay_mix_percent,
     output [6:0] distortion_mix_percent,
     output [6:0] chorus_mix_percent,
+    output [63:0] make_up_gains,  // {合唱, 失真, 延迟, 混响}，各 UQ1.15
     output [127:0] advanced_parameters,  // 8个16位字，已采用音频编码；随parameter_valid保持
     input [127:0] preset_load_advanced,
     output [127:0] preset_current_advanced,
+    input [63:0] preset_load_make_up,
+    output [63:0] preset_current_make_up,
     output parameter_valid,
     input parameter_ready,
     // 已校验的整组音色；优先于下一次旋钮事件，总音量保持不变。
@@ -101,6 +104,7 @@ module knob_parameter_controller
     reg [7:0] advanced_changed_r;
     integer compare_index;
     reg [127:0] preset_advanced_sampled_r;
+    reg [63:0] preset_make_up_sampled_r;
     reg [1:0] effect_select_captured;
     reg effect_reset_captured;
     integer effect_index;
@@ -217,6 +221,10 @@ module knob_parameter_controller
     reg [15:0] balance_gain_r;
     reg [15:0] balance_gain_next;
     reg [15:0] balance_gain_previous;
+    reg [63:0] make_up_r, make_up_next, make_up_snapshot_r, make_up_previous;
+    reg [31:0] make_up_adjusted;
+    assign make_up_gains = make_up_snapshot_r;
+    assign preset_current_make_up = make_up_r;
     wire [31:0] balance_gain_adjusted;
     assign balance_gain_adjusted = adjust_value({16'd0, balance_gain_r}, knob_delta_captured[3],
         fine_adjust_captured ? 32'd328 : 32'd1638, 32'd0, 32'd65535);
@@ -347,6 +355,7 @@ module knob_parameter_controller
     assign parameter_valid = rst_n && snapshot_valid_r;
     assign wave_progress = wave_progress_r;
     assign bank_changed = (|advanced_changed_r) ||
+        (make_up_previous != make_up_r) ||
         (balance_gain_previous != balance_gain_r) ||
         (wavetable_0_previous != wavetable_0_r) ||
         (wavetable_1_previous != wavetable_1_r) ||
@@ -442,6 +451,8 @@ module knob_parameter_controller
         release_ms_next = release_ms_r;
         master_gain_next = master_gain_r;
         balance_gain_next = balance_gain_r;
+        make_up_next = make_up_r;
+        make_up_adjusted = 32'd0;
         reverb_mix_percent_next = reverb_mix_percent_r;
         delay_mix_percent_next = delay_mix_percent_r;
         distortion_mix_percent_next = distortion_mix_percent_r;
@@ -454,6 +465,35 @@ module knob_parameter_controller
                 2'd2: distortion_mix_percent_next = 7'd0;
                 2'd3: chorus_mix_percent_next = 7'd0;
             endcase
+        end
+        if (mode_captured == 2'd2)
+        begin
+            if (effect_reset_captured || (edit_enable_captured && knob_pressed_event_captured[3]))
+                make_up_next[16*effect_select_captured +: 16] = 16'h8000;
+            else if (edit_enable_captured)
+            begin
+                make_up_adjusted = adjust_value(
+                    {16'd0, make_up_r[16*effect_select_captured +: 16]}, knob_delta_captured[3],
+                    fine_adjust_captured ? 32'd328 : 32'd1638, 32'd0, 32'd65535);
+                make_up_next[16*effect_select_captured +: 16] = make_up_adjusted[15:0];
+            end
+            if (edit_enable_captured && !effect_reset_captured)
+            begin
+                case (effect_select_captured)
+                    2'd0: reverb_mix_percent_next = knob_pressed_event_captured[2] ? 7'd0 :
+                        adjust_value(reverb_mix_percent_r, knob_delta_captured[2],
+                            fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
+                    2'd1: delay_mix_percent_next = knob_pressed_event_captured[2] ? 7'd0 :
+                        adjust_value(delay_mix_percent_r, knob_delta_captured[2],
+                            fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
+                    2'd2: distortion_mix_percent_next = knob_pressed_event_captured[2] ? 7'd0 :
+                        adjust_value(distortion_mix_percent_r, knob_delta_captured[2],
+                            fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
+                    2'd3: chorus_mix_percent_next = knob_pressed_event_captured[2] ? 7'd0 :
+                        adjust_value(chorus_mix_percent_r, knob_delta_captured[2],
+                            fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
+                endcase
+            end
         end
         wave_progress_next = clear_wave_progress_captured ? '0 : wave_progress_r;
         wave_sum = $signed(wave_progress_next);
@@ -553,6 +593,7 @@ module knob_parameter_controller
             preset_parameters_sampled_r <= 192'd0;
             preset_balance_sampled_r <= 16'h8000;
             preset_advanced_sampled_r <= {CHORUS_DEPTH_DEFAULT, CHORUS_RATE_DEFAULT, DISTORTION_TONE_DEFAULT, DISTORTION_GAIN_DEFAULT, DELAY_FEEDBACK_DEFAULT, DELAY_TIME_DEFAULT, REVERB_DAMPING_DEFAULT, REVERB_FEEDBACK_DEFAULT};
+            preset_make_up_sampled_r <= {4{16'h8000}};
             preset_wave_load_pending_r <= 1'b0;
             preset_envelope_load_pending_r <= 1'b0;
             preset_effect_load_pending_r <= 1'b0;
@@ -563,6 +604,7 @@ module knob_parameter_controller
             preset_parameters_sampled_r <= preset_load_parameters;
             preset_balance_sampled_r <= preset_load_balance_gain;
             preset_advanced_sampled_r <= preset_load_advanced;
+            preset_make_up_sampled_r <= preset_load_make_up;
             preset_wave_load_pending_r <= preset_load_request && preset_accept_enable;
             preset_envelope_load_pending_r <= preset_load_request && preset_accept_enable;
             preset_effect_load_pending_r <= preset_load_request && preset_accept_enable;
@@ -606,6 +648,7 @@ module knob_parameter_controller
             master_gain_snapshot_r <= 16'h8000;
             balance_gain_snapshot_r <= 16'h8000;
             advanced_snapshot_r <= {CHORUS_DEPTH_DEFAULT, CHORUS_RATE_DEFAULT, DISTORTION_TONE_DEFAULT, DISTORTION_GAIN_DEFAULT, DELAY_FEEDBACK_DEFAULT, DELAY_TIME_DEFAULT, REVERB_DAMPING_DEFAULT, REVERB_FEEDBACK_DEFAULT};
+            make_up_snapshot_r <= {4{16'h8000}};
             reverb_mix_percent_snapshot_r <= 7'd0;
             delay_mix_percent_snapshot_r <= 7'd0;
             distortion_mix_percent_snapshot_r <= 7'd0;
@@ -624,6 +667,7 @@ module knob_parameter_controller
             master_gain_snapshot_r <= master_gain_r;
             balance_gain_snapshot_r <= balance_gain_r;
             advanced_snapshot_r <= advanced_r;
+            make_up_snapshot_r <= make_up_r;
             reverb_mix_percent_snapshot_r <= reverb_mix_percent_r;
             delay_mix_percent_snapshot_r <= delay_mix_percent_r;
             distortion_mix_percent_snapshot_r <= distortion_mix_percent_r;
@@ -648,6 +692,7 @@ module knob_parameter_controller
             master_gain_r <= 16'h8000;
             balance_gain_r <= 16'h8000;
             advanced_r <= {CHORUS_DEPTH_DEFAULT, CHORUS_RATE_DEFAULT, DISTORTION_TONE_DEFAULT, DISTORTION_GAIN_DEFAULT, DELAY_FEEDBACK_DEFAULT, DELAY_TIME_DEFAULT, REVERB_DAMPING_DEFAULT, REVERB_FEEDBACK_DEFAULT};
+            make_up_r <= {4{16'h8000}};
             reverb_mix_percent_r <= 7'd0;
             delay_mix_percent_r <= 7'd0;
             distortion_mix_percent_r <= 7'd0;
@@ -672,6 +717,7 @@ module knob_parameter_controller
                 master_gain_r <= master_gain_next;
                 balance_gain_r <= balance_gain_next;
                 advanced_r <= advanced_next;
+                make_up_r <= make_up_next;
                 reverb_mix_percent_r <= reverb_mix_percent_next;
                 delay_mix_percent_r <= delay_mix_percent_next;
                 distortion_mix_percent_r <= distortion_mix_percent_next;
@@ -699,6 +745,7 @@ module knob_parameter_controller
                 // 同组装载音色增益；master_gain_r 不在加载分支更新。
                 balance_gain_r <= preset_balance_sampled_r;
                 advanced_r <= preset_advanced_sampled_r;
+                make_up_r <= preset_make_up_sampled_r;
                 reverb_mix_percent_r <= preset_parameters_sampled_r[134:128];
                 delay_mix_percent_r <= preset_parameters_sampled_r[150:144];
                 distortion_mix_percent_r <= preset_parameters_sampled_r[166:160];
@@ -730,6 +777,7 @@ module knob_parameter_controller
             master_gain_previous <= 16'h8000;
             balance_gain_previous <= 16'h8000;
             advanced_previous <= {CHORUS_DEPTH_DEFAULT, CHORUS_RATE_DEFAULT, DISTORTION_TONE_DEFAULT, DISTORTION_GAIN_DEFAULT, DELAY_FEEDBACK_DEFAULT, DELAY_TIME_DEFAULT, REVERB_DAMPING_DEFAULT, REVERB_FEEDBACK_DEFAULT};
+            make_up_previous <= {4{16'h8000}};
             effect_select_captured <= 2'd0;
             effect_reset_captured <= 1'b0;
             reverb_mix_percent_previous <= 7'd0;
@@ -757,6 +805,7 @@ module knob_parameter_controller
             master_gain_previous <= master_gain_r;
             balance_gain_previous <= balance_gain_r;
             advanced_previous <= advanced_r;
+            make_up_previous <= make_up_r;
             effect_select_captured <= effect_select;
             effect_reset_captured <= effect_reset;
             reverb_mix_percent_previous <= reverb_mix_percent_r;
@@ -815,6 +864,11 @@ module knob_parameter_controller
                 action_activity[10 + effect_select_captured] = 1'b1;
                 action_reset[10 + effect_select_captured] = 1'b1;
             end
+            if (edit_enable_captured &&
+                (knob_delta_captured[2] != 2'sd0 || knob_pressed_event_captured[2]))
+                action_activity[10 + effect_select_captured] = 1'b1;
+            if (edit_enable_captured && knob_pressed_event_captured[2])
+                action_reset[10 + effect_select_captured] = 1'b1;
         end
     end
     always @(posedge clk_sys or negedge rst_n)

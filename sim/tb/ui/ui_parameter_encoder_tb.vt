@@ -50,6 +50,10 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     wire [19:0] out_release_ticks [0:0];
     wire [15:0] out_master_volume;
     reg [15:0] balance_gain;
+    reg [63:0] make_up_gains = {4{16'h8000}};
+    reg [63:0] expected_make_up;
+    wire [15:0] out_reverb_make_up, out_delay_make_up;
+    wire [15:0] out_distortion_make_up, out_chorus_make_up;
     wire [15:0] out_balance_volume;
     wire [15:0] out_reverb_mix;
     wire [15:0] out_delay_mix;
@@ -60,6 +64,9 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     ) ui_parameter_encoder_u (
         .reverb_feedback(), .reverb_damping(), .delay_time(), .delay_feedback(), .distortion_gain(), .distortion_tone(), .chorus_rate(), .chorus_depth(),
         .advanced_parameters(128'h001840008000100090002ee02800b000),
+        .make_up_gains(make_up_gains),
+        .reverb_make_up(out_reverb_make_up), .delay_make_up(out_delay_make_up),
+        .distortion_make_up(out_distortion_make_up), .chorus_make_up(out_chorus_make_up),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .in_valid(in_valid),
@@ -107,6 +114,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         begin
             if (!out_valid) $fatal(1,"Missing encoder valid");
             if (out_balance_volume !== ~value[21][15:0]) $fatal(1,"Balance Q15 snapshot changed");
+            if ({out_chorus_make_up,out_distortion_make_up,out_delay_make_up,out_reverb_make_up} !== expected_make_up)
+                $fatal(1,"Make-up gain snapshot changed index=%0d",index);
             if (out_wavetable_0[0] !== value[13][3:0]) $fatal(1,"Encoder wavetable_0 vector %0d expected %0d got %0d",index,value[13],out_wavetable_0[0]);
             if (out_wavetable_1[0] !== value[14][3:0]) $fatal(1,"Encoder wavetable_1 vector %0d expected %0d got %0d",index,value[14],out_wavetable_1[0]);
             if (out_wavetable_interp[0] !== value[15][15:0]) $fatal(1,"Encoder wavetable_interp vector %0d expected %0d got %0d",index,value[15],out_wavetable_interp[0]);
@@ -129,7 +138,9 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         file_handle=$fopen(file_path,"r");
         if (!file_handle) $fatal(1,"Missing encoder vectors");
         reset_dut;
-        if (out_master_volume !== 16'h8000 || out_balance_volume !== 16'h8000) $fatal(1,"Gain reset defaults");
+        if (out_master_volume !== 16'h8000 || out_balance_volume !== 16'h8000 ||
+            {out_chorus_make_up,out_distortion_make_up,out_delay_make_up,out_reverb_make_up} !== {4{16'h8000}})
+            $fatal(1,"Gain reset defaults");
         for (index=0;index<5002;index=index+1)
         begin
             scan_count=$fscanf(file_handle,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",value[0],value[1],value[2],value[3],value[4],value[5],value[6],value[7],value[8],value[9],value[10],value[11],value[12],value[13],value[14],value[15],value[16],value[17],value[18],value[19],value[20],value[21],value[22],value[23],value[24],value[25]);
@@ -145,6 +156,8 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             release_ms[0]=value[7];
             master_gain=value[8];
             balance_gain=~value[8][15:0];
+            expected_make_up = {index[15:0],16'hffff,16'h8000,~index[15:0]};
+            make_up_gains = expected_make_up;
             reverb_mix_percent=value[9];
             delay_mix_percent=value[10];
             distortion_mix_percent=value[11];
@@ -163,6 +176,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             release_ms[0]='0;
             master_gain='0;
             balance_gain='0;
+            make_up_gains='0;
             reverb_mix_percent='0;
             delay_mix_percent='0;
             distortion_mix_percent='0;
@@ -184,15 +198,19 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             @(negedge clk_sys);
             master_gain = index;
             balance_gain = 65535 - index;
+            expected_make_up = {index[15:0],16'hffff,16'h8000,~index[15:0]};
+            make_up_gains = expected_make_up;
             in_valid = 1'b1;
             do @(posedge clk_sys); while (!in_ready);
             @(negedge clk_sys);
             in_valid = 1'b0;
             master_gain = 16'd0;
             balance_gain = 16'd0;
+            make_up_gains = 64'd0;
             wait (out_valid);
             @(negedge clk_sys);
-            if (out_master_volume !== index[15:0] || out_balance_volume != 65535 - index)
+            if (out_master_volume !== index[15:0] || out_balance_volume != 65535 - index ||
+                {out_chorus_make_up,out_distortion_make_up,out_delay_make_up,out_reverb_make_up} !== expected_make_up)
                 $fatal(1, "Q15 exhaustive transfer index=%0d", index);
             out_ready = 1'b1;
             @(negedge clk_sys);

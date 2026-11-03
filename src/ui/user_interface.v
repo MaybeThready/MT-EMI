@@ -77,6 +77,10 @@ module user_interface
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
     output [15:0] chorus_mix,
+    output [15:0] reverb_make_up,
+    output [15:0] delay_make_up,
+    output [15:0] distortion_make_up,
+    output [15:0] chorus_make_up,
     output configuration_error,
     output sample_overrun,
     // 存储接口以 UI 为参照：out 发请求，in 收结果；槽号 0～15 对应界面 01～16。
@@ -187,6 +191,7 @@ module user_interface
     reg [15:0] sampled_delay_mix_r;
     reg [15:0] sampled_distortion_mix_r;
     reg [15:0] sampled_chorus_mix_r;
+    reg [63:0] sampled_make_up_r;
     genvar channel_index;
     wire [3:0] pipeline_wavetable_0 [0:0];
     reg [3:0] latest_wavetable_0_r;
@@ -254,6 +259,9 @@ module user_interface
     wire [15:0] pipeline_chorus_mix;
     reg [15:0] latest_chorus_mix_r;
     reg [15:0] output_chorus_mix_r;
+    wire [15:0] pipeline_reverb_make_up, pipeline_delay_make_up;
+    wire [15:0] pipeline_distortion_make_up, pipeline_chorus_make_up;
+    reg [63:0] latest_make_up_r, output_make_up_r;
 
     assign keyboard_context_ready = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES)
         && !keyboard_delivered_r && keyboard_context_matches && keyboard_input_ready;
@@ -318,6 +326,7 @@ module user_interface
     assign delay_mix = output_delay_mix_r;
     assign distortion_mix = output_distortion_mix_r;
     assign chorus_mix = output_chorus_mix_r;
+    assign {chorus_make_up, distortion_make_up, delay_make_up, reverb_make_up} = output_make_up_r;
     fsm #(
         .W(1), .INITIAL_STATE(STATE_WAIT_COMBINED_FRAME)
     ) fsm_u (
@@ -450,7 +459,9 @@ module user_interface
         .reverb_mix(pipeline_reverb_mix),
         .delay_mix(pipeline_delay_mix),
         .distortion_mix(pipeline_distortion_mix),
-        .chorus_mix(pipeline_chorus_mix)
+        .chorus_mix(pipeline_chorus_mix),
+        .reverb_make_up(pipeline_reverb_make_up), .delay_make_up(pipeline_delay_make_up),
+        .distortion_make_up(pipeline_distortion_make_up), .chorus_make_up(pipeline_chorus_make_up)
     );
 
     localparam [3:0] DEFAULT_WAVETABLE_0 = 4'd0;
@@ -497,6 +508,7 @@ module user_interface
             sampled_delay_mix_r <= DEFAULT_DELAY_MIX;
             sampled_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
             sampled_chorus_mix_r <= DEFAULT_CHORUS_MIX;
+            sampled_make_up_r <= {4{16'h8000}};
         end
         else
         begin
@@ -525,6 +537,7 @@ module user_interface
             sampled_delay_mix_r <= latest_delay_mix_r;
             sampled_distortion_mix_r <= latest_distortion_mix_r;
             sampled_chorus_mix_r <= latest_chorus_mix_r;
+            sampled_make_up_r <= latest_make_up_r;
         end
     end
 
@@ -578,6 +591,8 @@ module user_interface
             output_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
             latest_chorus_mix_r <= DEFAULT_CHORUS_MIX;
             output_chorus_mix_r <= DEFAULT_CHORUS_MIX;
+            latest_make_up_r <= {4{16'h8000}};
+            output_make_up_r <= {4{16'h8000}};
         end
         else
         begin
@@ -605,6 +620,8 @@ module user_interface
                 latest_delay_mix_r <= pipeline_delay_mix;
                 latest_distortion_mix_r <= pipeline_distortion_mix;
                 latest_chorus_mix_r <= pipeline_chorus_mix;
+                latest_make_up_r <= {pipeline_chorus_make_up, pipeline_distortion_make_up,
+                    pipeline_delay_make_up, pipeline_reverb_make_up};
             end
             if (audio_accept) out_valid_r <= 1'b0;
             // 参数已装载后才置有效；公开 out_valid 仍等待同批键盘结果就绪。
@@ -639,6 +656,7 @@ module user_interface
                 output_delay_mix_r <= sampled_delay_mix_r;
                 output_distortion_mix_r <= sampled_distortion_mix_r;
                 output_chorus_mix_r <= sampled_chorus_mix_r;
+                output_make_up_r <= sampled_make_up_r;
             end
             if (smp_tick_up && !configuration_error && !keyboard_sample_ready)
                 sample_overrun_r <= 1'b1;

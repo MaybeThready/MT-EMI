@@ -21,6 +21,7 @@ module knob_display_tb;
         .frame_done_valid(frame_done_valid),.frame_done_ready(1'b1),
         .parameter_ready(1'b1),.preset_load_valid(1'b0),.preset_load_parameters(192'd0),
         .preset_load_advanced(128'd0),.preset_load_balance_gain(16'h8000),
+        .preset_load_make_up({4{16'h8000}}),.preset_current_make_up(),.make_up_gains(),
         .display_master_gain(display_master_gain),.display_update(display_update),
         .display_activity_mask(activity),.display_reset_mask(defaults),
         .configuration_error(),

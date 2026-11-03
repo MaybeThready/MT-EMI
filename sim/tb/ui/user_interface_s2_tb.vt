@@ -46,6 +46,7 @@ module user_interface_s2_tb;
     wire [15:0] balance_volume;
     reg [15:0] balance_gain = 32768;
     reg [127:0] expected_advanced = 128'h001840008000100090002ee02800b000;
+    reg [63:0] expected_make_up = {4{16'h8000}};
     reg [7:0] turn_dirs = 8'hff;
     wire [127:0] menu_advanced_parameters;
     wire [1:0] menu_effect;
@@ -56,6 +57,7 @@ module user_interface_s2_tb;
     wire [15:0] delay_mix;
     wire [15:0] distortion_mix;
     wire [15:0] chorus_mix;
+    wire [15:0] reverb_make_up, delay_make_up, distortion_make_up, chorus_make_up;
     wire configuration_error;
     wire sample_overrun;
     integer i;
@@ -141,6 +143,8 @@ module user_interface_s2_tb;
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(reverb_make_up), .delay_make_up(delay_make_up),
+        .distortion_make_up(distortion_make_up), .chorus_make_up(chorus_make_up),
         .configuration_error(configuration_error),
         .sample_overrun(sample_overrun),
         .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
@@ -209,11 +213,12 @@ module user_interface_s2_tb;
         begin
             value = 512'd0;
             value[15:0] = 16'h5549;
-            value[31:16] = 16'd5;
+            value[31:16] = 16'd6;
             value[47:32] = {12'd0, slot};
-            value[63:48] = 16'd21;
+            value[63:48] = 16'd25;
             value[383:256] = expected_advanced;
             value[399:384] = balance_gain;
+            value[463:400] = expected_make_up;
             for (n=0; n<12; n=n+1) value[64 + n*16 +: 16] = expected[n];
             value[511:496] = reference_crc(value[495:0]);
             expected_record = value;
@@ -373,6 +378,9 @@ module user_interface_s2_tb;
             repeat (4200) @(negedge clk_sys);
             while (!out_valid) @(negedge clk_sys);
             if (parameters !== wanted) $fatal(1, "音频参数错误 got=%h expected=%h",parameters,wanted);
+            if ({chorus_make_up,distortion_make_up,delay_make_up,reverb_make_up} !== expected_make_up)
+                $fatal(1, "效果器补偿输出错误 got=%h expected=%h",
+                    {chorus_make_up,distortion_make_up,delay_make_up,reverb_make_up},expected_make_up);
             if (note_freq[0] != 32'd0)
             begin
                 bend_cents = (bend_value[0] <= 16'h8000) ?
@@ -422,7 +430,8 @@ module user_interface_s2_tb;
             press_button(4'h1);
             while (menu_page == 3'd4) @(negedge clk_sys);
             if (menu_page !== 3'd5 || menu_result_status !== status)
-                $fatal(1,"操作结果错误 page=%0d status=%0d expected=%0d",menu_page,menu_result_status,status);
+                $fatal(1,"操作结果错误 page=%0d status=%0d expected=%0d slot=%0d",
+                    menu_page,menu_result_status,status,menu_slot);
         end
     endtask
     initial
@@ -464,6 +473,9 @@ module user_interface_s2_tb;
             press_button(1);
             if(menu_page!=7 || menu_effect_reset) $fatal(1,"Effect edit missing");
             send_frame(0,8'h03);
+            send_frame(0,8'h0c);
+            expected[8+slot_index]=5;
+            expected_make_up[16*slot_index +: 16]=16'h8666;
             case(slot_index)
                 0: begin expected_advanced[15:0]=16'hb400; expected_advanced[31:16]=16'h2c00; end
                 1: begin expected_advanced[47:32]=16'd12480; expected_advanced[63:48]=16'h9400; end
@@ -475,11 +487,12 @@ module user_interface_s2_tb;
         end
         return_to_play;
         // Original mode1 is restored: K5 changes mix, not attack.
-        send_frame(0,8'h10); expected[8]=5;
+        send_frame(0,8'h10); expected[8]=10;
         turn_dirs=0; send_frame(0,8'h08); balance_gain=31130; turn_dirs=8'hff;
         check_parameters;
         open_slots(1); select_slot(3); execute_operation(0);
-        if(memory[3][31:16]!=5 || memory[3][63:48]!=21 || memory[3][383:256]!==expected_advanced)
+        if(memory[3][31:16]!=6 || memory[3][63:48]!=25 ||
+            memory[3][383:256]!==expected_advanced || memory[3][463:400] !== expected_make_up)
             $fatal(1,"Full S2 record mismatch");
         return_to_play;
         // Reset current effect including mix; other effect values and both gains survive.
@@ -489,10 +502,12 @@ module user_interface_s2_tb;
         if(!menu_effect_reset) $fatal(1,"Reset item missing");
         send_frame(0,8'h03); check_parameters; // turns disabled on reset item
         press_button(1); expected_advanced[31:0]=32'h2800b000; expected[8]=0;
+        expected_make_up[15:0]=16'h8000;
         check_parameters; return_to_play;
         // Change only live master. Loading restores the tone but preserves master.
         send_frame(0,8'h04); master_gain=36044;
-        expected_advanced=memory[3][383:256]; expected[8]=5;
+        expected_advanced=memory[3][383:256]; expected[8]=10;
+        expected_make_up=memory[3][463:400];
         open_slots(0); select_slot(3); execute_operation(0); check_parameters;
         return_to_play;
         // CRC/format/driver failure must not change any of the 21 tone fields.
@@ -501,22 +516,28 @@ module user_interface_s2_tb;
         press_button(8); fault_mode=3; execute_operation(2); check_parameters; fault_mode=0;
         // Reset leaves simulated nonvolatile medium intact; never auto-writes.
         @(negedge clk_sys); rst_n=0; repeat(5) @(negedge clk_sys); rst_n=1;
-        master_gain=32768; balance_gain=32768; expected[8]=0;
+        master_gain=32768; balance_gain=32768;
+        for (i=8;i<12;i=i+1) expected[i]=0;
+        expected_make_up={4{16'h8000}};
         expected_advanced=128'h001840008000100090002ee02800b000;
         send_frame(0,0); check_parameters;
-        expected_advanced=memory[3][383:256]; expected[8]=5; balance_gain=31130;
+        expected_advanced=memory[3][383:256];
+        expected[8]=10; expected[9]=5; expected[10]=5; expected[11]=5;
+        expected_make_up=memory[3][463:400]; balance_gain=31130;
         open_slots(0); select_slot(3); execute_operation(0); check_parameters;
         if(write_count!=1) $fatal(1,"Unexpected write count");
         return_to_play;
         // Legacy stage2 record3 loads its gain and supplies explicit advanced defaults.
         memory[4]=memory[3]; memory[4][31:16]=3; memory[4][47:32]=4;
         memory[4][63:48]=13; memory[4][383:256]=0;
+        memory[4][463:400]=0;
         memory[4][399:384]=95; balance_gain=31130;
         memory[4][511:496]=reference_crc(memory[4][495:0]); storage_slot_present[4]=1;
         expected_advanced=128'h001840008000100090002ee02800b000;
+        expected_make_up={4{16'h8000}};
         open_slots(0); select_slot(4); execute_operation(0); check_parameters;
         test_passed=1;
-        $display("UI_S2_PASS K4_coarse_fine_clamp_reset master_preserved four_effects defaults store reboot legacy errors backpressure");
+        $display("UI_S2_PASS advanced_K3_shared_mix_K4_make_up store_reset_reboot_legacy errors_backpressure");
         $finish;
     end
     initial begin #50000000; $fatal(1,"S2 UI timeout"); end

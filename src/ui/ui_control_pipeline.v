@@ -5,7 +5,7 @@
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
  * 控制链模块 v2：连接按钮、旋钮和参数设置，输出整组音色参数。
  * v2 版本修改：接入菜单命令、音色读写和整组参数装载。
- * S2：高级选择/恢复经joiner按批传递；基础192位+高级128位+增益7位共用装载握手。
+ * S2：高级选择/恢复经joiner按批传递；基础192位+高级128位+音色增益16位+补偿64位共用装载握手。
  * 同一批输入先更新按钮决定的模式、粗细调，再处理旋钮。
  * button_batch_id/knob_batch_id: 配对编号，由 user_interface 自动生成。
  * out_valid/out_ready: 交付更新后的参数；按采样节拍发送由 user_interface 负责。
@@ -56,6 +56,10 @@ module ui_control_pipeline
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
     output [15:0] chorus_mix,
+    output [15:0] reverb_make_up,
+    output [15:0] delay_make_up,
+    output [15:0] distortion_make_up,
+    output [15:0] chorus_make_up,
     output out_valid,
     input out_ready,
     output protocol_error,
@@ -103,6 +107,7 @@ module ui_control_pipeline
     wire [1:0] context_effect_select, effect_select;
     wire context_effect_reset, effect_reset;
     wire [127:0] bank_advanced, current_advanced, loaded_advanced;
+    wire [63:0] bank_make_up, current_make_up, loaded_make_up;
     assign menu_effect = context_effect_select;
     assign menu_advanced_parameters = current_advanced;
     wire preset_command_valid;
@@ -309,6 +314,8 @@ module ui_control_pipeline
         .preset_current_balance_gain(current_balance_gain),
         .advanced_parameters(bank_advanced), .preset_load_advanced(loaded_advanced),
         .preset_current_advanced(current_advanced),
+        .make_up_gains(bank_make_up), .preset_load_make_up(loaded_make_up),
+        .preset_current_make_up(current_make_up),
         .preset_load_parameters(loaded_parameters), .preset_current_parameters(current_parameters),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
@@ -349,6 +356,7 @@ module ui_control_pipeline
         .SMP_TICK_FREQ(SMP_TICK_FREQ)
     ) ui_parameter_encoder_u (
         .advanced_parameters(bank_advanced),
+        .make_up_gains(bank_make_up),
         .reverb_feedback(reverb_feedback),
         .reverb_damping(reverb_damping),
         .delay_time(delay_time),
@@ -388,6 +396,8 @@ module ui_control_pipeline
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(reverb_make_up), .delay_make_up(delay_make_up),
+        .distortion_make_up(distortion_make_up), .chorus_make_up(chorus_make_up),
         .out_valid(out_valid),
         .out_ready(out_ready)
     );
@@ -397,6 +407,7 @@ module ui_control_pipeline
         .command_valid(preset_command_valid), .command_ready(preset_command_ready),
         .command_write(preset_command_write), .command_slot(preset_command_slot),
         .current_advanced(current_advanced), .apply_advanced(loaded_advanced),
+        .current_make_up_gains(current_make_up), .apply_make_up_gains(loaded_make_up),
         .current_parameters(current_parameters), .current_balance_gain(current_balance_gain),
         .apply_balance_gain(loaded_balance_gain),
         .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
