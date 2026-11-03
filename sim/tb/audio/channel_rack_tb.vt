@@ -122,14 +122,9 @@ module channel_rack_tb();
 
     function [31:0] calc_offset;
         input [31:0] base_increment;
-        input [15:0] amount;
-        reg [35:0] ratio_product;
-        reg [19:0] ratio;
         reg [51:0] offset_product;
         begin
-            ratio_product = amount * 20'd7294;
-            ratio = (ratio_product + 36'd32768) >> 16;
-            offset_product = base_increment * ratio;
+            offset_product = base_increment * 20'd7294;
             calc_offset = (offset_product + 52'd524288) >> 20;
         end
     endfunction
@@ -283,7 +278,7 @@ module channel_rack_tb();
             for (lane = 0; lane < VOICE_NUM; lane = lane + 1)
             begin
                 base_inc = calc_increment(lane == 0 ? freq_0 : freq_1);
-                offset_inc = calc_offset(base_inc, detune);
+                offset_inc = calc_offset(base_inc);
                 if (new_note_on[lane])
                 begin
                     for (osc = 0; osc < 5; osc = osc + 1)
@@ -374,9 +369,20 @@ module channel_rack_tb();
                              scenario_id, sample_index, lane,
                              effective_volume[lane], rack_u.volume_r[lane]);
                 end
-                blend_product = (side_sum - 4*base_point) * $signed({1'b0, requested_detune});
-                point = base_point + ((blend_product +
-                         (blend_product < 0 ? 64'sd262143 : 64'sd262144)) >>> 19);
+                blend_product = side_sum - 4*base_point;
+                if (requested_detune == 16'hffff)
+                begin
+                    if (blend_product < 0)
+                        point = base_point - ((-blend_product + 64'sd4) >>> 3);
+                    else
+                        point = base_point + ((blend_product + 64'sd4) >>> 3);
+                end
+                else
+                begin
+                    blend_product = blend_product * $signed({1'b0, requested_detune});
+                    point = base_point + ((blend_product +
+                             (blend_product < 0 ? 64'sd262143 : 64'sd262144)) >>> 19);
+                end
                 expected_sum = expected_sum + calc_voice(point, effective_volume[lane]);
             end
             expected_audio = expected_sum;
@@ -517,6 +523,7 @@ module channel_rack_tb();
 
         reset_rack();
         scenario_id = 2;
+        detune = 16'h8000;
         wavetable_0 = 4'd0;
         wavetable_1 = 4'd0;
         wavetable_interp = 16'd0;

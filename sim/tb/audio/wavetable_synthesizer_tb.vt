@@ -195,9 +195,20 @@ module wavetable_synthesizer_tb();
                                         wavetable_interp, phase[j*5+osc]);
                     side_sum = side_sum + point;
                 end
-                blend_product = (side_sum - 4*base_point) * $signed({1'b0, detune});
-                point = base_point + ((blend_product +
-                         (blend_product < 0 ? 64'sd262143 : 64'sd262144)) >>> 19);
+                blend_product = side_sum - 4*base_point;
+                if (detune == 16'hffff)
+                begin
+                    if (blend_product < 0)
+                        point = base_point - ((-blend_product + 64'sd4) >>> 3);
+                    else
+                        point = base_point + ((blend_product + 64'sd4) >>> 3);
+                end
+                else
+                begin
+                    blend_product = blend_product * $signed({1'b0, detune});
+                    point = base_point + ((blend_product +
+                             (blend_product < 0 ? 64'sd262143 : 64'sd262144)) >>> 19);
+                end
                 product = point * $signed({1'b0, volume[j]});
                 expected_sum = expected_sum +
                                ((product + (product < 0 ? 64'sd32767 : 64'sd32768)) >>> 16);

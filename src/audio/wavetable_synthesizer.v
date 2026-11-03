@@ -107,9 +107,17 @@ module wavetable_synthesizer
     // The original signed rounding is exactly sign * ((magnitude + 2^18) >> 19).
     wire [17:0] side_magnitude = side_delta[18] ? -side_delta : side_delta;
     wire [33:0] rounded_magnitude = blend_magnitude_r + 34'd262144;
-    wire signed [17:0] side_adjust = blend_negative_r ?
+    wire signed [17:0] partial_adjust = blend_negative_r ?
         -$signed({3'b000, rounded_magnitude[33:19]}) :
          $signed({3'b000, rounded_magnitude[33:19]});
+    // UQ0.16 cannot encode 1.0; treat 0xffff as the exact 50/50 endpoint.
+    wire [18:0] full_side_sum = {1'b0, side_magnitude} + 19'd4;
+    wire [15:0] full_side_magnitude = full_side_sum >> 3;
+    wire signed [17:0] full_adjust = blend_negative_r ?
+        -$signed({2'b00, full_side_magnitude}) :
+         $signed({2'b00, full_side_magnitude});
+    wire signed [17:0] side_adjust = detune_r == 16'hffff ?
+                                      full_adjust : partial_adjust;
     wire signed [17:0] combined_point =
         {{2{sample_r[0][15]}}, sample_r[0]} + side_adjust;
     wire signed [16:0] volume_coeff = $signed({1'b0, volume_lane_r});

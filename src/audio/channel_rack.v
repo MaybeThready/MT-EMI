@@ -28,7 +28,7 @@ module channel_rack
     input [31:0] note_freq [MAX_POLYPHONY-1:0],
     input [15:0] note_velocity [MAX_POLYPHONY-1:0],
 
-    input [15:0] detune,  // UQ0.16；0 为无失谐，最大约 ±12 音分
+    input [15:0] detune,  // UQ0.16；只调主音与固定失谐音的占比，0 时只有主音
     input [19:0] attack_ticks,
     input [19:0] decay_ticks,
     input [15:0] sustain_level,
@@ -95,7 +95,6 @@ module channel_rack
         .rst_n(rst_n),
         .smp_tick_up(smp_tick_up),
         .note_on(note_on),
-        .detune(detune),
         .freq(note_freq),
         .out_phase(phase),
         .out_ready(group_out_ready),

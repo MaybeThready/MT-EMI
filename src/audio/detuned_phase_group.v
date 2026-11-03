@@ -1,16 +1,10 @@
 /**
- * 五振荡器相位组：每个声部保留一个基础音及四个对称失谐音。
- * 共用频率与失谐乘法器，避免每个振荡器复制完整的频率运算电路。
+ * 五振荡器相位组。失谐间距固定：内侧约 +/-6 音分，外侧约 +/-12 音分。
+ * 32 个声部、每声部五路相位依次更新，共用读取选择器与相位加法器。
+ * detune 仅在后级 wavetable_synthesizer 中控制混合比例。
  */
-
 `include "../defines.vh"
 
-/**
- * freq: 各声部 UQ16.16 Hz；detune: UQ0.16，0 对应不失谐。
- * 最大偏移约为基础频率的 0.6956%，即 12 音分；内侧偏移为其一半。
- * out_phase[5*voice + osc]: UQ0.12，osc 顺序为基础、-半、+半、-全、+全。
- * 每次输入握手后更新所有声部；note_on 所在采样点五个相位均从 0 开始。
- */
 module detuned_phase_group
 #(
     parameter VOICE_NUM = 32,
@@ -20,9 +14,8 @@ module detuned_phase_group
     input rst_n,
     input smp_tick_up,
     input [VOICE_NUM-1:0] note_on,
-    input [31:0] freq [VOICE_NUM-1:0],
-    input [15:0] detune,
-    output [11:0] out_phase [VOICE_NUM*5-1:0],
+    input [31:0] freq [VOICE_NUM-1:0],  // UQ16.16 Hz
+    output [11:0] out_phase [VOICE_NUM*5-1:0],  // UQ0.12
     input out_ready,
     input in_valid,
     output out_valid,
@@ -30,57 +23,43 @@ module detuned_phase_group
 );
     localparam IDX_W = VOICE_NUM > 1 ? $clog2(VOICE_NUM) : 1;
     localparam [31:0] PHASE_INCR_K = (64'd1 << 32) / SMP_TICK_FREQ;
-    localparam [19:0] MAX_RATIO_Q20 = 20'd7294;  // 2^(12/1200)-1 ≈ 7294/2^20
+    localparam [19:0] FIXED_RATIO_Q20 = 20'd7294;
 
-    localparam WF_TICK = 3'd0, WF_RECV = 3'd1, CALC_RATIO = 3'd2,
-               CALC_BASE = 3'd3, CALC_OFFSET = 3'd4,
-               UPDATE_PHASE = 3'd5, NEXT_VOICE = 3'd6, WF_SEND = 3'd7;
-
-    wire [2:0] stc;
-    reg [2:0] stn;
-    fsm #(.W(3), .INITIAL_STATE(WF_TICK)) fsm_u (
+    localparam WF_TICK = 4'd0, WF_RECV = 4'd1, CALC_BASE = 4'd2,
+               CALC_OFFSET = 4'd3, SELECT_STEP = 4'd4, READ_PHASE = 4'd5,
+               UPDATE_PHASE = 4'd6, NEXT_OSC = 4'd7,
+               NEXT_VOICE = 4'd8, WF_SEND = 4'd9;
+    wire [3:0] stc;
+    reg [3:0] stn;
+    fsm #(.W(4), .INITIAL_STATE(WF_TICK)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(stn), .stc(stc)
     );
 
     reg [31:0] freq_r [VOICE_NUM-1:0];
     reg [VOICE_NUM-1:0] note_on_r;
-    reg [15:0] detune_r;
-    reg [19:0] ratio_r;
     reg [IDX_W-1:0] voice_index;
+    reg [2:0] osc_index;
     reg [31:0] base_increment_r, offset_r;
+    reg [31:0] step_r, selected_phase_r;
     reg [31:0] phase_r [VOICE_NUM*5-1:0];
 
-    wire [35:0] ratio_product = detune_r * MAX_RATIO_Q20;
     wire [63:0] base_product = freq_r[voice_index] * PHASE_INCR_K;
-    wire [51:0] offset_product = base_increment_r * ratio_r;
-    wire [31:0] half_offset = offset_r >> 1;
-    // Share the five 32-bit adders across all voices. Select the old phase
-    // once, compute the next phase once, then decode only the write enable.
-    wire [IDX_W+2:0] current_base = voice_index * 5;
-    wire [31:0] selected_phase_0 = phase_r[current_base];
-    wire [31:0] selected_phase_1 = phase_r[current_base+1];
-    wire [31:0] selected_phase_2 = phase_r[current_base+2];
-    wire [31:0] selected_phase_3 = phase_r[current_base+3];
-    wire [31:0] selected_phase_4 = phase_r[current_base+4];
-    wire [31:0] next_phase_0 = selected_phase_0 + base_increment_r;
-    wire [31:0] next_phase_1 = selected_phase_1 + base_increment_r - half_offset;
-    wire [31:0] next_phase_2 = selected_phase_2 + base_increment_r + half_offset;
-    wire [31:0] next_phase_3 = selected_phase_3 + base_increment_r - offset_r;
-    wire [31:0] next_phase_4 = selected_phase_4 + base_increment_r + offset_r;
-
-    function [11:0] phase_to_address;
-        input [31:0] value;
-        begin
-            phase_to_address = value[31:20] == 12'hfff ? 12'hfff :
-                               value[31:20] + value[19];
-        end
-    endfunction
+    wire [51:0] offset_product = base_increment_r * FIXED_RATIO_Q20;
+    wire [IDX_W+2:0] current_index = voice_index * 5 + osc_index;
+    wire [31:0] step_offset = (osc_index == 3'd1 || osc_index == 3'd2) ?
+                              (offset_r >> 1) : offset_r;
+    wire step_negative = (osc_index == 3'd1 || osc_index == 3'd3);
+    wire [31:0] phase_next = selected_phase_r + step_r;
 
     genvar lane;
     generate
         for (lane = 0; lane < VOICE_NUM*5; lane = lane + 1)
-        begin
-            assign out_phase[lane] = phase_to_address(phase_r[lane]);
+        begin : phase_outputs
+            unsigned_fp_norm #(
+                .QII(0), .QIF(32), .QOI(0), .QOF(12)
+            ) phase_norm_u (
+                .in(phase_r[lane]), .out(out_phase[lane])
+            );
         end
     endgenerate
 
@@ -88,11 +67,13 @@ module detuned_phase_group
     begin
         case (stc)
             WF_TICK: stn = smp_tick_up ? WF_RECV : WF_TICK;
-            WF_RECV: stn = in_valid ? CALC_RATIO : WF_RECV;
-            CALC_RATIO: stn = CALC_BASE;
+            WF_RECV: stn = in_valid ? CALC_BASE : WF_RECV;
             CALC_BASE: stn = CALC_OFFSET;
-            CALC_OFFSET: stn = UPDATE_PHASE;
-            UPDATE_PHASE: stn = NEXT_VOICE;
+            CALC_OFFSET: stn = SELECT_STEP;
+            SELECT_STEP: stn = READ_PHASE;
+            READ_PHASE: stn = UPDATE_PHASE;
+            UPDATE_PHASE: stn = NEXT_OSC;
+            NEXT_OSC: stn = osc_index == 3'd4 ? NEXT_VOICE : SELECT_STEP;
             NEXT_VOICE: stn = voice_index == VOICE_NUM-1 ? WF_SEND : CALC_BASE;
             WF_SEND: stn = out_ready ? WF_TICK : WF_SEND;
             default: stn = WF_TICK;
@@ -105,11 +86,12 @@ module detuned_phase_group
         if (!rst_n)
         begin
             note_on_r <= '0;
-            detune_r <= '0;
-            ratio_r <= '0;
             voice_index <= '0;
+            osc_index <= '0;
             base_increment_r <= '0;
             offset_r <= '0;
+            step_r <= '0;
+            selected_phase_r <= '0;
             for (i = 0; i < VOICE_NUM; i = i + 1)
                 freq_r[i] <= '0;
             for (i = 0; i < VOICE_NUM*5; i = i + 1)
@@ -123,36 +105,42 @@ module detuned_phase_group
                     if (in_valid)
                     begin
                         note_on_r <= note_on;
-                        detune_r <= detune;
                         voice_index <= '0;
+                        osc_index <= '0;
                         for (i = 0; i < VOICE_NUM; i = i + 1)
                             freq_r[i] <= freq[i];
                     end
                 end
-
-                CALC_RATIO: ratio_r <= (ratio_product + 36'd32768) >> 16;
-                CALC_BASE: base_increment_r <= (base_product + 64'd32768) >> 16;
-                CALC_OFFSET: offset_r <= (offset_product + 52'd524288) >> 20;
-
+                CALC_BASE:
+                    base_increment_r <= (base_product + 64'd32768) >> 16;
+                CALC_OFFSET:
+                    offset_r <= (offset_product + 52'd524288) >> 20;
+                SELECT_STEP:
+                    step_r <= osc_index == 3'd0 ? base_increment_r :
+                              step_negative ? base_increment_r - step_offset :
+                                              base_increment_r + step_offset;
+                READ_PHASE:
+                    selected_phase_r <= phase_r[current_index];
                 UPDATE_PHASE:
                 begin
-                    for (i = 0; i < VOICE_NUM; i = i + 1)
+                    for (i = 0; i < VOICE_NUM*5; i = i + 1)
                     begin
-                        if (voice_index == i)
-                        begin
-                            phase_r[i*5]   <= note_on_r[i] ? 32'd0 : next_phase_0;
-                            phase_r[i*5+1] <= note_on_r[i] ? 32'd0 : next_phase_1;
-                            phase_r[i*5+2] <= note_on_r[i] ? 32'd0 : next_phase_2;
-                            phase_r[i*5+3] <= note_on_r[i] ? 32'd0 : next_phase_3;
-                            phase_r[i*5+4] <= note_on_r[i] ? 32'd0 : next_phase_4;
-                        end
+                        if (current_index == i)
+                            phase_r[i] <= note_on_r[voice_index] ? 32'd0 : phase_next;
                     end
                 end
-
+                NEXT_OSC:
+                begin
+                    if (osc_index != 3'd4)
+                        osc_index <= osc_index + 1'b1;
+                end
                 NEXT_VOICE:
                 begin
                     if (voice_index != VOICE_NUM-1)
+                    begin
                         voice_index <= voice_index + 1'b1;
+                        osc_index <= '0;
+                    end
                 end
             endcase
         end
