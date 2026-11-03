@@ -13,6 +13,7 @@
 | `test_velocity` | 键盘与 24 路压力 | [test_velocity](test_velocity/README.md) |
 | `test_velocity_auto` | 24 路压力自动诊断 | [test_velocity_auto](test_velocity_auto/README.md) |
 | `test_pitch_bend` | 键盘力度与弯音轮 | [test_pitch_bend](test_pitch_bend/README.md) |
+| `test_ui` | 键盘、旋钮、四按键、UI、LCD 与音频联合调试 | [test_ui](test_ui/README.md) |
 
 `test_i2s` 至 `test_mixer` 的 CST/SDC 是依据现有测试引脚分配补齐的，尚未分别完成上板布线验证。力度、自动力度、弯音和旋钮测试沿用已有约束。所有测试更换顶层后都需重新综合、布线并检查时序；此前保存的位流可直接在 Programmer 中选择烧录。位流归档见 `scripts/manage_bitstreams.cmd`。
 
