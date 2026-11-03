@@ -240,7 +240,7 @@ module chord_audio_fixture #(
     wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
     wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
     wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
-    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [15:0] detune [CHANNEL_NUM-1:0];
     wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
     wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
     wire [15:0] sustain_level [CHANNEL_NUM-1:0];
@@ -317,7 +317,7 @@ module chord_audio_fixture #(
         .wavetable_0(wavetable_0),
         .wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase),
+        .detune(detune),
         .attack_ticks(attack_ticks),
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
@@ -406,7 +406,7 @@ module chord_audio_fixture #(
         .clk_sys(clk_sys),.rst_n(rst_n),.smp_tick_up(smp_tick_up),
         .note_on(note_on),.note_off(note_off),.note_busy(note_busy),
         .note_busy_valid(note_busy_valid),.note_busy_ready(note_busy_ready),
-        .note_freq(note_freq),.note_velocity(note_velocity),.init_phase(init_phase[0]),
+        .note_freq(note_freq),.note_velocity(note_velocity),.detune(detune[0]),
         .attack_ticks(attack_ticks[0]),.decay_ticks(decay_ticks[0]),
         .sustain_level(sustain_level[0]),.release_ticks(release_ticks[0]),
         .wavetable_0(wavetable_0[0]),.wavetable_1(wavetable_1[0]),.wavetable_interp(wavetable_interp[0]),

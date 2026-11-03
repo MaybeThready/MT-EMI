@@ -51,7 +51,7 @@ module test_keyboard_interaction
     wire [3:0] wavetable_0 [0:0];
     wire [3:0] wavetable_1 [0:0];
     wire [15:0] wavetable_interp [0:0];
-    wire [15:0] init_phase [0:0];
+    wire [15:0] detune [0:0];
     wire [19:0] attack_ticks [0:0];
     wire [19:0] decay_ticks [0:0];
     wire [15:0] sustain_level [0:0];
@@ -74,7 +74,7 @@ module test_keyboard_interaction
         .note_busy_ready(note_busy_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity),
         .wavetable_0(wavetable_0), .wavetable_1(wavetable_1),
-        .wavetable_interp(wavetable_interp), .init_phase(init_phase),
+        .wavetable_interp(wavetable_interp), .detune(detune),
         .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
         .sustain_level(sustain_level), .release_ticks(release_ticks),
         .smp_tick_up(smp_tick_up),
@@ -105,7 +105,7 @@ module test_keyboard_interaction
         .note_on(note_on), .note_off(note_off), .note_busy(note_busy),
         .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .note_freq(note_freq), .note_velocity(note_velocity),
-        .init_phase(init_phase[0]), .attack_ticks(attack_ticks[0]),
+        .detune(detune[0]), .attack_ticks(attack_ticks[0]),
         .decay_ticks(decay_ticks[0]), .sustain_level(sustain_level[0]),
         .release_ticks(release_ticks[0]),
         .wavetable_0(wavetable_0[0]), .wavetable_1(wavetable_1[0]),

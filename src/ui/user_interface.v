@@ -51,7 +51,7 @@ module user_interface
     output [3:0] wavetable_0 [CHANNEL_NUM-1:0],
     output [3:0] wavetable_1 [CHANNEL_NUM-1:0],
     output [15:0] wavetable_interp [CHANNEL_NUM-1:0],
-    output [15:0] init_phase [CHANNEL_NUM-1:0],
+    output [15:0] detune [CHANNEL_NUM-1:0],
     output [19:0] attack_ticks [CHANNEL_NUM-1:0],
     output [19:0] decay_ticks [CHANNEL_NUM-1:0],
     output [15:0] sustain_level [CHANNEL_NUM-1:0],
@@ -173,7 +173,7 @@ module user_interface
     reg [3:0] sampled_wavetable_0_r;
     reg [3:0] sampled_wavetable_1_r;
     reg [15:0] sampled_wavetable_interp_r;
-    reg [15:0] sampled_init_phase_r;
+    reg [15:0] sampled_detune_r;
     reg [19:0] sampled_attack_ticks_r;
     reg [19:0] sampled_decay_ticks_r;
     reg [15:0] sampled_sustain_level_r;
@@ -203,9 +203,9 @@ module user_interface
     wire [15:0] pipeline_wavetable_interp [0:0];
     reg [15:0] latest_wavetable_interp_r;
     reg [15:0] output_wavetable_interp_r;
-    wire [15:0] pipeline_init_phase [0:0];
-    reg [15:0] latest_init_phase_r;
-    reg [15:0] output_init_phase_r;
+    wire [15:0] pipeline_detune [0:0];
+    reg [15:0] latest_detune_r;
+    reg [15:0] output_detune_r;
     wire [19:0] pipeline_attack_ticks [0:0];
     reg [19:0] latest_attack_ticks_r;
     reg [19:0] output_attack_ticks_r;
@@ -306,7 +306,7 @@ module user_interface
             assign wavetable_0[channel_index] = (channel_index == 0) ? output_wavetable_0_r : 4'd0;
             assign wavetable_1[channel_index] = (channel_index == 0) ? output_wavetable_1_r : 4'd0;
             assign wavetable_interp[channel_index] = (channel_index == 0) ? output_wavetable_interp_r : 16'd0;
-            assign init_phase[channel_index] = (channel_index == 0) ? output_init_phase_r : 16'd0;
+            assign detune[channel_index] = (channel_index == 0) ? output_detune_r : 16'd0;
             assign attack_ticks[channel_index] = (channel_index == 0) ? output_attack_ticks_r : 20'd0;
             assign decay_ticks[channel_index] = (channel_index == 0) ? output_decay_ticks_r : 20'd0;
             assign sustain_level[channel_index] = (channel_index == 0) ? output_sustain_level_r : 16'd0;
@@ -442,7 +442,7 @@ module user_interface
         .wavetable_0(pipeline_wavetable_0),
         .wavetable_1(pipeline_wavetable_1),
         .wavetable_interp(pipeline_wavetable_interp),
-        .init_phase(pipeline_init_phase),
+        .detune(pipeline_detune),
         .attack_ticks(pipeline_attack_ticks),
         .decay_ticks(pipeline_decay_ticks),
         .sustain_level(pipeline_sustain_level),
@@ -468,7 +468,7 @@ module user_interface
     localparam [3:0] DEFAULT_WAVETABLE_0 = 4'd0;
     localparam [3:0] DEFAULT_WAVETABLE_1 = 4'd1;
     localparam [15:0] DEFAULT_WAVETABLE_INTERP = 16'd0;
-    localparam [15:0] DEFAULT_INIT_PHASE = 16'd0;
+    localparam [15:0] DEFAULT_DETUNE = 16'd0;
     localparam [19:0] DEFAULT_ATTACK_TICKS = ((64'd5 * SMP_TICK_FREQ + 64'd500) / 64'd1000);
     localparam [19:0] DEFAULT_DECAY_TICKS = ((64'd150 * SMP_TICK_FREQ + 64'd500) / 64'd1000);
     localparam [15:0] DEFAULT_SUSTAIN_LEVEL = 16'd45875;
@@ -490,7 +490,7 @@ module user_interface
             sampled_wavetable_0_r <= DEFAULT_WAVETABLE_0;
             sampled_wavetable_1_r <= DEFAULT_WAVETABLE_1;
             sampled_wavetable_interp_r <= DEFAULT_WAVETABLE_INTERP;
-            sampled_init_phase_r <= DEFAULT_INIT_PHASE;
+            sampled_detune_r <= DEFAULT_DETUNE;
             sampled_attack_ticks_r <= DEFAULT_ATTACK_TICKS;
             sampled_decay_ticks_r <= DEFAULT_DECAY_TICKS;
             sampled_sustain_level_r <= DEFAULT_SUSTAIN_LEVEL;
@@ -519,7 +519,7 @@ module user_interface
             sampled_wavetable_0_r <= latest_wavetable_0_r;
             sampled_wavetable_1_r <= latest_wavetable_1_r;
             sampled_wavetable_interp_r <= latest_wavetable_interp_r;
-            sampled_init_phase_r <= latest_init_phase_r;
+            sampled_detune_r <= latest_detune_r;
             sampled_attack_ticks_r <= latest_attack_ticks_r;
             sampled_decay_ticks_r <= latest_decay_ticks_r;
             sampled_sustain_level_r <= latest_sustain_level_r;
@@ -554,8 +554,8 @@ module user_interface
             output_wavetable_1_r <= DEFAULT_WAVETABLE_1;
             latest_wavetable_interp_r <= DEFAULT_WAVETABLE_INTERP;
             output_wavetable_interp_r <= DEFAULT_WAVETABLE_INTERP;
-            latest_init_phase_r <= DEFAULT_INIT_PHASE;
-            output_init_phase_r <= DEFAULT_INIT_PHASE;
+            latest_detune_r <= DEFAULT_DETUNE;
+            output_detune_r <= DEFAULT_DETUNE;
             latest_attack_ticks_r <= DEFAULT_ATTACK_TICKS;
             output_attack_ticks_r <= DEFAULT_ATTACK_TICKS;
             latest_decay_ticks_r <= DEFAULT_DECAY_TICKS;
@@ -602,7 +602,7 @@ module user_interface
                 latest_wavetable_0_r <= pipeline_wavetable_0[0];
                 latest_wavetable_1_r <= pipeline_wavetable_1[0];
                 latest_wavetable_interp_r <= pipeline_wavetable_interp[0];
-                latest_init_phase_r <= pipeline_init_phase[0];
+                latest_detune_r <= pipeline_detune[0];
                 latest_attack_ticks_r <= pipeline_attack_ticks[0];
                 latest_decay_ticks_r <= pipeline_decay_ticks[0];
                 latest_sustain_level_r <= pipeline_sustain_level[0];
@@ -632,7 +632,7 @@ module user_interface
                 output_wavetable_0_r <= sampled_wavetable_0_r;
                 output_wavetable_1_r <= sampled_wavetable_1_r;
                 output_wavetable_interp_r <= sampled_wavetable_interp_r;
-                output_init_phase_r <= sampled_init_phase_r;
+                output_detune_r <= sampled_detune_r;
             end
             if (envelope_capture_pending_r)
             begin

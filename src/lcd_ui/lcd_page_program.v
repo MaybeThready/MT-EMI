@@ -409,11 +409,10 @@ module lcd_page_program
                         number_scale_r = 3'd0;
                         font_style_r = 2'd1;
                         decimal_places_r = 3'd0;
-                        suffix_r = 4'd0;
                         negative_r = 1'b0;
                         sign_mode_r = 2'd0;
                         minimum_digits_r = 3'd1;
-                        suffix_r = (mode1 ? 4'd4 : 4'd1);
+                        suffix_r = 4'd1;  // 模式 1 的失谐程度与插值系数均按百分比显示。
                     end
                     6'd29:
                     begin

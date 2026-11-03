@@ -10,7 +10,7 @@ sys.dont_write_bytecode = True
 import random
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
-FIELDS = [('wavetable_0', 4, 0, True), ('wavetable_1', 4, 1, True), ('interp_percent', 7, 0, True), ('phase_degrees', 9, 0, True), ('attack_ms', 11, 5, True), ('decay_ms', 11, 150, True), ('sustain_percent', 7, 70, True), ('release_ms', 13, 200, True), ('master_gain', 16, 32768, False), ('reverb', 7, 0, False), ('delay', 7, 0, False), ('distortion', 7, 0, False), ('chorus', 7, 0, False)]
+FIELDS = [('wavetable_0', 4, 0, True), ('wavetable_1', 4, 1, True), ('interp_percent', 7, 0, True), ('detune_percent', 7, 0, True), ('attack_ms', 11, 5, True), ('decay_ms', 11, 150, True), ('sustain_percent', 7, 70, True), ('release_ms', 13, 200, True), ('master_gain', 16, 32768, False), ('reverb', 7, 0, False), ('delay', 7, 0, False), ('distortion', 7, 0, False), ('chorus', 7, 0, False)]
 
 ASSETS = ROOT / 'assets/ui/test_vectors/control'
 ASSETS.mkdir(parents=True, exist_ok=True)
@@ -41,7 +41,7 @@ class Bank:
         if mode == 0:
             mapping += [(2,1,0,100,5), (4,4,1,2000,10), (5,5,1,2000,10), (6,6,0,100,5), (7,7,0,5000,50)]
         else:
-            mapping += [(3,1,0,359,5)] + [(9+i,4+i,0,100,5) for i in range(4)]
+            mapping += [(3,1,0,100,5)] + [(9+i,4+i,0,100,5) for i in range(4)]
         for field, knob, low, high, coarse in mapping:
             if pressed & (1 << knob):
                 self.values[field] = DEFAULTS[field]
@@ -50,7 +50,7 @@ class Bank:
 
 def encode(v, freq):
     percent = lambda p: min(65535, (p*65536+50)//100)
-    return [v[0],v[1],(v[2]*32768+50)//100,(v[3]*65536+180)//360,
+    return [v[0],v[1],(v[2]*32768+50)//100,percent(v[3]),
             min(1048575,(v[4]*freq+500)//1000),min(1048575,(v[5]*freq+500)//1000),percent(v[6]),
             min(1048575,(v[7]*freq+500)//1000)]+[v[8]]+[percent(p) for p in v[9:]]
 
@@ -78,14 +78,14 @@ def make_bank(steps):
 
 def make_encoder(freq):
     rows=[]
-    # 覆盖每个合法整数相位、百分比及毫秒值，并同时改变其他字段，
+    # 覆盖每个合法整数失谐百分比、百分比及毫秒值，并同时改变其他字段，
     # 避免错误混合快照被恒定输入掩盖。
     for i in range(5001):
-        v=[i%4,(i+1)%4,i%101,i%360,1+i%2000,2000-i%2000,(i*17)%101,i]
+        v=[i%4,(i+1)%4,i%101,i%101,1+i%2000,2000-i%2000,(i*17)%101,i]
         v += [(i*97)%65536]+[(i*j)%101 for j in (5,7,11,13)]
         rows.append(v+encode(v,freq))
     # 非法上游超范围值的防御测试：20 位输出必须饱和，不能截断回绕。
-    v = [0,1,100,359,2047,2047,100,8191,65535,100,100,100,100]
+    v = [0,1,100,100,2047,2047,100,8191,65535,100,100,100,100]
     rows.append(v+encode(v,freq))
     write_vectors(f'encoder_{freq}.txt',rows)
 
@@ -150,7 +150,9 @@ def make_pipeline():
     # 长按 B2／B4、菜单进出、恢复默认与旋转同帧以及空事件。
     levels=[0,2,10,8,9,0,8,0,2,0,0,0]
     for batch in range(160):
-        b=levels[batch] if batch<len(levels) else rng.randrange(16)
+        # 已在前 12 批覆盖菜单进出；随机段只使用演奏页 B2/B4，
+        # 避免无存储响应的简化菜单模型进入无法退出的存取页。
+        b=levels[batch] if batch<len(levels) else rng.choice((0, 2, 8, 10))
         press=0 if previous_button is None else b & ~previous_button
         previous_button=b
         mode,menu,clear=menu_model.step(press,mode)

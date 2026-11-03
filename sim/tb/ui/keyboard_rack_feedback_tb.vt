@@ -35,7 +35,7 @@ module keyboard_rack_feedback_tb;
         .note_on(on_event), .note_off(off_event), .note_busy(busy),
         .note_busy_valid(busy_valid), .note_busy_ready(busy_ready),
         .note_freq(freq), .note_velocity(velocity),
-        .init_phase(16'd0), .attack_ticks(20'd1), .decay_ticks(20'd1),
+        .detune(16'd0), .attack_ticks(20'd1), .decay_ticks(20'd1),
         .sustain_level(16'h8000), .release_ticks(20'd0), .wavetable_0(4'd0), .wavetable_1(4'd0),
         .wavetable_interp(16'd0), .audio_out(audio), .in_valid(ui_valid), .in_ready(rack_ready),
         .out_valid(rack_valid), .out_ready(consumer_ready)

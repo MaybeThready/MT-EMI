@@ -77,7 +77,7 @@ module test_dynamic_music
         .note_on(note_on), .note_off(note_off), .note_busy(note_busy),
         .note_busy_valid(), .note_busy_ready(1'b1),
         .note_freq(note_freq), .note_velocity(note_velocity),
-        .init_phase(16'd0), .attack_ticks(20'd240),
+        .detune(16'd0), .attack_ticks(20'd240),
         .decay_ticks(20'd2400), .sustain_level(16'h9000),
         .release_ticks(20'd4800),
         .wavetable_0(4'd0), .wavetable_1(4'd1),

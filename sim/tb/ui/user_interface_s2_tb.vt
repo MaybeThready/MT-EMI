@@ -31,7 +31,7 @@ module user_interface_s2_tb;
     wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
     wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
     wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
-    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [15:0] detune [CHANNEL_NUM-1:0];
     wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
     wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
     wire [15:0] sustain_level [CHANNEL_NUM-1:0];
@@ -71,7 +71,7 @@ module user_interface_s2_tb;
     wire [331:0] parameters;
     assign parameters = {chorus_depth,chorus_rate,distortion_tone,distortion_gain,delay_feedback,delay_time,reverb_damping,reverb_feedback,balance_volume, chorus_mix, distortion_mix, delay_mix, reverb_mix,
         master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
-        attack_ticks[0], init_phase[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+        attack_ticks[0], detune[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
 
     wire storage_out_valid, storage_out_write, storage_in_ready;
     reg storage_out_ready = 1'b0;
@@ -132,7 +132,7 @@ module user_interface_s2_tb;
         .wavetable_0(wavetable_0),
         .wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase),
+        .detune(detune),
         .attack_ticks(attack_ticks),
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
@@ -373,7 +373,7 @@ module user_interface_s2_tb;
         real bend_cents, expected_frequency, frequency_error;
         begin
             interpolation = (expected[2] * 32768 + 50) / 100;
-            phase_value = (expected[3] * 65536 + 180) / 360;
+            phase_value = (expected[3] * 65536 + 50) / 100;
             attack_value = expected[4] * 48;
             decay_value = expected[5] * 48;
             release_value = expected[7] * 48;

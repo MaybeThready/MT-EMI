@@ -11,6 +11,7 @@
         <File path="src/audio/envelope_group.v" type="file.verilog" enable="1"/>
         <File path="src/audio/phase_accumulator.v" type="file.verilog" enable="1"/>
         <File path="src/audio/phase_accumulator_group.v" type="file.verilog" enable="1"/>
+        <File path="src/audio/detuned_phase_group.v" type="file.verilog" enable="1"/>
         <File path="src/audio/wavetable_interpolation.v" type="file.verilog" enable="1"/>
         <File path="src/audio/wavetable_synthesizer.v" type="file.verilog" enable="1"/>
         <File path="src/audio_mix_buffer/audio_mix_buffer.v" type="file.verilog" enable="1"/>

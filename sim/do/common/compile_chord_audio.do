@@ -4,6 +4,7 @@ vlog -sv -work $SIM_LIB ../src/audio/envelope.v
 vlog -sv -work $SIM_LIB ../src/audio/envelope_group.v
 vlog -sv -work $SIM_LIB ../src/audio/phase_accumulator.v
 vlog -sv -work $SIM_LIB ../src/audio/phase_accumulator_group.v
+vlog -sv -work $SIM_LIB ../src/audio/detuned_phase_group.v
 vlog -sv -work $SIM_LIB ../src/audio/wavetable_interpolation.v
 vlog -sv -work $SIM_LIB ../src/audio/wavetable_synthesizer.v
 vlog -sv -work $SIM_LIB ../src/mixer/chorus.v
