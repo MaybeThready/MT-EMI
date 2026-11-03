@@ -1,5 +1,6 @@
 `timescale 1ns/1ps
 /**
+ * 2026-11-02 新增合法和弦模式/候选、非法子菜单页面组合；旧冻结与背压检查保留。
  * LCD接收与调度自检：场景冻结/背压、绘制期间的新事件、长期停顿后的默认提示保留、提示到期重绘及复位/错误。
  */
 module ui_interaction_tb;
@@ -126,12 +127,18 @@ module ui_interaction_tb;
         render_done=0;
         if (protocol_error) $fatal(1,"same-edge completion rejected");
         display_in_state[509]=1'b1;
+        display_in_state[511]=1'b1;
         display_in_valid=1;
         @(negedge clk_sys);
         display_in_valid=0;
-        if (!protocol_error) $fatal(1,"nonzero reserved bits accepted silently");
+        if (protocol_error) $fatal(1,"valid chord mode/candidate rejected");
+        display_in_state[510]=1'b1; // Active submenu is illegal on play page0.
+        display_in_valid=1;
+        @(negedge clk_sys);
+        display_in_valid=0;
+        if (!protocol_error) $fatal(1,"submenu on non-menu page accepted silently");
         test_passed=1;
-        $display("UI_INTERACTION_PASS frozen latest long_stall_defaults expiry reset errors config reserved same_edge_done");
+        $display("UI_INTERACTION_PASS frozen latest long_stall_defaults expiry reset errors config chord_fields same_edge_done");
         $finish;
     end
     initial

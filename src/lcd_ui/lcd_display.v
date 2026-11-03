@@ -1,5 +1,5 @@
 /**
- * LCD完整连接层：528位UI快照与实际播放PCM输入，输出RGB666面板信号。
+ * 第四版LCD完整连接层：528位UI快照与实际播放PCM输入，输出RGB666面板信号。
  * 内部统一使用clk_sys/rst_sys_n，lcd_clk仅作为面板输出时钟。
  * 显示ready在复位释放后寄存一拍，运行时不依赖面板绘制背压；PCM接收也不等待绘图。
  * 列缓存保持锁定直到drawers完成提交；扫描、PLL及面板默认时序沿用正式工程。
@@ -11,12 +11,12 @@ module lcd_display
     parameter H_BACK=182, parameter H_FRONT=210,
     parameter V_BACK=8, parameter V_FRONT=45, parameter PIXEL_DIV=4
 )(
-    input clk_sys,input rst_n,
-    input [527:0] display_in_state,input display_in_valid,output display_in_ready,
-    input signed [15:0] audio_in,input audio_in_valid,output audio_in_ready,
-    output lcd_clk,output lcd_en,output [5:0] lcd_r,output [5:0] lcd_g,output [5:0] lcd_b,
-    output lcd_bl,output lcd_hs_n,output lcd_vs_n,
-    output protocol_error,output configuration_error,output frame_active
+    input wire clk_sys,input wire rst_n,
+    input wire [527:0] display_in_state,input wire display_in_valid,output wire display_in_ready,
+    input wire signed [15:0] audio_in,input wire audio_in_valid,output wire audio_in_ready,
+    output wire lcd_clk,output wire lcd_en,output wire [5:0] lcd_r,output wire [5:0] lcd_g,output wire [5:0] lcd_b,
+    output wire lcd_bl,output wire lcd_hs_n,output wire lcd_vs_n,
+    output wire protocol_error,output wire configuration_error,output wire frame_active
 );
     wire [527:0] scene_state;
     wire [21:0] highlight_mask,default_mask;
@@ -42,7 +42,7 @@ module lcd_display
     end
     assign protocol_error=ui_error || draw_error || address_error;
     assign configuration_error=ui_config || driver_config;
-    ui_interaction #(.CLK_SYS_HZ(CLK_SYS_HZ)) ui_interaction_u (
+    ui_interaction #(.CLK_SYS_HZ(CLK_SYS_HZ), .WAVE_COLUMNS(576), .GRAPH_Y_MIN(88), .GRAPH_Y_MAX(327)) ui_interaction_u (
     .clk_sys(clk_sys),.rst_n(rst_n),.display_in_state(display_in_state),
     .display_in_valid(display_in_valid && display_ready_r),.display_in_ready(interaction_ready),
     .audio_in(audio_in),.audio_in_valid(audio_in_valid),.audio_in_ready(audio_in_ready),
@@ -54,7 +54,15 @@ module lcd_display
     .scene_dropped_windows(),.column_rd_en(column_en),.column_rd_addr(column_addr),
     .column_rd_data(column_data),.dropped_windows(),.protocol_error(ui_error),.configuration_error(ui_config)
     );
+    wire frame_tick;
+    reg [15:0] frame_count_r;
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n) frame_count_r<=16'd0;
+        else if (frame_tick) frame_count_r<=frame_count_r+16'd1;
+    end
     drawers drawers_u (
+    .frame_count(frame_count_r),
     .clk_sys(clk_sys),.rst_n(rst_n),.in_valid(scene_valid),.in_ready(scene_ready),
     .scene_state(scene_state),.highlight_mask(highlight_mask),.default_mask(default_mask),
     .scene_wave_valid(wave_valid),.scene_spectrum_valid(spectrum_valid),.scene_pcm_valid(pcm_valid),
@@ -67,7 +75,7 @@ module lcd_display
     .V_BACK(V_BACK),.V_FRONT(V_FRONT),.PIXEL_DIV(PIXEL_DIV)) lcd_driver_u (
     .clk(clk_sys),.rst_n(rst_n),.word_valid(word_valid),.word_ready(word_ready),
     .word_kind(word_kind),.word_addr(word_addr),.word_data(word_data),
-    .present_valid(present_valid),.present_ready(present_ready),.frame_start(),.frame_active(frame_active),
+    .present_valid(present_valid),.present_ready(present_ready),.frame_start(frame_tick),.frame_active(frame_active),
     .address_error(address_error),.configuration_error(driver_config),
     .lcd_clk(lcd_clk),.lcd_en(lcd_en),.lcd_r(lcd_r),.lcd_g(lcd_g),.lcd_b(lcd_b),
     .lcd_bl(lcd_bl),.lcd_hs_n(lcd_hs_n),.lcd_vs_n(lcd_vs_n)

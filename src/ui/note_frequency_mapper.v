@@ -1,8 +1,11 @@
 /**
+ * 2026-11-02 S2和弦接口/逻辑变动：输入由物理key_id改为7位note_number，31项十二平均律UQ16.16查表覆盖60～90；原24音编码不变，单拍计算与背压协议不变。
+ */
+/**
  * note_frequency_mapper 模块 v2
  * v2版本修改：去掉装载使能中重复的复位判断，频率和延迟不变。
- * 把琴键编号换算成音符频率，24 键对应 C4～B5，A4 为键 9。
- * key_id/occupied: 每个声部的键号及是否已分配；未分配或键号非法时输出零。
+ * 把MIDI音高60～90换算为频率，涵盖C4～F♯6，A4为69。
+ * note_number/occupied: 每声部7位音高及占用；未占用或音高非法时输出零。
  * note_freq: 32 位 UQ16.16，编码为 round(频率 × 65536)，A4 为 440 Hz。
  * 输入握手后下一周期结果有效；等待接收时保持，复位清零。
  * NOTE: 由 generate_note_frequency.py 生成查表，不包含弯音或时钟误差补偿。
@@ -15,7 +18,7 @@ module note_frequency_mapper
 )(
     input clk_sys,
     input rst_n,
-    input [KEY_ID_WIDTH-1:0] key_id [MAX_POLYPHONY-1:0],
+    input [6:0] note_number [MAX_POLYPHONY-1:0],
     input [MAX_POLYPHONY-1:0] occupied,
     input in_valid,
     output in_ready,
@@ -31,33 +34,40 @@ module note_frequency_mapper
     integer voice;
     genvar voice_index;
     function [31:0] frequency_code;
-        input [KEY_ID_WIDTH-1:0] key_index;
+        input [6:0] midi_note;
         begin
-            case (key_index)
-                0: frequency_code = 32'd17145893;  // 键 0，261.625565301 Hz
-                1: frequency_code = 32'd18165441;  // 键 1，277.182630977 Hz
-                2: frequency_code = 32'd19245614;  // 键 2，293.664767917 Hz
-                3: frequency_code = 32'd20390018;  // 键 3，311.126983722 Hz
-                4: frequency_code = 32'd21602472;  // 键 4，329.627556913 Hz
-                5: frequency_code = 32'd22887021;  // 键 5，349.228231433 Hz
-                6: frequency_code = 32'd24247954;  // 键 6，369.994422712 Hz
-                7: frequency_code = 32'd25689813;  // 键 7，391.995435982 Hz
-                8: frequency_code = 32'd27217409;  // 键 8，415.304697580 Hz
-                9: frequency_code = 32'd28835840;  // 键 9，440.000000000 Hz
-                10: frequency_code = 32'd30550508;  // 键 10，466.163761518 Hz
-                11: frequency_code = 32'd32367136;  // 键 11，493.883301256 Hz
-                12: frequency_code = 32'd34291786;  // 键 12，523.251130601 Hz
-                13: frequency_code = 32'd36330882;  // 键 13，554.365261954 Hz
-                14: frequency_code = 32'd38491228;  // 键 14，587.329535835 Hz
-                15: frequency_code = 32'd40780036;  // 键 15，622.253967444 Hz
-                16: frequency_code = 32'd43204943;  // 键 16，659.255113826 Hz
-                17: frequency_code = 32'd45774043;  // 键 17，698.456462866 Hz
-                18: frequency_code = 32'd48495909;  // 键 18，739.988845423 Hz
-                19: frequency_code = 32'd51379626;  // 键 19，783.990871963 Hz
-                20: frequency_code = 32'd54434817;  // 键 20，830.609395160 Hz
-                21: frequency_code = 32'd57671680;  // 键 21，880.000000000 Hz
-                22: frequency_code = 32'd61101017;  // 键 22，932.327523036 Hz
-                23: frequency_code = 32'd64734272;  // 键 23，987.766602512 Hz
+            case (midi_note)
+                7'd60: frequency_code = 32'd17145893;  // 261.625565301 Hz
+                7'd61: frequency_code = 32'd18165441;  // 277.182630977 Hz
+                7'd62: frequency_code = 32'd19245614;  // 293.664767917 Hz
+                7'd63: frequency_code = 32'd20390018;  // 311.126983722 Hz
+                7'd64: frequency_code = 32'd21602472;  // 329.627556913 Hz
+                7'd65: frequency_code = 32'd22887021;  // 349.228231433 Hz
+                7'd66: frequency_code = 32'd24247954;  // 369.994422712 Hz
+                7'd67: frequency_code = 32'd25689813;  // 391.995435982 Hz
+                7'd68: frequency_code = 32'd27217409;  // 415.304697580 Hz
+                7'd69: frequency_code = 32'd28835840;  // 440.000000000 Hz
+                7'd70: frequency_code = 32'd30550508;  // 466.163761518 Hz
+                7'd71: frequency_code = 32'd32367136;  // 493.883301256 Hz
+                7'd72: frequency_code = 32'd34291786;  // 523.251130601 Hz
+                7'd73: frequency_code = 32'd36330882;  // 554.365261954 Hz
+                7'd74: frequency_code = 32'd38491228;  // 587.329535835 Hz
+                7'd75: frequency_code = 32'd40780036;  // 622.253967444 Hz
+                7'd76: frequency_code = 32'd43204943;  // 659.255113826 Hz
+                7'd77: frequency_code = 32'd45774043;  // 698.456462866 Hz
+                7'd78: frequency_code = 32'd48495909;  // 739.988845423 Hz
+                7'd79: frequency_code = 32'd51379626;  // 783.990871963 Hz
+                7'd80: frequency_code = 32'd54434817;  // 830.609395160 Hz
+                7'd81: frequency_code = 32'd57671680;  // 880.000000000 Hz
+                7'd82: frequency_code = 32'd61101017;  // 932.327523036 Hz
+                7'd83: frequency_code = 32'd64734272;  // 987.766602512 Hz
+                7'd84: frequency_code = 32'd68583572;  // 1046.502261202 Hz
+                7'd85: frequency_code = 32'd72661764;  // 1108.730523907 Hz
+                7'd86: frequency_code = 32'd76982457;  // 1174.659071670 Hz
+                7'd87: frequency_code = 32'd81560072;  // 1244.507934888 Hz
+                7'd88: frequency_code = 32'd86409886;  // 1318.510227651 Hz
+                7'd89: frequency_code = 32'd91548086;  // 1396.912925732 Hz
+                7'd90: frequency_code = 32'd96991818;  // 1479.977690847 Hz
                 default: frequency_code = 32'd0;
             endcase
         end
@@ -93,8 +103,8 @@ module note_frequency_mapper
         else if (in_valid && (current_state == STATE_WAIT_MAPPING))
         begin
             for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-                frequency_r[voice] <= (occupied[voice] && (key_id[voice] < KEY_NUM)) ?
-                    frequency_code(key_id[voice]) : 32'd0;
+                frequency_r[voice] <= (occupied[voice] && note_number[voice] >= 7'd60 && note_number[voice] <= 7'd90) ?
+                    frequency_code(note_number[voice]) : 32'd0;
         end
     end
     // synthesis translate_off

@@ -1,10 +1,13 @@
+set MT_RUN_NAME run_handoff_integration
+unset -nocomplain MT_LOG_TARGET
+do do/common/output_paths.do
 # 正式UI与LCD显示交接联合回归，检查完整快照、任务冻结及业务隔离。
 # 仿真DO文件从正式sim目录执行；实现TCL由用户在工具中自行运行。
 onerror {quit -code 1 -force}
 onbreak {resume}
 do do/common/setup_gowin.do
 set SIM_LIB lcd_ui/work_handoff_integration
-file mkdir lcd_ui/results
+file mkdir $LCD_RESULTS
 do do/common/setup.do
 vlog -sv -work $SIM_LIB ../src/common/fsm.v
 vlog -sv -work $SIM_LIB ../src/fixed_points/unsigned_fp_norm.v
@@ -15,7 +18,7 @@ vlog -sv -work $SIM_LIB ../src/lcd_ui/lcd_pcm_capture.v ../src/lcd_ui/lcd_wavefo
 do do/common/compile_lcd_spectrum.do
 vlog -sv -work $SIM_LIB ../src/lcd_ui/ui_interaction.v
 vlog -sv -work $SIM_LIB tb/lcd_ui/ui_display_handoff_tb.vt
-vsim -L gw5a -t 1ps -onfinish stop -wlf lcd_ui/results/ui_display_handoff.wlf $SIM_LIB.ui_display_handoff_tb
+vsim -L gw5a -t 1ps -onfinish stop -wlf $LCD_RESULTS/ui_display_handoff.wlf $SIM_LIB.ui_display_handoff_tb
 run -all
 if {[examine -radix unsigned sim:/ui_display_handoff_tb/test_passed] != 1} {quit -code 1 -force}
 echo UI_HANDOFF_INTEGRATION_SUITE_PASS

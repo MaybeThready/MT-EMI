@@ -1,0 +1,69 @@
+/**
+ * 2026-11-02 联合仿真用LCD同步存储模型，不加入高云工程。
+ * 与原厂ROM全地址、RAM跨块写读独立对照；rd_en后一拍，停使能保持，复位只清输出。
+ * 位图/文字来自实际ROM导出，不以假文字或假图形替代绘图RTL。
+ */
+module lcd_tile_rom_model(input clk,input rst_n,input rd_en,input [12:0] tile_id,input [3:0] glyph_y,output [7:0] glyph_row);
+    reg [7:0] memory[0:32767];
+    reg [7:0] data_r;
+    initial $readmemh("../assets/lcd_ui/v4/tiles.hex",memory);
+    assign glyph_row=data_r;
+    always @(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n) data_r<=8'd0;
+        else if(rd_en) data_r<=(tile_id<2048) ? memory[{tile_id,glyph_y}] : 8'd0;
+    end
+endmodule
+module lcd_text_rom_model(input clk,input rst_n,input rd_en,input [11:0] entry_addr,output [31:0] entry_data);
+    reg [31:0] memory[0:3071];
+    reg [31:0] data_r;
+    initial $readmemh("../assets/lcd_ui/v4/text.hex",memory);
+    assign entry_data=data_r;
+    always @(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n) data_r<=32'd0;
+        else if(rd_en) data_r<=(entry_addr<3072) ? memory[entry_addr] : 32'd0;
+    end
+endmodule
+module lcd_glyph_rom_model(input clk,input rst_n,input rd_en,input [1:0] font_style,input [4:0] character_id,input [3:0] tile_index,output [12:0] tile_id);
+    reg [15:0] memory[0:2047];
+    reg [12:0] data_r;
+    initial $readmemh("../assets/lcd_ui/v4/glyph.hex",memory);
+    assign tile_id=data_r;
+    always @(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n) data_r<=13'd0;
+        else if(rd_en) data_r<=memory[{font_style,character_id,tile_index}][12:0];
+    end
+endmodule
+module lcd_sdp_ram_model #(
+    parameter DATA_WIDTH=16,parameter DEPTH=3000,parameter ADDR_WIDTH=12
+)(
+    input clk,input rst_n,input wr_en,input [ADDR_WIDTH-1:0] wr_addr,
+    input [DATA_WIDTH-1:0] wr_data,input rd_en,input [ADDR_WIDTH-1:0] rd_addr,
+    output [DATA_WIDTH-1:0] rd_data
+);
+    reg [DATA_WIDTH-1:0] memory[0:DEPTH-1];
+    reg [DATA_WIDTH-1:0] data_r;
+    assign rd_data=data_r;
+    always @(posedge clk)
+    begin
+        if(rst_n && wr_en && wr_addr<DEPTH) memory[wr_addr]<=wr_data;
+    end
+    always @(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n) data_r<='0;
+        else if(rd_en && rd_addr<DEPTH) data_r<=memory[rd_addr];
+    end
+endmodule
+module lcd_fft_coeff_rom_model(input clk,input rst_n,input en,input [9:0] phase,output signed [16:0] coefficient);
+    reg [16:0] memory[0:1023];
+    reg [16:0] data_r;
+    initial $readmemh("../assets/lcd_ui/fft_cosine.hex",memory);
+    assign coefficient=data_r;
+    always @(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n) data_r<=17'd0;
+        else if(en) data_r<=memory[phase];
+    end
+endmodule

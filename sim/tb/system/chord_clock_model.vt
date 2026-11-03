@@ -1,0 +1,10 @@
+/**
+ * 仿真专用系统时钟边界：长和弦回归由TB直接提供系统频率时钟，复位经两拍同步释放。
+ * 只供compile_chord_system.do的CHORD_REAL_PLL=0分支；综合与PLL短测均使用正式sys_clocker。
+ * 不产生按键、参数、音频或显示数据，不改变业务采样ticker。
+ */
+module sys_clocker(input clk_core,input rst_n,output clk_sys,output rst_sys_n);
+    assign clk_sys=clk_core;
+    signal_sync #(.W(1),.INITIAL_VALUE(0)) reset_sync_u(
+        .clk(clk_sys),.rst_n(rst_n),.signal_in(1'b1),.signal_out(rst_sys_n));
+endmodule

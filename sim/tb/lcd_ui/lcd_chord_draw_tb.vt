@@ -1,0 +1,134 @@
+/**
+ * 2026-11-02 和弦绘图：普通/和弦演奏页、四组确认值/候选组合、原主菜单及保存上下文，共8例。
+ * 使用真实字形/文字SDPB，独立绘图字金标准，随机背压/冻结/列读取/提交与复位取消。
+ */
+`timescale 1ns/1ps
+module lcd_chord_draw_tb;
+    GSR GSR(.GSRI(1'b1));
+    reg clk=1'b0,rst_n=1'b0;
+    always #5 clk=~clk;
+    reg in_valid=1'b0;
+    wire in_ready;
+    reg [527:0] scene=528'd0;
+    reg [21:0] activity=22'd0,defaults=22'd0;
+    reg [20:0] metadata=21'd0;
+    wire column_en;
+    wire [10:0] column_addr;
+    reg [15:0] column_data=16'd0;
+    wire word_valid,word_kind,present_valid,done,error;
+    wire [11:0] word_addr;
+    wire [31:0] word_data;
+    reg word_ready=1'b0,present_ready=1'b0;
+    reg [15:0] random_r=16'h9215;
+    reg [7:0] present_wait=8'd0;
+    reg [527:0] cases[0:63];
+    reg [21:0] acts[0:63],defs[0:63];
+    reg [20:0] metas[0:63];
+    integer case_count=8,case_id=-1,fd,cycles=0,words=0,reads=0,presents=0,dones=0;
+    reg [44:0] stalled_word;
+    reg was_stalled=1'b0;
+    reg outstanding=1'b0,committed=1'b0;
+    localparam EXPECTED_COUNT=3611;
+    reg [45:0] expected_commands[0:EXPECTED_COUNT-1];
+    integer expected_index=0;
+    reg [4095:0] results_dir;
+    reg test_passed=1'b0;
+    task check_command;
+        input [45:0] actual;
+        begin
+            if(expected_index>=EXPECTED_COUNT) $fatal(1,"extra drawing command");
+            if(actual!==expected_commands[expected_index])
+                $fatal(1,"drawing mismatch frame=%0d command=%0d got=%012h expected=%012h",case_id,expected_index,actual,expected_commands[expected_index]);
+            expected_index=expected_index+1;
+        end
+    endtask
+    drawers drawers_u(.clk_sys(clk),.rst_n(rst_n),.in_valid(in_valid),.in_ready(in_ready),
+        .scene_state(scene),.highlight_mask(activity),.default_mask(defaults),
+        .scene_wave_valid(metadata[0]),.scene_spectrum_valid(metadata[1]),.scene_pcm_valid(metadata[2]),
+        .scene_output_peak(metadata[20:5]),.scene_fft_overflow(metadata[3]),.scene_spectrum_clipped(metadata[4]),
+        .column_rd_en(column_en),.column_rd_addr(column_addr),.column_rd_data(column_data),
+        .word_valid(word_valid),.word_ready(word_ready),.word_kind(word_kind),.word_addr(word_addr),.word_data(word_data),
+        .present_valid(present_valid),.present_ready(present_ready),.render_done(done),.protocol_error(error));
+    always @(negedge clk)
+    begin
+        random_r={random_r[14:0],random_r[15]^random_r[13]^random_r[12]^random_r[10]};
+        word_ready=rst_n && random_r[2:0]!=3'd0;
+        present_ready=rst_n && present_wait>=8'd17;
+    end
+    always @(posedge clk)
+    begin
+        cycles=cycles+1;
+        if(!rst_n)
+        begin was_stalled=1'b0;outstanding=1'b0;committed=1'b0;present_wait=8'd0;end
+        else
+        begin
+            if(was_stalled && (!word_valid || {word_kind,word_addr,word_data}!==stalled_word)) $fatal(1,"word changed while stalled");
+            was_stalled=word_valid && !word_ready;
+            stalled_word={word_kind,word_addr,word_data};
+            if(in_valid && in_ready) begin outstanding=1'b1;committed=1'b0;end
+            if(column_en)
+            begin
+                if(!outstanding || column_addr>=1088) $fatal(1,"column read outside job");
+                column_data<=column_addr[0] ? 16'd230 : 16'd170;
+                reads=reads+1;
+            end
+            if(word_valid && word_ready)
+            begin
+                if(!outstanding) $fatal(1,"word outside job");
+                if(!word_kind && word_addr!=4095 && word_addr>=3000) $fatal(1,"tile out of bounds");
+                if(word_kind && (word_addr<48 || word_addr>591)) $fatal(1,"graph crossed region");
+                if(case_id>=0 && case_id<case_count) check_command({1'b0,word_kind,word_addr,word_data});
+                words=words+1;
+                $fdisplay(fd,"W %0d %0d %08h",word_kind,word_addr,word_data);
+            end
+            if(present_valid) present_wait=present_wait+8'd1;
+            else present_wait=8'd0;
+            if(present_valid && present_ready)
+            begin
+                check_command(46'h200000000000);
+                committed=1'b1;presents=presents+1;$fdisplay(fd,"P");
+            end
+            if(done)
+            begin
+                if(!outstanding || !committed) $fatal(1,"premature/duplicate done");
+                outstanding=1'b0;dones=dones+1;
+            end
+            if(drawers_u.state[drawers_u.NUM_READY]) $fdisplay(fd,"N %0d %0d %032h",case_id,drawers_u.object_index_r,drawers_u.ascii_r);
+            if(error) $fatal(1,"drawing protocol error");
+        end
+        if(cycles>2000000) $fatal(1,"drawers watchdog");
+    end
+    initial
+    begin
+        if($value$plusargs("CASES=%d",case_count)) begin end
+        if(case_count!=8) $fatal(1,"golden regression requires44 cases");
+        $readmemh("../assets/lcd_ui/chord/new_words.hex",expected_commands);
+        $readmemh("../assets/lcd_ui/chord/new_states.hex",cases);
+        $readmemh("../assets/lcd_ui/chord/new_activity.hex",acts);
+        $readmemh("../assets/lcd_ui/chord/new_defaults.hex",defs);
+        $readmemh("../assets/lcd_ui/chord/new_metadata.hex",metas);
+        if(!$value$plusargs("RESULTS=%s",results_dir)) results_dir="../ai_workspace/sim/work_formal_chord_lcd_units/results";
+        fd=$fopen($sformatf("%0s/chord_draw_words.txt",results_dir),"w");
+        if(fd==0) $fatal(1,"Cannot open drawing trace");
+        repeat(4) @(negedge clk);rst_n=1'b1;
+        for(case_id=0;case_id<case_count;case_id=case_id+1)
+        begin
+            wait(in_ready);@(negedge clk);
+            $fdisplay(fd,"F %0d",case_id);
+            scene=cases[case_id];activity=acts[case_id];defaults=defs[case_id];metadata=metas[case_id];in_valid=1'b1;
+            @(negedge clk);in_valid=1'b0;scene=~scene;activity=~activity;defaults=~defaults;metadata=21'd0;
+            wait(done);@(negedge clk);
+        end
+        @(posedge clk);#1;
+        if(dones!=case_count || presents!=case_count || words<1000 || reads<1088) $fatal(1,"incomplete drawing coverage dones=%0d presents=%0d reads=%0d words=%0d",dones,presents,reads,words);
+        if(expected_index!=EXPECTED_COUNT) $fatal(1,"missing drawing commands");
+        // Reset an accepted job before its presentation; no ghost completion.
+        wait(in_ready);@(negedge clk);scene=cases[0];metadata=metas[0];in_valid=1'b1;
+        @(negedge clk);in_valid=1'b0;repeat(40) @(negedge clk);rst_n=1'b0;#1;
+        if(word_valid || present_valid || done) $fatal(1,"reset did not cancel drawing");
+        repeat(3) @(negedge clk);rst_n=1'b1;repeat(20) @(negedge clk);
+        if(!in_ready || done) $fatal(1,"reset recovery");
+        $fclose(fd);test_passed=1'b1;
+        $display("LCD_CHORD_DRAW_PASS cases=%0d words=%0d reads=%0d backpressure frozen decimal commit reset",case_count,words,reads);$finish;
+    end
+endmodule

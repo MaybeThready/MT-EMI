@@ -1,4 +1,7 @@
 /**
+ * 2026-11-02 S2和弦接口/逻辑变动：按钮先确定同批play_mode，再按32位批号与琴键帧配对；批号错误锁存configuration_error。音频外部接口不变，528位快照[509:511]新含义；本轮不接LCD。
+ */
+/**
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
  * 用户交互顶层 v6（S2 K4与八项高级参数）
  * S2：master_volume与balance_volume独立保留，八项高级参数经过最新/采样/输出缓存，背压稳定。
@@ -106,7 +109,8 @@ module user_interface
     // [453:420]menu/catalog; [455:454]configuration_error/sample_overrun;
     // [477:456]activity22; [499:478]reset22; [500]view0=WAVE/1=FFT;
     // [506:501]busy count; [507]busy-known; [508]bend-known;
-    // [511:509]zero; [527:512]calibrated bend request (0000/8000/FFFF).
+    // [509]play_mode, [510]mode submenu active, [511]mode candidate;
+    // [527:512]calibrated bend request (0000/8000/FFFF).
     // Transfer only on display_out_valid && display_out_ready. While waiting,
     // hold the full528-bit state and valid. Display ready never gates existing
     // input, audio, note_busy or storage ready. Old unsent models may coalesce;
@@ -134,6 +138,10 @@ module user_interface
     reg [15:0] bend_frame_r;
     reg [15:0] pressure_frame_r [KEY_NUM-1:0];
     wire keyboard_input_valid;
+    wire keyboard_context_valid, keyboard_context_ready, keyboard_context_play_mode;
+    wire [31:0] keyboard_context_batch_id;
+    wire keyboard_context_matches = keyboard_context_batch_id == batch_id_r;
+    reg keyboard_context_error_r;
     wire keyboard_input_ready;
     wire keyboard_audio_valid;
     wire keyboard_sample_ready;
@@ -247,7 +255,15 @@ module user_interface
     reg [15:0] latest_chorus_mix_r;
     reg [15:0] output_chorus_mix_r;
 
-    assign configuration_error = pipeline_configuration_error || pipeline_protocol_error ||
+    assign keyboard_context_ready = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES)
+        && !keyboard_delivered_r && keyboard_context_matches && keyboard_input_ready;
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n) keyboard_context_error_r <= 1'b0;
+        else if (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES && keyboard_context_valid
+                 && !keyboard_delivered_r && !keyboard_context_matches) keyboard_context_error_r <= 1'b1;
+    end
+    assign configuration_error = pipeline_configuration_error || pipeline_protocol_error || keyboard_context_error_r ||
         (CHANNEL_NUM != 1) || (KNOB_NUM != 8) || (BEND_NUM != 1) || (KEY_NUM < 1) || (KEY_NUM > 24) ||
         (SMP_TICK_FREQ < 1000) || (SMP_TICK_FREQ > 209715) ||
         (MAX_POLYPHONY < 1) || (VELOCITY_SLEW_STEP == 16'd0);
@@ -255,7 +271,8 @@ module user_interface
     assign in_ready = rst_n && input_frame_available;
     assign button_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !button_delivered_r;
     assign knob_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !knob_delivered_r;
-    assign keyboard_input_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !keyboard_delivered_r;
+    assign keyboard_input_valid = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES) && !keyboard_delivered_r
+        && keyboard_context_valid && keyboard_context_matches;
     // out_valid_r 与键盘有效状态均异步清零；不重复引入复位组合路径。
     assign out_valid = !configuration_error && out_valid_r && keyboard_audio_valid;
     assign audio_accept = out_valid && out_ready;
@@ -266,7 +283,7 @@ module user_interface
     ) keyboard_note_pipeline_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
         .smp_tick_up(smp_tick_up && !configuration_error),
-        .key_states(key_frame_r), .key_velocity(pressure_frame_r), .note_busy(note_busy),
+        .play_mode(keyboard_context_play_mode), .key_states(key_frame_r), .key_velocity(pressure_frame_r), .note_busy(note_busy),
         .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .bend_value(bend_frame_r),
         .in_valid(keyboard_input_valid), .in_ready(keyboard_input_ready),
@@ -404,6 +421,8 @@ module user_interface
         .knob_batch_last(1'b1),
         .knob_in_valid(knob_valid),
         .knob_in_ready(knob_ready),
+        .keyboard_context_valid(keyboard_context_valid), .keyboard_context_ready(keyboard_context_ready),
+        .keyboard_context_batch_id(keyboard_context_batch_id), .keyboard_context_play_mode(keyboard_context_play_mode),
         .display_model_commit(display_pipeline_commit),
         .display_model_payload(display_pipeline_payload),
         .out_valid(pipeline_valid),
@@ -704,7 +723,7 @@ module user_interface
         display_payload[474:469] = display_busy_count_r;
         display_payload[475] = display_busy_known_r;
         display_payload[476] = display_bend_known_r;
-        display_payload[479:477] = 3'd0;
+        // S2 chord fields[479:477] are supplied by the control model, never cleared here.
         display_payload[495:480] = display_bend_r;
     end
     ui_display_snapshot ui_display_snapshot_u (

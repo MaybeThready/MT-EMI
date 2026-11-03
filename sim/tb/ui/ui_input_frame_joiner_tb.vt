@@ -3,6 +3,7 @@
  * 参考向量使用整数物理单位独立计算。
  */
 module ui_input_frame_joiner_tb;
+    reg test_passed=0;
     reg clk_sys = 1'b0;
     always #5.086263 clk_sys = ~clk_sys;
     reg rst_n = 1'b0;
@@ -63,6 +64,7 @@ module ui_input_frame_joiner_tb;
     ui_input_frame_joiner #(
         .BATCH_ID_WIDTH(BATCH_ID_WIDTH)
     ) ui_input_frame_joiner_u (
+        .handler_button_batch_id(),
         .context_effect_select(2'd2), .context_effect_reset(1'b1), .effect_select(effect_select), .effect_reset(effect_reset),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
@@ -307,6 +309,6 @@ module ui_input_frame_joiner_tb;
         repeat (3) @(negedge clk_sys);
         if (button_out_valid || knob_out_valid || protocol_error) $fatal(1,"Cross-reset pairing");
         $display("UI_INPUT_FRAME_JOINER_PASS batches=100 frames=199 error_cases=3");
-        $finish;
+        test_passed=1; $finish;
     end
 endmodule

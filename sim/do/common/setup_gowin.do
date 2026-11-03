@@ -1,9 +1,8 @@
-# Run from sim/. Vendor installation is external; design inputs stay relative.
-# Set GOWIN_PRIM_SIM to a prim_sim.v, or GOWIN_HOME to the EDA installation.
-# Compiled vendor models are generated locally, never copied from ai_workspace.
-if {![file exists modelsim.ini]} {vmap -c}
-file mkdir vendor
-if {![file isdirectory vendor/gw5a]} {
+# 原厂GW5A仿真库只编译到ai_workspace，源文件来自用户安装的EDA。
+do do/common/output_paths.do
+set GOWIN_SIM_LIB [file join $MT_AI sim vendor gw5a]
+file mkdir [file dirname $GOWIN_SIM_LIB]
+if {![file isdirectory $GOWIN_SIM_LIB]} {
     set primitive ""
     if {[info exists ::env(GOWIN_PRIM_SIM)]} {set primitive $::env(GOWIN_PRIM_SIM)}
     if {$primitive eq "" && [info exists ::env(GOWIN_HOME)]} {
@@ -21,13 +20,8 @@ if {![file isdirectory vendor/gw5a]} {
             if {$primitive ne ""} {break}
         }
     }
-    if {![file exists $primitive]} {
-        error "Set GOWIN_PRIM_SIM or GOWIN_HOME to the installed GW5A simulation library."
-    }
-    vlib vendor/gw5a
-    vlog -work vendor/gw5a $primitive
+    if {![file exists $primitive]} {error "Set GOWIN_PRIM_SIM or GOWIN_HOME to installed GW5A prim_sim.v"}
+    vlib $GOWIN_SIM_LIB
+    vlog -modelsimini $::env(MODELSIM) -work $GOWIN_SIM_LIB $primitive
 }
-quietly set map_fd [open modelsim.ini r]
-quietly set map_text [read $map_fd]
-close $map_fd
-if {![regexp {gw5a\s*=\s*vendor/gw5a} $map_text]} {vmap gw5a vendor/gw5a}
+vmap -modelsimini $::env(MODELSIM) gw5a $GOWIN_SIM_LIB

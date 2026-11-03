@@ -15,27 +15,27 @@ module lcd_driver
     parameter V_BACK = 8,
     parameter V_FRONT = 45
 )(
-    input clk,
-    input rst_n,
-    input word_valid,
-    output word_ready,
-    input word_kind,
-    input [11:0] word_addr,
-    input [31:0] word_data,
-    input present_valid,
-    output present_ready,
-    output frame_start,
-    output frame_active,
-    output address_error,
-    output configuration_error,
-    output lcd_clk,
-    output lcd_en,
-    output [5:0] lcd_r,
-    output [5:0] lcd_g,
-    output [5:0] lcd_b,
-    output lcd_bl,
-    output lcd_hs_n,
-    output lcd_vs_n
+    input wire clk,
+    input wire rst_n,
+    input wire word_valid,
+    output wire word_ready,
+    input wire word_kind,
+    input wire [11:0] word_addr,
+    input wire [31:0] word_data,
+    input wire present_valid,
+    output wire present_ready,
+    output wire frame_start,
+    output wire frame_active,
+    output wire address_error,
+    output wire configuration_error,
+    output wire lcd_clk,
+    output wire lcd_en,
+    output wire [5:0] lcd_r,
+    output wire [5:0] lcd_g,
+    output wire [5:0] lcd_b,
+    output wire lcd_bl,
+    output wire lcd_hs_n,
+    output wire lcd_vs_n
 );
     localparam H_TOTAL = H_BACK + H_ACTIVE + H_FRONT;
     localparam V_TOTAL = V_BACK + V_ACTIVE + V_FRONT;
@@ -54,6 +54,7 @@ module lcd_driver
     wire [9:0] scan_x;
     wire [8:0] scan_y;
     wire [3:0] scene_index;
+    wire [3:0] scene_phase;
     wire [17:0] scene_rgb;
 
     assign configuration_error = (PIXEL_DIV < 2) || ((PIXEL_DIV % 2) != 0) ||
@@ -81,9 +82,9 @@ module lcd_driver
         .present_valid(present_valid && !configuration_error), .present_ready(present_ready),
         // Commit exactly with the last SDP read, not before pending coordinates.
         .frame_boundary(memory_boundary_r[1]), .frame_active(frame_active), .address_error(address_error),
-        .scan_active(scan_active_r), .scan_x(scan_x_r), .scan_y(scan_y_r), .pixel_index(scene_index)
+        .scan_active(scan_active_r), .scan_x(scan_x_r), .scan_y(scan_y_r), .pixel_index(scene_index), .pixel_phase(scene_phase)
     );
-    lcd_palette lcd_palette_u (.pixel_index(scene_index), .pixel_rgb(scene_rgb));
+    lcd_palette lcd_palette_u (.pixel_index(scene_index), .phase(scene_phase), .pixel_rgb(scene_rgb));
 
     always @(posedge clk or negedge rst_n)
     begin

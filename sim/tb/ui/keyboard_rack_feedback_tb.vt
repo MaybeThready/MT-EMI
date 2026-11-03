@@ -22,6 +22,7 @@ module keyboard_rack_feedback_tb;
     integer on_count = 0, off_count = 0, result_count = 0, feedback_count = 0;
     reg test_passed = 0;
     keyboard_note_pipeline #(.KEY_NUM(2), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
+        .play_mode(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(tick),
         .key_states(keys), .key_velocity(pressure), .bend_value(16'h8000),
         .note_busy(busy), .note_busy_valid(busy_valid), .note_busy_ready(busy_ready),

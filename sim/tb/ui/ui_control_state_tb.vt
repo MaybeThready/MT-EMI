@@ -40,6 +40,7 @@ module ui_control_state_tb;
     wire [3:0] preset_command_slot;
     integer value [0:5];
     ui_control_state ui_control_state_u (
+        .play_mode(), .menu_play_mode_active(), .menu_play_mode_selection(),
         .effect_select(), .effect_reset(), .menu_effect_reset(),
         .preset_command_valid(preset_command_valid),
         .preset_command_ready(preset_command_ready),

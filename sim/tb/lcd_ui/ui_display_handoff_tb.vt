@@ -1,5 +1,6 @@
 `timescale 1ns/1ps
 /**
+ * 2026-11-02 S2和弦：快照509..511为已定义模式字段，只检查子菜单/page组合合法性。
  * UI->LCD交接：真实UI公共显示口接ui_interaction，另一UI长期显示背压，逐拍比较旧业务输出。
  * 核对528位字段、冻结场景、B3视图、同批模式/微调、busy=32及bend端点；以下原S2断言保留。
  * 公开 UI 音色自检：真实采样节拍下测试菜单、16 槽、覆盖、取消、错误和复位。
@@ -567,7 +568,7 @@ module ui_display_handoff_tb;
                 seen_activity=seen_activity|display_state[477:456];
                 seen_reset=seen_reset|display_state[499:478];
                 if(display_state[507] && display_state[506:501]==32) seen_busy32=1;
-                if(display_state[511:509]!==0) $fatal(1,"V2 reserved bits");
+                if(display_state[510] && display_state[422:420]!=3'd1) $fatal(1,"chord submenu/page mismatch");
             end
             if(clone_display_out_valid && clone_display_ready)
                 latest_clone_display=clone_display_out_state;

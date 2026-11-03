@@ -2,6 +2,7 @@
 do do/common/compile_phase_accumulator.do
 vlog -sv -work $SIM_LIB ../src/audio/phase_accumulator_group.v
 vlog -sv -work $SIM_LIB ../src/ui/button_event_handler.v
+vlog -sv -work $SIM_LIB ../src/ui/chord_note_expander.v
 vlog -sv -work $SIM_LIB ../src/ui/keyboard_event_handler.v
 vlog -sv -work $SIM_LIB ../src/ui/keyboard_frame_events.v
 vlog -sv -work $SIM_LIB ../src/ui/keyboard_note_pipeline.v
