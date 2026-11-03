@@ -91,6 +91,9 @@ module lcd_waveform_builder_tb;
         integer raw;
         begin
             raw = sample;
+            if (raw > 8191) raw = 32767;
+            else if (raw < -8192) raw = -32768;
+            else raw = raw * 4;
             map_y = 327 - (((raw + 32768) * 239 + 32768) / 65536);
         end
     endfunction

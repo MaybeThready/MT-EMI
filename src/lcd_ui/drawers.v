@@ -61,6 +61,13 @@ module drawers
     reg [2:0] scale_r;
     reg object_valid_r,object_number_r;
     reg [31:0] scale_a_r,scale_b_r,scale_c_r,scale_ab_r,scale_total_r;
+    // 48 kHz: hundredths of a millisecond = round(samples * 25 / 12).
+    // Divide the 21-bit numerator by 12 over 21 drawing cycles.
+    reg [4:0] time_div_bit_r;
+    reg [3:0] time_div_rem_r;
+    reg [20:0] time_div_quot_r;
+    wire [4:0] time_div_trial={time_div_rem_r,scale_total_r[time_div_bit_r]};
+    wire time_div_take=(time_div_trial>=5'd12);
     wire [31:0] scale_raw={16'd0,number_r[15:0]};
     reg [1:0] style_r,sign_r;
     reg [2:0] decimals_r,minimum_r;
@@ -152,6 +159,8 @@ module drawers
                 4'd7:chars=35'h00534620;
                 4'd8:chars=35'h00746320;
                 4'd9:chars=35'h32332f20;
+                4'd10:chars=32'h0000006b;
+                4'd11:chars=32'h007a486b;
                 default:chars=32'd0;
             endcase
             suffix_char=(index<4) ? chars[8*index +:8] : 8'd0;
@@ -229,7 +238,7 @@ module drawers
             state[SCALE_A]:next_state=35'h08000000;
             state[SCALE_B]:next_state=35'h10000000;
             state[SCALE_C]:next_state=35'h20000000;
-            state[SCALE_D]:next_state=35'h00000100;
+            state[SCALE_D]:if(scale_r!=3'd7 || time_div_bit_r==5'd0) next_state=35'h00000100;
             state[TEXT_READ]:next_state=35'h00000020;
             state[TEXT_WAIT]:next_state=35'h00000040;
             state[TEXT_SEND]:if(word_ready) next_state=(text_index_r+8'd1==text_count_r) ? 35'h00000080 : 35'h00000010;
@@ -293,6 +302,9 @@ module drawers
             scale_c_r<=32'd0;
             scale_ab_r<=32'd0;
             scale_total_r<=32'd0;
+            time_div_bit_r<=5'd0;
+            time_div_rem_r<=4'd0;
+            time_div_quot_r<=21'd0;
             style_r<=2'd0;
             sign_r<=2'd0;
             decimals_r<=3'd0;
@@ -383,6 +395,12 @@ module drawers
             if(state[SCALE_A])
             begin
                 case(scale_r)
+                    3'd7:
+                    begin
+                        scale_a_r<=(scale_raw<<4)+(scale_raw<<3);
+                        scale_b_r<=scale_raw;
+                        scale_c_r<=32'd6;
+                    end
                     3'd1:
                     begin
                         scale_a_r<=(scale_raw<<6)+(scale_raw<<5);
@@ -409,15 +427,35 @@ module drawers
                 endcase
             end
             if(state[SCALE_B]) scale_ab_r<=scale_a_r+scale_b_r;
-            if(state[SCALE_C]) scale_total_r<=scale_ab_r+scale_c_r;
+            if(state[SCALE_C])
+            begin
+                scale_total_r<=scale_ab_r+scale_c_r;
+                if(scale_r==3'd7)
+                begin
+                    time_div_bit_r<=5'd20;
+                    time_div_rem_r<=4'd0;
+                    time_div_quot_r<=21'd0;
+                end
+            end
             if(state[SCALE_D])
             begin
-                case(scale_r)
-                    3'd1,3'd5,3'd6:number_r<={7'd0,scale_total_r[31:15]};
-                    3'd2:number_r<={8'd0,scale_total_r[31:16]};
-                    3'd3:number_r<={4'd0,scale_total_r[31:12]};
-                    default:number_r<={6'd0,scale_total_r[31:14]};
-                endcase
+                if(scale_r==3'd7)
+                begin
+                    time_div_rem_r<=time_div_take ? time_div_trial-5'd12 : time_div_trial[3:0];
+                    time_div_quot_r<={time_div_quot_r[19:0],time_div_take};
+                    if(time_div_bit_r==5'd0)
+                        number_r<={3'd0,time_div_quot_r[19:0],time_div_take};
+                    else time_div_bit_r<=time_div_bit_r-5'd1;
+                end
+                else
+                begin
+                    case(scale_r)
+                        3'd1,3'd5,3'd6:number_r<={7'd0,scale_total_r[31:15]};
+                        3'd2:number_r<={8'd0,scale_total_r[31:16]};
+                        3'd3:number_r<={4'd0,scale_total_r[31:12]};
+                        default:number_r<={6'd0,scale_total_r[31:14]};
+                    endcase
+                end
             end
             if(state[INFO])
             begin

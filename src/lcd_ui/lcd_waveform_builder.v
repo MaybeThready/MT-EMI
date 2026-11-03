@@ -7,8 +7,8 @@
  * column_rd_en/addr为同步读，一拍结果；地址2*j/2*j+1分别为y_min/y_max。
  * wave_done为完成脉冲；wave_valid表示缓存完整可读，重建时清0。
  * wave_seq/wave_peak只在整份缓存完成后更新，peak为无符号原码0..32768。
- * 常量比例映射端点：-32768 -> GRAPH_Y_MAX，32767 -> GRAPH_Y_MIN。
- * 使用16位偏置码乘编译期常数、舍入右移16；无变量除法、自动增益或饱和回绕。
+ * 绘图采样放大4倍并在满幅处削波，峰值数值仍为未放大的原始PCM。
+ * 使用16位偏置码乘编译期常数、舍入右移16；无变量除法或饱和回绕。
  */
 module lcd_waveform_builder
 #(
@@ -59,8 +59,10 @@ module lcd_waveform_builder
     reg [31:0] working_seq_r, wave_seq_r;
     reg window_release_r, wave_done_r, wave_valid_r, protocol_error_r;
     wire start_fire = start_valid && start_ready;
-    // Bias the signed PCM to 0..65535 without a signed/unsigned multiply.
-    wire [15:0] biased_pcm = {~pcm_rd_data[15], pcm_rd_data[14:0]};
+    // Scale only the plotted sample; keep the reported peak in raw PCM units.
+    wire signed [15:0] display_pcm = (pcm_rd_data > 16'sd8191) ? 16'sh7fff :
+        (pcm_rd_data < -16'sd8192) ? 16'sh8000 : {pcm_rd_data[13:0],2'b00};
+    wire [15:0] biased_pcm = {~display_pcm[15], display_pcm[14:0]};
     wire [24:0] scaled_pcm = biased_pcm * Y_SPAN;
     wire [24:0] rounded_pcm = scaled_pcm + 25'd32768;
     wire [10:0] phase_sum = {1'b0, phase_r} + COLUMN_STEP;

@@ -161,6 +161,9 @@ module lcd_text_info(input wire [7:0] string_id, output wire [11:0] start_addr, 
             8'd148: info=20'hadb26;
             8'd149: info=20'hb0114;
             8'd150: info=20'hb1512;
+            // Both halves of the gain caption in string 133, without its K1 icon.
+            8'd151: info=20'h92607;
+            8'd152: info=20'h93207;
             default: info=20'd0;
         endcase
     end
