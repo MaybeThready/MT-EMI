@@ -1,0 +1,220 @@
+/**
+ * 列缓存独立数值参考：544/800/1/1024列，静音、满幅、阶跃、脉冲和随机原码。
+ * 软件参考按ceil划分bin，逐字检查真实SDP及跨块读延迟；检验连接、峰值、
+ * 单次释放、重建互斥、构建中复位与非法读。PCM只在TB中用数组模拟同步读。
+ */
+`timescale 1ns/1ps
+module lcd_waveform_builder_tb;
+    parameter COLUMNS = 576;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0, build_enable = 1'b1, start_valid = 1'b0;
+    reg [31:0] window_seq = 32'd0;
+    reg signed [15:0] pcm_rd_data = 16'sd0;
+    reg column_rd_en = 1'b0;
+    reg [10:0] column_rd_addr = 11'd0;
+    wire start_ready, pcm_rd_en, window_release, busy, wave_done, wave_valid;
+    wire [9:0] pcm_rd_addr;
+    wire [31:0] wave_seq;
+    wire [15:0] wave_peak, column_rd_data;
+    wire protocol_error, configuration_error;
+    reg signed [15:0] samples [0:1023];
+    reg test_passed = 1'b0;
+    integer read_count = 0, releases = 0;
+    integer vector, i, j, k, first, after_last, minimum, maximum, y, expected_peak, magnitude;
+    reg [31:0] random_word = 32'h9361b52d;
+    wire [3:0] invalid_ready, invalid_configuration;
+    genvar invalid_case;
+    generate
+        for (invalid_case = 0; invalid_case < 4; invalid_case = invalid_case + 1)
+        begin
+            : invalid_parameters
+            lcd_waveform_builder #(
+                .WAVE_COLUMNS((invalid_case == 0) ? 0 : (invalid_case == 1) ? 1025 : 544),
+                .GRAPH_Y_MIN((invalid_case == 3) ? 303 : 96),
+                .GRAPH_Y_MAX((invalid_case == 2) ? 480 : 303)
+            ) lcd_waveform_builder_u (
+                .clk_sys(clk_sys), .rst_n(rst_n), .build_enable(1'b1),
+                .start_valid(1'b1), .start_ready(invalid_ready[invalid_case]), .window_seq(32'd0),
+                .pcm_rd_en(), .pcm_rd_addr(), .pcm_rd_data(16'sd0),
+                .window_release(), .busy(), .wave_done(), .wave_valid(), .wave_seq(), .wave_peak(),
+                .column_rd_en(1'b0), .column_rd_addr(11'd0), .column_rd_data(),
+                .protocol_error(), .configuration_error(invalid_configuration[invalid_case]),
+        .column_wr_en(), .column_wr_addr(), .column_wr_data()
+    );
+        end
+    endgenerate
+
+    lcd_waveform_builder #(.WAVE_COLUMNS(COLUMNS),.GRAPH_Y_MIN(88),.GRAPH_Y_MAX(327)) lcd_waveform_builder_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .build_enable(build_enable),
+        .start_valid(start_valid), .start_ready(start_ready), .window_seq(window_seq),
+        .pcm_rd_en(pcm_rd_en), .pcm_rd_addr(pcm_rd_addr), .pcm_rd_data(pcm_rd_data),
+        .window_release(window_release), .busy(busy), .wave_done(wave_done),
+        .wave_valid(wave_valid), .wave_seq(wave_seq), .wave_peak(wave_peak),
+        .column_rd_en(column_rd_en), .column_rd_addr(column_rd_addr), .column_rd_data(column_rd_data),
+        .protocol_error(protocol_error), .configuration_error(configuration_error),
+        .column_wr_en(), .column_wr_addr(), .column_wr_data()
+    );
+
+    always @(posedge clk_sys)
+    begin
+        if (!rst_n)
+        begin
+            read_count = 0;
+            releases = 0;
+        end
+        else
+        begin
+            if (start_valid && start_ready)
+            begin
+                read_count = 0;
+                releases = 0;
+            end
+            if (pcm_rd_en)
+            begin
+                if (pcm_rd_addr !== read_count[9:0] || read_count >= 1024)
+                    $fatal(1, "PCM read order/count");
+                pcm_rd_data <= samples[pcm_rd_addr];
+                read_count = read_count + 1;
+            end
+            if (window_release)
+            begin
+                releases = releases + 1;
+                if (read_count != 1024 || releases != 1) $fatal(1, "PCM released early or twice");
+            end
+        end
+    end
+
+    function integer map_y;
+        input signed [15:0] sample;
+        integer raw;
+        begin
+            raw = sample;
+            if (raw > 8191) raw = 32767;
+            else if (raw < -8192) raw = -32768;
+            else raw = raw * 4;
+            map_y = 327 - (((raw + 32768) * 239 + 32768) / 65536);
+        end
+    endfunction
+
+    task read_column_word;
+        input integer address;
+        input integer expected;
+        begin
+            @(negedge clk_sys);
+            column_rd_addr = address;
+            column_rd_en = 1'b1;
+            @(posedge clk_sys);
+            #1;
+            if (column_rd_data !== expected[15:0])
+                $fatal(1, "column=%0d got=%0d expected=%0d columns=%0d vector=%0d",address,column_rd_data,expected,COLUMNS,vector);
+        end
+    endtask
+
+    task run_window;
+        begin
+            @(negedge clk_sys);
+            column_rd_en = 1'b0;
+            window_seq = window_seq + 32'd7;
+            start_valid = 1'b1;
+            if (!start_ready) $fatal(1, "builder unexpectedly not ready");
+            @(negedge clk_sys);
+            start_valid = 1'b0;
+            if (wave_valid || !busy) $fatal(1, "partial cache advertised valid");
+            wait (wave_done);
+            @(negedge clk_sys);
+            if (!wave_valid || wave_seq !== window_seq || releases != 1 || read_count != 1024)
+                $fatal(1, "completed metadata/ownership");
+            expected_peak = 0;
+            for (i = 0; i < 1024; i = i + 1)
+            begin
+                magnitude = samples[i];
+                if (magnitude < 0) magnitude = -magnitude;
+                if (magnitude > expected_peak) expected_peak = magnitude;
+            end
+            if (wave_peak !== expected_peak[15:0]) $fatal(1, "peak mismatch at signed endpoint");
+            first = 0;
+            for (j = 0; j < COLUMNS; j = j + 1)
+            begin
+                after_last = ((j + 1) * 1024 + COLUMNS - 1) / COLUMNS;
+                minimum = 479;
+                maximum = 0;
+                // Include preceding bin's last sample for line continuity.
+                for (k = (first == 0 ? 0 : first - 1); k < after_last; k = k + 1)
+                begin
+                    y = map_y(samples[k]);
+                    if (y < minimum) minimum = y;
+                    if (y > maximum) maximum = y;
+                end
+                read_column_word(2*j, minimum);
+                read_column_word(2*j+1, maximum);
+                first = after_last;
+            end
+            @(negedge clk_sys);
+            column_rd_en = 1'b0;
+            if (configuration_error || protocol_error) $fatal(1, "unexpected builder error");
+        end
+    endtask
+
+    initial
+    begin
+        repeat (3) @(negedge clk_sys);
+        rst_n = 1'b1;
+        #1;
+        if (invalid_ready !== 4'd0 || invalid_configuration !== 4'hf)
+            $fatal(1, "invalid column count/geometry accepted a build");
+        for (vector = 0; vector < 6; vector = vector + 1)
+        begin
+            for (i = 0; i < 1024; i = i + 1)
+            begin
+                random_word = {random_word[30:0],random_word[31]^random_word[21]^random_word[1]^random_word[0]};
+                case (vector)
+                    0: samples[i] = 16'sd0;
+                    1: samples[i] = 16'sh7fff;
+                    2: samples[i] = 16'sh8000;
+                    3: samples[i] = i[0] ? 16'sh7fff : 16'sh8000;
+                    4: samples[i] = (i == 512 || i == 1023) ? 16'sh8000 : 16'sd1;
+                    default: samples[i] = random_word[15:0];
+                endcase
+            end
+            run_window;
+        end
+        build_enable = 1'b0;
+        start_valid = 1'b1;
+        repeat (20) @(negedge clk_sys);
+        if (start_ready || busy || !wave_valid) $fatal(1, "locked cache rebuilt");
+        start_valid = 1'b0;
+        build_enable = 1'b1;
+        @(negedge clk_sys);
+        start_valid = 1'b1;
+        @(negedge clk_sys);
+        start_valid = 1'b0;
+        wait (pcm_rd_addr == 10'd120);
+        @(negedge clk_sys);
+        rst_n = 1'b0;
+        #1;
+        if (wave_valid || busy || window_release) $fatal(1, "builder reset during build");
+        repeat (3) @(negedge clk_sys);
+        rst_n = 1'b1;
+        run_window;
+        // Intentional invalid read after cache rebuild starts.
+        @(negedge clk_sys);
+        start_valid = 1'b1;
+        @(negedge clk_sys);
+        start_valid = 1'b0;
+        column_rd_en = 1'b1;
+        @(negedge clk_sys);
+        column_rd_en = 1'b0;
+        if (!protocol_error) $fatal(1, "concurrent read/write not diagnosed");
+        test_passed = 1'b1;
+        $display("LCD_WAVEFORM_BUILDER_PASS columns=%0d vectors=7 real_sdp signed_endpoints bins continuity peak reset lock",COLUMNS);
+        $finish;
+    end
+
+    initial
+    begin
+        #3000000;
+        $fatal(1, "builder watchdog");
+    end
+endmodule

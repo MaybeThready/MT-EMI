@@ -1,0 +1,122 @@
+`timescale 1ns/1ps
+
+/** Check the actual LCD number formatter at 48 kHz, including boundary values. */
+module lcd_unit_format_tb;
+    GSR GSR(.GSRI(1'b1));
+    reg clk_sys=0, rst_n=0, in_valid=0;
+    always #5 clk_sys=~clk_sys;
+    reg [544:0] scene=545'd0;
+    reg [15:0] peak=16'd0;
+    reg pcm_valid=0;
+    wire in_ready, word_valid, word_kind, present_valid, render_done, protocol_error;
+    wire column_rd_en;
+    wire [10:0] column_rd_addr;
+    wire [11:0] word_addr;
+    wire [31:0] word_data;
+    integer case_id=0, checked=0, i;
+    reg test_passed=0;
+
+    drawers dut (
+        .clk_sys(clk_sys), .rst_n(rst_n), .in_valid(in_valid), .in_ready(in_ready),
+        .frame_count(16'd0), .scene_state(scene), .highlight_mask(22'd0),
+        .default_mask(22'd0), .scene_wave_valid(1'b0),
+        .scene_spectrum_valid(1'b0), .scene_pcm_valid(pcm_valid),
+        .scene_output_peak(peak), .scene_fft_overflow(1'b0),
+        .scene_spectrum_clipped(1'b0), .column_rd_en(column_rd_en),
+        .column_rd_addr(column_rd_addr), .column_rd_data(16'd0),
+        .word_valid(word_valid), .word_ready(1'b1), .word_kind(word_kind),
+        .word_addr(word_addr), .word_data(word_data),
+        .present_valid(present_valid), .present_ready(1'b1),
+        .render_done(render_done), .protocol_error(protocol_error)
+    );
+
+    task check_text;
+        input string expected;
+        begin
+            if (dut.ascii_count_r !== expected.len())
+                $fatal(1,"case=%0d object=%0d length=%0d expected=%0d ascii=%h suffix=%0d valid=%b",
+                    case_id,dut.object_index_r,dut.ascii_count_r,expected.len(),
+                    dut.ascii_r,dut.suffix_r,dut.snapshot_r[544]);
+            for (i=0;i<expected.len();i=i+1)
+                if (dut.ascii_r[8*i +: 8] !== expected.getc(i))
+                    $fatal(1,"case=%0d object=%0d char=%0d got=%h expected=%h",
+                        case_id,dut.object_index_r,i,dut.ascii_r[8*i +: 8],expected.getc(i));
+            checked=checked+1;
+        end
+    endtask
+
+    always @(posedge clk_sys) if (rst_n && dut.state[dut.NUM_READY]) begin
+        case (case_id)
+            1: if (dut.object_index_r==6'd6) check_text("250.00 ms");
+               else if (dut.object_index_r==6'd15) check_text("1.0000 x");
+            2: if (dut.object_index_r==6'd6) check_text("0.02 ms");
+               else if (dut.object_index_r==6'd15) check_text("0.0000 x");
+            3: if (dut.object_index_r==6'd6) check_text("1365.31 ms");
+            4: if (dut.object_index_r==6'd8) check_text("0.50 ms");
+            5: if (dut.object_index_r==6'd8) check_text("5.31 ms");
+            6: if (dut.object_index_r==6'd9) begin
+                check_text("1.00 FS");
+                if (dut.col_r!=7'd82 || dut.col_r+2*dut.ascii_count_r>100)
+                    $fatal(1,"peak value crosses LCD text area");
+            end
+            7,8: case (dut.object_index_r)
+                6'd12: check_text("0");
+                6'd13: check_text("1k");
+                6'd14: check_text("2kHz");
+                6'd15: check_text("0.5k");
+                6'd16: check_text("1.5k");
+            endcase
+        endcase
+    end
+
+    task submit;
+        input integer id;
+        input [2:0] page;
+        input [1:0] effect;
+        input [15:0] samples;
+        input [15:0] gain;
+        input [15:0] peak_value;
+        begin
+            wait(in_ready);
+            @(negedge clk_sys);
+            case_id=id;
+            scene=545'd0;
+            scene[544]=(id!=8);
+            scene[422:420]=page;
+            scene[500]=(id==7 || id==8);
+            scene[435:434]=effect;
+            scene[543:528]=gain;
+            if (effect==2'd1) scene[303:288]=samples;
+            if (effect==2'd3) scene[383:368]=samples;
+            peak=peak_value;
+            pcm_valid=(id==6);
+            in_valid=1'b1;
+            @(negedge clk_sys);
+            in_valid=1'b0;
+            wait(render_done);
+            @(negedge clk_sys);
+            if (protocol_error) $fatal(1,"drawer protocol error");
+        end
+    endtask
+
+    initial begin
+        repeat (4) @(negedge clk_sys);
+        rst_n=1'b1;
+        submit(1,3'd7,2'd1,16'd12000,16'h8000,16'd0);
+        submit(2,3'd7,2'd1,16'd1,16'h0000,16'd0);
+        submit(3,3'd7,2'd1,16'hffff,16'h8000,16'd0);
+        submit(4,3'd7,2'd3,16'd24,16'h8000,16'd0);
+        submit(5,3'd7,2'd3,16'd255,16'h8000,16'd0);
+        submit(6,3'd0,2'd0,16'd0,16'h8000,16'h8000);
+        submit(7,3'd0,2'd0,16'd0,16'h8000,16'd0);
+        submit(8,3'd0,2'd0,16'd0,16'h8000,16'd0);
+        if (checked!=18) $fatal(1,"format coverage incomplete: %0d",checked);
+        test_passed=1'b1;
+        $display("LCD_UNIT_FORMAT_PASS delay chorus gain peak checks=%0d",checked);
+        $finish;
+    end
+    initial begin
+        #20000000;
+        $fatal(1,"LCD unit formatter watchdog");
+    end
+endmodule

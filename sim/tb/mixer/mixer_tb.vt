@@ -1,0 +1,279 @@
+/**
+ * mixer 集成仿真：真实共享 RAM、四级效果器、定点参考向量、
+ * valid-ready 背压、RAM 区间和单采样处理周期。波形可在 GUI 中观察。
+ * 参考向量由 scripts/audio/generate_mixer_comparison.py --vectors 生成。
+ */
+`timescale 1ps/1ps
+`include "../../../src/defines.vh"
+
+module mixer_tb();
+    localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
+    localparam VECTOR_COUNT = 1850;
+    localparam [15:0] DISTORTION_MIX = 16'h9000;
+    localparam [15:0] DISTORTION_MAKE_UP = 16'ha000;
+    localparam [15:0] DISTORTION_GAIN = 16'h3000;
+    localparam [15:0] DISTORTION_TONE = 16'hb000;
+    localparam [15:0] CHORUS_MIX = 16'h6000;
+    localparam [15:0] CHORUS_MAKE_UP = 16'hc000;
+    localparam [15:0] CHORUS_RATE = 16'h3000;
+    localparam [7:0] CHORUS_DEPTH = 8'd96;
+    localparam [15:0] DELAY_MIX = 16'h6000;
+    localparam [15:0] DELAY_MAKE_UP = 16'h6000;
+    localparam [15:0] DELAY_TIME = 16'd12000;
+    localparam [15:0] DELAY_FEEDBACK = 16'h8000;
+    localparam [15:0] REVERB_MIX = 16'h7000;
+    localparam [15:0] REVERB_MAKE_UP = 16'h9000;
+    localparam [15:0] REVERB_FEEDBACK = 16'ha000;
+    localparam [15:0] REVERB_DAMPING = 16'h2800;
+
+    reg clk_sys, rst_n, smp_tick_up;
+    reg signed [20:0] audio_in;
+    reg [15:0] balance_volume, master_volume;
+    reg [15:0] reverb_mix, reverb_make_up, reverb_feedback, reverb_damping;
+    reg [15:0] delay_mix, delay_make_up, delay_time, delay_feedback;
+    reg [15:0] distortion_mix, distortion_make_up, distortion_gain, distortion_tone;
+    reg [15:0] chorus_mix, chorus_make_up, chorus_rate;
+    reg [7:0] chorus_depth;
+    reg in_valid, out_ready;
+    wire out_valid, in_ready;
+    wire signed [15:0] audio_out;
+
+    mixer #(.MAX_POLYPHONY(32)) mixer_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(smp_tick_up),
+        .audio_in(audio_in),
+        .reverb_mix(reverb_mix), .reverb_make_up(reverb_make_up),
+        .reverb_feedback(reverb_feedback),
+        .reverb_damping(reverb_damping),
+        .delay_mix(delay_mix), .delay_make_up(delay_make_up), .delay_time(delay_time),
+        .delay_feedback(delay_feedback),
+        .distortion_mix(distortion_mix), .distortion_make_up(distortion_make_up),
+        .distortion_gain(distortion_gain),
+        .distortion_tone(distortion_tone),
+        .chorus_mix(chorus_mix), .chorus_make_up(chorus_make_up),
+        .chorus_rate(chorus_rate),
+        .chorus_depth(chorus_depth),
+        .balance_volume(balance_volume), .master_volume(master_volume),
+        .audio_out(audio_out),
+        .out_ready(out_ready), .in_valid(in_valid),
+        .out_valid(out_valid), .in_ready(in_ready)
+    );
+
+    GSR GSR (.GSRI(rst_n));
+
+    reg [68:0] vectors [0:VECTOR_COUNT-1];
+    reg signed [15:0] observed_audio;
+    reg signed [15:0] held_audio;
+    reg signed [15:0] expected_audio;
+    integer sample_index, clock_count, start_clock, max_latency;
+    integer read_count [0:2], write_count [0:2];
+    integer dist_count, chorus_count, delay_count, reverb_count;
+
+    initial
+    begin
+        clk_sys = 1'b0;
+        forever
+        begin
+            #(CLK_SYS_PERIOD_CNT / 2);
+            clk_sys = ~clk_sys;
+        end
+    end
+
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            clock_count <= clock_count + 1;
+            if (mixer_u.ram_read_en_r && mixer_u.ram_write_en_r)
+                $fatal(1, "RAM read and write overlap at sample %0d", sample_index);
+            if (mixer_u.ram_read_en_r || mixer_u.ram_write_en_r)
+            begin
+                case (mixer_u.stc)
+                    mixer_u.SEND_CHORUS, mixer_u.WAIT_CHORUS:
+                    begin
+                        if ((mixer_u.ram_read_en_r &&
+                             (mixer_u.ram_read_addr_r < 17'd73728 ||
+                              mixer_u.ram_read_addr_r >= 17'd74752)) ||
+                            (mixer_u.ram_write_en_r &&
+                             (mixer_u.ram_write_addr_r < 17'd73728 ||
+                              mixer_u.ram_write_addr_r >= 17'd74752)))
+                            $fatal(1, "Chorus RAM address out of range");
+                        if (mixer_u.ram_read_en_r) read_count[0] <= read_count[0] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[0] <= write_count[0] + 1;
+                    end
+                    mixer_u.SEND_DELAY, mixer_u.WAIT_DELAY:
+                    begin
+                        if ((mixer_u.ram_read_en_r &&
+                             (mixer_u.ram_read_addr_r < 17'd8192 ||
+                              mixer_u.ram_read_addr_r >= 17'd73728)) ||
+                            (mixer_u.ram_write_en_r &&
+                             (mixer_u.ram_write_addr_r < 17'd8192 ||
+                              mixer_u.ram_write_addr_r >= 17'd73728)))
+                            $fatal(1, "Delay RAM address out of range");
+                        if (mixer_u.ram_read_en_r) read_count[1] <= read_count[1] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[1] <= write_count[1] + 1;
+                    end
+                    mixer_u.SEND_REVERB, mixer_u.WAIT_REVERB:
+                    begin
+                        if ((mixer_u.ram_read_en_r && mixer_u.ram_read_addr_r >= 17'd7494) ||
+                            (mixer_u.ram_write_en_r && mixer_u.ram_write_addr_r >= 17'd7494))
+                            $fatal(1, "Reverb RAM address out of range");
+                        if (mixer_u.ram_read_en_r) read_count[2] <= read_count[2] + 1;
+                        if (mixer_u.ram_write_en_r) write_count[2] <= write_count[2] + 1;
+                    end
+                    default: $fatal(1, "RAM active outside RAM-owning effect");
+                endcase
+            end
+            if (mixer_u.dist_valid && mixer_u.distortion_u.out_ready)
+                dist_count <= dist_count + 1;
+            if (mixer_u.chorus_valid && mixer_u.chorus_u.out_ready)
+                chorus_count <= chorus_count + 1;
+            if (mixer_u.delay_valid && mixer_u.delay_u.out_ready)
+                delay_count <= delay_count + 1;
+            if (mixer_u.reverb_valid && mixer_u.reverb_u.out_ready)
+                reverb_count <= reverb_count + 1;
+        end
+    end
+
+    integer j, hold_cycles, latency;
+    initial
+    begin
+        $readmemh("tb/mixer/mixer_vectors.mem", vectors);
+        rst_n = 1'b0;
+        smp_tick_up = 1'b0;
+        audio_in = '0;
+        balance_volume = '0;
+        master_volume = '0;
+        reverb_mix = REVERB_MIX;
+        reverb_make_up = REVERB_MAKE_UP;
+        reverb_feedback = REVERB_FEEDBACK;
+        reverb_damping = REVERB_DAMPING;
+        delay_mix = DELAY_MIX;
+        delay_make_up = DELAY_MAKE_UP;
+        delay_time = DELAY_TIME;
+        delay_feedback = DELAY_FEEDBACK;
+        distortion_mix = DISTORTION_MIX;
+        distortion_make_up = DISTORTION_MAKE_UP;
+        distortion_gain = DISTORTION_GAIN;
+        distortion_tone = DISTORTION_TONE;
+        chorus_mix = CHORUS_MIX;
+        chorus_make_up = CHORUS_MAKE_UP;
+        chorus_rate = CHORUS_RATE;
+        chorus_depth = CHORUS_DEPTH;
+        in_valid = 1'b0;
+        out_ready = 1'b0;
+        observed_audio = '0;
+        held_audio = '0;
+        expected_audio = '0;
+        sample_index = 0;
+        clock_count = 0;
+        max_latency = 0;
+        for (j = 0; j < 3; j = j + 1)
+        begin
+            read_count[j] = 0;
+            write_count[j] = 0;
+        end
+        dist_count = 0;
+        chorus_count = 0;
+        delay_count = 0;
+        reverb_count = 0;
+        repeat (5) @(negedge clk_sys);
+        rst_n = 1'b1;
+
+        for (sample_index = 0; sample_index < VECTOR_COUNT;
+             sample_index = sample_index + 1)
+        begin
+            @(negedge clk_sys);
+            if (!in_ready || out_valid)
+                $fatal(1, "Mixer not ready before sample %0d", sample_index);
+            audio_in = vectors[sample_index][68:48];
+            balance_volume = vectors[sample_index][47:32];
+            master_volume = vectors[sample_index][31:16];
+            reverb_mix = REVERB_MIX;
+            reverb_make_up = REVERB_MAKE_UP;
+            reverb_feedback = REVERB_FEEDBACK;
+            reverb_damping = REVERB_DAMPING;
+            delay_mix = DELAY_MIX;
+            delay_make_up = DELAY_MAKE_UP;
+            delay_time = DELAY_TIME;
+            delay_feedback = DELAY_FEEDBACK;
+            distortion_mix = DISTORTION_MIX;
+            distortion_make_up = DISTORTION_MAKE_UP;
+            distortion_gain = DISTORTION_GAIN;
+            distortion_tone = DISTORTION_TONE;
+            chorus_mix = CHORUS_MIX;
+            chorus_make_up = CHORUS_MAKE_UP;
+            chorus_rate = CHORUS_RATE;
+            chorus_depth = CHORUS_DEPTH;
+            expected_audio = vectors[sample_index][15:0];
+            smp_tick_up = 1'b1;
+            in_valid = 1'b1;
+            start_clock = clock_count;
+            @(negedge clk_sys);
+            if (in_ready)
+                $fatal(1, "Input not accepted at sample %0d", sample_index);
+            in_valid = 1'b0;
+            smp_tick_up = 1'b0;
+            // 四级补偿和两级音量均应在输入握手时锁存。
+            balance_volume = ~balance_volume;
+            master_volume = ~master_volume;
+            reverb_mix = '0;
+            reverb_make_up = '0;
+            reverb_feedback = '0;
+            reverb_damping = '0;
+            delay_mix = '0;
+            delay_make_up = '0;
+            delay_time = '0;
+            delay_feedback = '0;
+            distortion_mix = '0;
+            distortion_make_up = '0;
+            distortion_gain = '0;
+            distortion_tone = '0;
+            chorus_mix = '0;
+            chorus_make_up = '0;
+            chorus_rate = '0;
+            chorus_depth = '0;
+            while (!out_valid)
+            begin
+                @(negedge clk_sys);
+                if (clock_count - start_clock > 2048)
+                    $fatal(1, "Sample %0d exceeds one 48 kHz frame", sample_index);
+            end
+            latency = clock_count - start_clock;
+            if (latency > max_latency) max_latency = latency;
+            if (audio_out !== expected_audio)
+                $fatal(1, "PCM mismatch sample=%0d input=%0d expected=%0d got=%0d",
+                       sample_index, audio_in, expected_audio, audio_out);
+            held_audio = audio_out;
+            hold_cycles = sample_index % 4;
+            repeat (hold_cycles + 1)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || in_ready || audio_out !== held_audio)
+                    $fatal(1, "Output backpressure failed at sample %0d", sample_index);
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+            observed_audio = audio_out;
+            if (!in_ready || out_valid)
+                $fatal(1, "Output handshake failed at sample %0d", sample_index);
+        end
+
+        if (dist_count != VECTOR_COUNT || chorus_count != VECTOR_COUNT ||
+            delay_count != VECTOR_COUNT || reverb_count != VECTOR_COUNT ||
+            read_count[0] != 2 * VECTOR_COUNT || write_count[0] != VECTOR_COUNT ||
+            read_count[1] != VECTOR_COUNT || write_count[1] != VECTOR_COUNT ||
+            read_count[2] != 6 * VECTOR_COUNT ||
+            write_count[2] != 6 * VECTOR_COUNT)
+            $fatal(1, "Effect/RAM transfer count mismatch");
+        $display("PASS mixer: %0d samples, max latency=%0d clk_sys cycles, RAM and handshake checked",
+                 VECTOR_COUNT, max_latency);
+        $stop;
+    end
+
+    initial
+    begin
+        repeat (VECTOR_COUNT * 2048) @(posedge clk_sys);
+        $fatal(1, "Mixer test timed out");
+    end
+endmodule

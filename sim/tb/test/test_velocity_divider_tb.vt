@@ -1,0 +1,57 @@
+/**
+ * 将联合仿真的除法器模型与原厂网表逐拍对照：298个有效结果、整数/小数位和复位。
+ * 全部一致应打印PASS；此测试不改变综合使用的IP。
+ */
+`timescale 1ns/1ps
+module test_velocity_divider_tb();
+    reg clk = 1'b0, rst_n = 1'b0;
+    reg [3:0] dividend = 4'd1;
+    reg [19:0] divisor = 20'd1;
+    wire [3:0] quotient, reference_quotient;
+    wire [31:0] remainder, reference_remainder;
+    integer c, epoch, checked = 0;
+    reg regression_passed = 1'b0;
+    GSR GSR (.GSRI(rst_n));
+    adsr_division dut (.clk(clk), .rstn(rst_n), .dividend(dividend), .divisor(divisor),
+        .quotient(quotient), .remainder(remainder));
+    adsr_division_reference reference_u (.clk(clk), .rstn(rst_n), .dividend(dividend), .divisor(divisor),
+        .quotient(reference_quotient), .remainder(reference_remainder));
+    always #5 clk = ~clk;
+    initial
+    begin
+        for (epoch = 0; epoch < 2; epoch = epoch + 1)
+        begin
+            rst_n = 1'b0;
+            repeat (8) @(negedge clk);
+            rst_n = 1'b1;
+            for (c = 0; c < 180; c = c + 1)
+            begin
+                dividend = (epoch == 0) ? 4'd1 : c % 16;
+                case (c % 8)
+                    0: divisor = 20'd1;
+                    1: divisor = 20'd2;
+                    2: divisor = 20'd3;
+                    3: divisor = 20'd240;
+                    4: divisor = 20'd7200;
+                    5: divisor = 20'd9600;
+                    6: divisor = 20'hFFFFF;
+                    7: divisor = 11 + c * 7919;
+                endcase
+                if (divisor == 0) divisor = 20'd1;
+                @(posedge clk);
+                #1;
+                if (c >= 31)
+                begin
+                    if ({quotient,remainder} !== {reference_quotient,reference_remainder})
+                        $fatal(1,"Divider mismatch epoch=%0d cycle=%0d actual=%h reference=%h",epoch,c,
+                            {quotient,remainder},{reference_quotient,reference_remainder});
+                    checked = checked + 1;
+                end
+                @(negedge clk);
+            end
+        end
+        regression_passed = 1'b1;
+        $display("PASS: vendor divider/reference match %0d pipelined results including reset",checked);
+        $stop;
+    end
+endmodule

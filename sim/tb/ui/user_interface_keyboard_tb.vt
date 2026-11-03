@@ -24,6 +24,7 @@ module user_interface_keyboard_tb;
     wire configuration_error;
     reg [7:0] knob_states = 8'd0;
     user_interface #(.KEY_NUM(3), .MAX_POLYPHONY(1), .WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),
         .storage_out_ready(1'b0),
@@ -49,9 +50,11 @@ module user_interface_keyboard_tb;
         .note_freq(note_freq), .note_velocity(note_velocity), .out_valid(out_valid), .out_ready(out_ready),
         .sample_overrun(sample_overrun), .button_states(4'd0),
         .knob_states(knob_states), .knob_dirs(8'hff), .knob_pressed(8'd0), .bend_value(bend_value),
-        .master_volume(master_volume), .configuration_error(configuration_error),
-        .wavetable_0(), .wavetable_1(), .wavetable_interp(), .init_phase(), .attack_ticks(),
-        .decay_ticks(), .sustain_level(), .release_ticks(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix()
+        .master_volume(master_volume), .balance_volume(), .configuration_error(configuration_error),
+        .wavetable_0(), .wavetable_1(), .wavetable_interp(), .detune(), .attack_ticks(),
+        .decay_ticks(), .sustain_level(), .release_ticks(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix(),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
     always @(posedge clk_sys)
     begin
@@ -95,9 +98,9 @@ module user_interface_keyboard_tb;
             begin
                 @(negedge clk_sys);
                 cycles = cycles + 1;
-                if (cycles > 7) $fatal(1, "采样计算超时");
+                if (cycles > 13) $fatal(1, "采样计算超时");
             end
-            if (cycles != 6) $fatal(1, "采样装载、压力下限与结果确认流水延迟错误");
+            if (cycles != 12) $fatal(1, "单声部弯音流水延迟错误");
             for (stall = 0; stall <= stalled_ticks; stall = stall + 1)
             begin
                 if (note_on !== expected_on || note_off !== expected_off ||

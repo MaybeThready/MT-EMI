@@ -1,5 +1,6 @@
 /**
- * 处理旋钮转动和按压，输出本次增减步数及刚按下的旋钮。
+ * 旋钮事件模块 v2：处理旋钮转动和按压，输出本次增减步数及刚按下的旋钮。
+ * v2 版本修改：去掉接收判断和输出 valid 的重复复位门控，保留异步复位。
  * knob_states: 1 表示本次转动一步；knob_dirs: 1 增加、0 减少。
  * knob_pressed: 按住状态；knob_pressed_event: 刚按下的通知。
  * knob_delta: 有符号 2 位整数，-1/0/+1 步，不是累计参数值。
@@ -75,7 +76,8 @@ module knob_event_handler
             case (current_state)
                 STATE_WAIT_INPUT_FRAME:
                 begin
-                    if (in_valid && in_ready)
+                    // 已在非复位的等待输入分支，等价于本拍输入握手。
+                    if (in_valid)
                     begin
                         history_valid_r <= 1'b1;
                         previous_pressed_r <= knob_pressed;
@@ -112,7 +114,8 @@ module knob_event_handler
     end
 
     assign in_ready = rst_n && (current_state == STATE_WAIT_INPUT_FRAME);
-    assign out_valid = rst_n && (current_state == STATE_WAIT_OUTPUT_ACCEPT);
+    // 状态机异步复位到等待输入，复位期间不会保持输出有效。
+    assign out_valid = (current_state == STATE_WAIT_OUTPUT_ACCEPT);
     assign knob_pressed_event = knob_pressed_event_r;
 
     genvar output_lane;

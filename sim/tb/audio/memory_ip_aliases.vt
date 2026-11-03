@@ -1,0 +1,8 @@
+/** Simulation-only module aliases. Production GPRJ retains the actual Gowin IP RTL. */
+module rom_wavetables(output [15:0] dout,input clk,input oce,input ce,input reset,input [13:0] ad);
+    wavetable_memory_model model_u(.*);
+endmodule
+module audio_mix_buffer(output [23:0] dout,input clka,input cea,input clkb,input ceb,
+    input oce,input reset,input [16:0] ada,input [23:0] din,input [16:0] adb);
+    audio_memory_model model_u(.*);
+endmodule

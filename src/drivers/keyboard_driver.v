@@ -1,8 +1,7 @@
 /**
  * 双板24键触摸驱动V1.0：串行采样、逐键消抖和状态帧输出。
  * 每板两片级联74HC165，串行顺序为 [无效4位,K12,...,K1]。
- * TODO: 当前仅采集触摸开关状态，力度使用DEFAULT_VELOCITY占位。
- * 后续需根据真实压力硬件接入采集。
+ * 两片4067按16+8路扫描全部FSR，与24键下标一一对应。
  */
 /**
  * clk_sys: 系统时钟，默认98.304MHz；所有时序逻辑工作在其上升沿。
@@ -14,12 +13,25 @@
  * out_ready: 后级准备好接收输出帧。
  * key_states: 24位按键状态；A-K1..K12对应位0..11，
  *             B-K1..K12对应位12..23。
- * key_velocity: 24个UQ0.16力度值；当前全部为DEFAULT_VELOCITY。
+ * key_velocity: 24个UQ0.16力度值；所有琴键按住时持续更新压力。
+ * 未按下键为0；24键状态/力度的数组下标和UI接口不变。
+ * PRESSURE_ENABLE=0仅用于旧硬件回归，此时仍输出DEFAULT_VELOCITY。
+ * mux_addr[0..3]共接两片S0..S3；mux_en_a_n/mux_en_b_n分别接低有效EN。
+ * 第一片Y0..15对应key0..15，第二片Y0..7对应key16..23，其余通道不扫描。
+ * ADCV接模拟前端缩放后的单路压力电压，详见keyboard_adc接口说明。
+ * adc_error为ADC超时锁存标志；错误半帧不交付，自动复位ADC并从键0重扫。
+ * PRESSURE_ZERO_CODES/FULL_CODES: 每键14位ADC码，最低14位对应键0；
+ * 默认0/1690对应松开高阻、10kΩ下拉和缓冲后1/4缩放；须按实测逐键校准。
+ * 触摸每12kHz独立消抖；压力24路顺序采样，完整组刷新率低于scan_tick_up。
+ * 触摸变化立即携带当时最近完整压力快照排队，不等待下一轮ADC；首次完整压力前为0。
+ * 仅整组压力更新缓存，半组/故障结果不交付；压力刷新可以合并，触摸边沿保留顺序。
  * out_valid: 输出帧有效；out_valid与out_ready在同一系统时钟
  *            上升沿同时为1时完成传输。
  * out_valid为1且out_ready为0期间，输出帧保持不变。
- * 扫描和消抖不受out_ready影响，积压帧合并为最近的完整过滤状态。
- * 本接口不保证接收端观察到长时间背压期间的每一次按下、松开转换。
+ * EVENT_FIFO_DEPTH: 压力模式下触摸状态变化快照的FIFO深度，默认16组，支持任意正整数。
+ * event_overflow: FIFO满且不能同拍出入队时丢弃新变化并锁存1，复位清除。
+ * 超容量不保证保留全部历史动作；有空间后重试当前状态，压力采集和消抖始终继续。
+ * PRESSURE_ENABLE=0保留旧触摸模式的最新状态合并行为，event_overflow恒0。
  * SYS_CLK_HZ/SCAN_HZ必须与真实时钟及tick间隔一致，并且整除。
  * 扫描间隔至少为LOAD_CYCLES + 31*SHIFT_HALF_CYCLES + 19个系统周期。
  */
@@ -33,7 +45,24 @@ module keyboard_driver
     parameter integer RELEASE_TICKS = DEBOUNCE_TICKS, // >=0，释放消抖系统周期数
     parameter integer SHIFT_HALF_CYCLES = 16,    // >=2，移位电平等待周期数，须满足硬件时序
     parameter integer LOAD_CYCLES = 16,          // >=1，并行装载系统周期数，须满足硬件时序
-    parameter [15:0] DEFAULT_VELOCITY = 16'hFFFF // UQ0.16
+    parameter [15:0] DEFAULT_VELOCITY = 16'hFFFF, // UQ0.16，仅旧硬件模式固定力度
+    parameter integer PRESSURE_ENABLE = 1,      // 1启用ADC压力，0仅旧硬件回归
+    parameter integer ADC_EXTERNAL = 0,         // 1由顶层共享ADC管理器供给压力采样
+    parameter integer EVENT_FIFO_DEPTH = 16,
+    parameter integer ADC_CLK_DIV = 64,         // 偶数，默认ADC时钟1.536MHz
+    parameter integer ADC_STARTUP_TICKS = 98_304, // ADC使能后等待，单位系统周期
+    parameter integer ADC_TIMEOUT_TICKS = 4096 * ADC_CLK_DIV,
+    parameter integer ADC_SAMPLE_COUNT_SEL = 1, // 厂商编码，128点
+    parameter integer ADC_RATE_CHANGE_SEL = 2,  // 厂商编码，16周期
+    parameter integer MUX_BREAK_TICKS = 16,     // 改地址前模块关闭的系统周期数
+    parameter integer ADDRESS_SETUP_TICKS = 16, // 改地址至使能的系统周期数
+    parameter integer MUX_SETTLE_TICKS = 4916,  // 模拟稳定约50us，须按实际前端验证
+    parameter integer ADC_DISCARD_SAMPLES = 1,  // 每个通道切换后丢弃完整转换数
+    parameter [KEY_NUM*14-1:0] PRESSURE_ZERO_CODES = {KEY_NUM{14'd0}},
+    parameter [KEY_NUM*14-1:0] PRESSURE_FULL_CODES = {KEY_NUM{14'd1690}},
+    parameter integer PRESSURE_DEADBAND_CODE = 8,
+    parameter [9:0] ADC_FSCAL_VALUE = 10'd653,
+    parameter [11:0] ADC_OFFSET_VALUE = 12'd0
 )(
     input clk_sys,
     input rst_n,
@@ -45,7 +74,19 @@ module keyboard_driver
     output key_clk,
     output [KEY_NUM-1:0] key_states,
     output [15:0] key_velocity [KEY_NUM-1:0],
-    output out_valid
+    output out_valid,
+    output [3:0] mux_addr,
+    output mux_en_a_n,
+    output mux_en_b_n,
+    output adc_error,
+    output event_overflow,
+    output pressure_adc_req_valid,
+    input pressure_adc_req_ready,
+    input pressure_adc_result_valid,
+    output pressure_adc_result_ready,
+    input [13:0] pressure_adc_result_code,
+    input pressure_adc_sample_error,
+    input pressure_adc_fault
 );
     localparam integer SCAN_CYCLES = (SCAN_HZ > 0 && SYS_CLK_HZ >= SCAN_HZ) ? SYS_CLK_HZ / SCAN_HZ : 1;
     localparam integer MAX_TICKS = (DEBOUNCE_TICKS > RELEASE_TICKS) ? DEBOUNCE_TICKS : RELEASE_TICKS;
@@ -78,12 +119,20 @@ module keyboard_driver
     reg [SCAN_W-1:0] scan_age;
     reg load_n_r, key_clk_r, out_valid_r;
     reg [KEY_NUM-1:0] key_states_r;
-    reg frame_pending;
+    wire frame_pending;
     wire [1:0] data_sync;
     wire scan_start, history_break, frame_complete;
     wire [KEY_NUM-1:0] raw_keys;
+    wire pressure_frame_done;
+    wire [15:0] pressure_velocity [KEY_NUM-1:0];
+    reg pressure_frame_complete_r;
+    reg [15:0] latest_velocity_r [KEY_NUM-1:0];
+    reg [15:0] key_velocity_r [KEY_NUM-1:0];
+    integer output_index;
+    integer snapshot_index;
     integer i;
     genvar k;
+    genvar lane;
 
     assign load_n = load_n_r;
     assign key_clk = key_clk_r;
@@ -95,11 +144,11 @@ module keyboard_driver
     assign scan_start = (stc == S_IDLE) && scan_tick_up;
     assign history_break = (scan_tick_up && !scan_start) ||
                            (scan_age >= SCAN_CYCLES);
-    assign frame_complete = (stc == S_FRAME_DONE);
+    assign frame_complete = PRESSURE_ENABLE ? pressure_frame_complete_r : (stc == S_FRAME_DONE);
 
     generate
-        
-        if (KEY_NUM != 24 || SYS_CLK_HZ <= 0 || SCAN_HZ <= 0 ||
+
+        if (KEY_NUM != 24 || EVENT_FIFO_DEPTH < 1 || (PRESSURE_ENABLE != 0 && PRESSURE_ENABLE != 1) || SYS_CLK_HZ <= 0 || SCAN_HZ <= 0 ||
             DEBOUNCE_TICKS < 0 || RELEASE_TICKS < 0 || LOAD_CYCLES < 1)
         begin : g_invalid_parameters
             initial
@@ -107,7 +156,7 @@ module keyboard_driver
                 $fatal(1, "keyboard_driver: invalid key count, frequency or timing parameter");
             end
         end
-     
+
         else if (SHIFT_HALF_CYCLES < 2)
         begin : g_invalid_shift_wait
             initial
@@ -125,9 +174,71 @@ module keyboard_driver
 
         for (k = 0; k < KEY_NUM; k = k + 1)
         begin
-            assign key_velocity[k] = DEFAULT_VELOCITY;
+            assign key_velocity[k] = PRESSURE_ENABLE ? key_velocity_r[k] : DEFAULT_VELOCITY;
         end
     endgenerate
+
+    generate
+        if (PRESSURE_ENABLE)
+        begin : g_pressure
+            keyboard_pressure_scanner #(
+                .KEY_NUM(KEY_NUM), .ADC_EXTERNAL(ADC_EXTERNAL),
+                .SYS_CLK_HZ(SYS_CLK_HZ), .ADC_CLK_DIV(ADC_CLK_DIV),
+                .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS), .ADC_TIMEOUT_TICKS(ADC_TIMEOUT_TICKS),
+                .ADC_SAMPLE_COUNT_SEL(ADC_SAMPLE_COUNT_SEL), .ADC_RATE_CHANGE_SEL(ADC_RATE_CHANGE_SEL),
+                .MUX_BREAK_TICKS(MUX_BREAK_TICKS), .ADDRESS_SETUP_TICKS(ADDRESS_SETUP_TICKS),
+                .MUX_SETTLE_TICKS(MUX_SETTLE_TICKS), .ADC_DISCARD_SAMPLES(ADC_DISCARD_SAMPLES),
+                .ZERO_CODES(PRESSURE_ZERO_CODES), .FULL_CODES(PRESSURE_FULL_CODES),
+                .DEAD_BAND_CODE(PRESSURE_DEADBAND_CODE),
+                .ADC_FSCAL_VALUE(ADC_FSCAL_VALUE), .ADC_OFFSET_VALUE(ADC_OFFSET_VALUE)
+            ) keyboard_pressure_scanner_u (
+                .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up),
+                .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
+                .velocity(pressure_velocity), .frame_done(pressure_frame_done), .adc_error(adc_error),
+                .adc_req_valid(pressure_adc_req_valid), .adc_req_ready(pressure_adc_req_ready),
+                .adc_result_valid(pressure_adc_result_valid),
+                .adc_result_ready(pressure_adc_result_ready),
+                .adc_result_code(pressure_adc_result_code),
+                .adc_sample_error(pressure_adc_sample_error), .adc_fault(pressure_adc_fault)
+            );
+        end
+        else
+        begin : g_legacy
+            assign mux_addr = 4'd0;
+            assign mux_en_a_n = 1'b1;
+            assign mux_en_b_n = 1'b1;
+            assign adc_error = 1'b0;
+            assign pressure_frame_done = 1'b0;
+            assign pressure_adc_req_valid = 1'b0;
+            assign pressure_adc_result_ready = 1'b0;
+            for (lane = 0; lane < KEY_NUM; lane = lane + 1)
+            begin : g_unused_pressure
+                assign pressure_velocity[lane] = 16'd0;
+            end
+        end
+    endgenerate
+
+    // 只锁存已完成的24路压力；不在此处采样触摸，避免慢ADC吞掉触摸边沿。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            pressure_frame_complete_r <= 1'b0;
+            for (snapshot_index = 0; snapshot_index < KEY_NUM; snapshot_index = snapshot_index + 1)
+                latest_velocity_r[snapshot_index] <= 16'd0;
+        end
+        else
+        begin
+            pressure_frame_complete_r <= pressure_frame_done;
+            if (pressure_frame_done)
+            begin
+                for (snapshot_index = 0; snapshot_index < KEY_NUM; snapshot_index = snapshot_index + 1)
+                begin
+                    latest_velocity_r[snapshot_index] <= pressure_velocity[snapshot_index];
+                end
+            end
+        end
+    end
 
     signal_sync #(
         .W(2),
@@ -269,33 +380,160 @@ module keyboard_driver
         end
     end
 
-    // 独立输出槽在背压期间保持稳定，积压帧合并为最近过滤状态。
-    always @(posedge clk_sys or negedge rst_n)
-    begin
-        if (!rst_n)
-        begin
-            key_states_r <= {KEY_NUM{1'b0}};
-            out_valid_r <= 1'b0;
-            frame_pending <= 1'b0;
-        end
-        else
-        begin
-            if (frame_complete)
-                frame_pending <= 1'b1;
+    generate
+        if (PRESSURE_ENABLE)
+        begin : g_event_output
+            localparam integer PAYLOAD_W = KEY_NUM * 17;
+            localparam integer PTR_W = (EVENT_FIFO_DEPTH > 1) ? $clog2(EVENT_FIFO_DEPTH) : 1;
+            localparam integer COUNT_W = $clog2(EVENT_FIFO_DEPTH + 64'd1);
+            reg [PAYLOAD_W-1:0] event_fifo [0:EVENT_FIFO_DEPTH-1];
+            reg [PTR_W-1:0] read_ptr_r, write_ptr_r;
+            reg [COUNT_W-1:0] count_r;
+            reg [KEY_NUM-1:0] last_queued_state_r;
+            reg state_initialized_r;
+            reg refresh_pending_r;
+            reg event_overflow_r;
+            wire touch_frame_done;
+            wire output_available;
+            wire event_needed, direct_event, fifo_pop, fifo_push;
+            wire event_accepted;
+            wire [PAYLOAD_W-1:0] current_payload;
+            wire [PAYLOAD_W-1:0] head_payload;
+            genvar event_lane;
 
-            if (out_valid_r && out_ready)
-                out_valid_r <= 1'b0;
+            assign event_overflow = event_overflow_r;
+            assign frame_pending = refresh_pending_r || (count_r != 0);
+            assign touch_frame_done = (stc == S_FRAME_DONE);
+            assign output_available = !out_valid_r || out_ready;
+            assign event_needed = touch_frame_done &&
+                                  (!state_initialized_r || filtered_state != last_queued_state_r);
+            assign fifo_pop = output_available && (count_r != 0);
+            assign direct_event = event_needed && output_available && (count_r == 0);
+            assign fifo_push = event_needed && !direct_event &&
+                               ((count_r < EVENT_FIFO_DEPTH) || fifo_pop);
+            assign event_accepted = direct_event || fifo_push;
+            assign current_payload[PAYLOAD_W-1 -: KEY_NUM] = filtered_state;
+            assign head_payload = event_fifo[read_ptr_r];
 
-            
-            if ((!out_valid_r || out_ready) &&
-                (frame_pending || frame_complete))
+            for (event_lane = 0; event_lane < KEY_NUM; event_lane = event_lane + 1)
+            begin : g_event_payload
+                assign current_payload[event_lane*16 +: 16] = filtered_state[event_lane] ?
+                    latest_velocity_r[event_lane] : 16'd0;
+            end
+
+            function [PTR_W-1:0] next_pointer;
+                input [PTR_W-1:0] pointer;
+                begin
+                    next_pointer = (pointer == EVENT_FIFO_DEPTH - 1) ? '0 : pointer + 1'b1;
+                end
+            endfunction
+
+            // 事件FIFO仅保存触摸变化；压力刷新合并，避免空闲帧挤占事件队列。
+            // 输出槽独立冻结；FIFO满但同拍出队时，仍可接收新的触摸变化。
+            always @(posedge clk_sys or negedge rst_n)
             begin
-                key_states_r <= filtered_state;
-                out_valid_r <= 1'b1;
-                frame_pending <= 1'b0;
+                if (!rst_n)
+                begin
+                    read_ptr_r <= '0;
+                    write_ptr_r <= '0;
+                    count_r <= '0;
+                    last_queued_state_r <= '0;
+                    state_initialized_r <= 1'b0;
+                    refresh_pending_r <= 1'b0;
+                    event_overflow_r <= 1'b0;
+                    key_states_r <= '0;
+                    out_valid_r <= 1'b0;
+                    for (output_index = 0; output_index < KEY_NUM; output_index = output_index + 1)
+                        key_velocity_r[output_index] <= 16'd0;
+                end
+                else
+                begin
+                    if (touch_frame_done || pressure_frame_complete_r)
+                        refresh_pending_r <= 1'b1;
+                    if (out_valid_r && out_ready)
+                        out_valid_r <= 1'b0;
+
+                    if (event_accepted)
+                    begin
+                        last_queued_state_r <= filtered_state;
+                        state_initialized_r <= 1'b1;
+                    end
+                    else if (event_needed)
+                        event_overflow_r <= 1'b1;
+
+                    if (fifo_push)
+                    begin
+                        event_fifo[write_ptr_r] <= current_payload;
+                        write_ptr_r <= next_pointer(write_ptr_r);
+                    end
+                    if (fifo_pop)
+                        read_ptr_r <= next_pointer(read_ptr_r);
+                    case ({fifo_push, fifo_pop})
+                        2'b10: count_r <= count_r + 1'b1;
+                        2'b01: count_r <= count_r - 1'b1;
+                        default: count_r <= count_r;
+                    endcase
+
+                    if (fifo_pop)
+                    begin
+                        key_states_r <= head_payload[PAYLOAD_W-1 -: KEY_NUM];
+                        for (output_index = 0; output_index < KEY_NUM; output_index = output_index + 1)
+                            key_velocity_r[output_index] <= head_payload[output_index*16 +: 16];
+                        out_valid_r <= 1'b1;
+                    end
+                    else if (direct_event)
+                    begin
+                        key_states_r <= filtered_state;
+                        for (output_index = 0; output_index < KEY_NUM; output_index = output_index + 1)
+                            key_velocity_r[output_index] <= current_payload[output_index*16 +: 16];
+                        out_valid_r <= 1'b1;
+                    end
+                    else if (output_available && refresh_pending_r && state_initialized_r)
+                    begin
+                        // 不能越过排队事件；到这里FIFO已空，只更新已排队最终状态的压力。
+                        key_states_r <= last_queued_state_r;
+                        for (output_index = 0; output_index < KEY_NUM; output_index = output_index + 1)
+                            key_velocity_r[output_index] <= last_queued_state_r[output_index] ?
+                                latest_velocity_r[output_index] : 16'd0;
+                        out_valid_r <= 1'b1;
+                        refresh_pending_r <= 1'b0;
+                    end
+                end
             end
         end
-    end
+        else
+        begin : g_legacy_output
+            reg frame_pending_r;
+            assign frame_pending = frame_pending_r;
+            assign event_overflow = 1'b0;
+
+            // 保留旧硬件模式的最新状态合并协议，便于原有触摸回归。
+            always @(posedge clk_sys or negedge rst_n)
+            begin
+                if (!rst_n)
+                begin
+                    key_states_r <= '0;
+                    out_valid_r <= 1'b0;
+                    frame_pending_r <= 1'b0;
+                    for (output_index = 0; output_index < KEY_NUM; output_index = output_index + 1)
+                        key_velocity_r[output_index] <= 16'd0;
+                end
+                else
+                begin
+                    if (frame_complete)
+                        frame_pending_r <= 1'b1;
+                    if (out_valid_r && out_ready)
+                        out_valid_r <= 1'b0;
+                    if ((!out_valid_r || out_ready) && (frame_pending_r || frame_complete))
+                    begin
+                        key_states_r <= filtered_state;
+                        out_valid_r <= 1'b1;
+                        frame_pending_r <= 1'b0;
+                    end
+                end
+            end
+        end
+    endgenerate
 
     // 扫描间隔监测，饱和计数避免溢出。
     always @(posedge clk_sys or negedge rst_n)

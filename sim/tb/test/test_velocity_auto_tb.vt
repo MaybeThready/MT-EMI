@@ -1,0 +1,82 @@
+/**
+ * 自动诊断模式：无触摸输入时读取全部24路压力，第2键仍能发声并连续调压。
+ * 检查LED键号、邻键隔离和真实音频输出；正确时打印VELOCITY_AUTO_PASS。
+ */
+`timescale 1ns/1ps
+module test_velocity_auto_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg [13:0] codes [0:23];
+    wire [3:0] mux_addr;
+    wire mux_en_a_n, mux_en_b_n;
+    wire [5:0] status_led;
+    reg regression_passed = 1'b0;
+    integer channel, i, nonzero_pcm = 0;
+    test_velocity_core #(
+        .MAX_POLYPHONY(1), .AUTO_KEY_TEST(1), .AUTO_KEY_SAMPLES(1024),
+        .DEBOUNCE_TICKS(16), .MUX_SETTLE_TICKS(16), .ADC_STARTUP_TICKS(128)
+    ) dut_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .data_a(1'b0), .data_b(1'b0),
+        .bend_position(16'h8000),
+        .pressure_adc_req_valid(), .pressure_adc_req_ready(1'b0),
+        .pressure_adc_result_valid(1'b0), .pressure_adc_result_ready(),
+        .pressure_adc_result_code(14'd0), .pressure_adc_sample_error(1'b0),
+        .pressure_adc_fault(1'b0), .scan_tick_out(),
+        .load_n(), .key_clk(), .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
+        .i2s_bclk(), .i2s_lrck(), .i2s_dout(), .sd_mode_n(), .status_led(status_led)
+    );
+    GSR GSR (.GSRI(rst_n));
+    always #(1.0e9 / (2.0 * 98304000.0)) clk_sys = ~clk_sys;
+    always @(negedge clk_sys)
+    begin
+        if (!mux_en_a_n && !mux_en_b_n) $fatal(1, "Both muxes enabled");
+        channel = !mux_en_a_n ? mux_addr : (!mux_en_b_n ? 16 + mux_addr : -1);
+        if (channel >= 24) $fatal(1, "Invalid mux channel");
+        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.channel_id = channel;
+        dut_u.keyboard_driver_u.g_pressure.keyboard_pressure_scanner_u.g_internal_adc.keyboard_adc_u.adc_u.voltage_code =
+            (channel >= 0) ? codes[channel] : 14'd0;
+        if (rst_n && dut_u.fault_r) $fatal(1, "Auto diagnostic fault");
+        if (dut_u.audio_monitor_valid && dut_u.audio_monitor != 16'd0) nonzero_pcm = nonzero_pcm + 1;
+    end
+    initial
+    begin
+        for (i = 0; i < 24; i = i + 1) codes[i] = 14'd0;
+        codes[1] = 14'd1690;
+        repeat (16) @(negedge clk_sys);
+        rst_n = 1'b1;
+        wait (dut_u.keyboard_driver_u.pressure_frame_complete_r);
+        repeat (8) @(negedge clk_sys);
+        for (i = 0; i < 24; i = i + 1)
+            if (dut_u.keyboard_driver_u.latest_velocity_r[i] !== ((i == 1) ? 16'hFFFF : 16'd0))
+                $fatal(1, "Wrong auto pressure snapshot key=%0d", i);
+        wait (dut_u.note_velocity[0] == 16'd3277);
+        if (dut_u.auto_key_r !== 5'd0) $fatal(1, "Wrong first auto key");
+        wait (dut_u.auto_key_r == 5'd1);
+        if (status_led[4:0] !== 5'b11110) $fatal(1, "Auto LED key code mismatch");
+        wait (dut_u.note_velocity[0] == 16'hFFFF);
+        if (dut_u.auto_key_r !== 5'd1) $fatal(1, "Second key did not receive its own pressure");
+        codes[0] = 14'd1690;
+        codes[1] = 14'd428;
+        wait (dut_u.note_velocity[0] >= 16'd16362 && dut_u.note_velocity[0] <= 16'd16366);
+        if (dut_u.auto_key_r !== 5'd1 || nonzero_pcm < 100)
+            $fatal(1, "Second key pressure failed to reach real audio");
+        wait (dut_u.auto_key_r == 5'd2);
+        if (status_led[4:0] !== 5'b11101) $fatal(1, "Auto key advance mismatch");
+        regression_passed = 1'b1;
+        $display("VELOCITY_AUTO_PASS all24 snapshot, key2 pressure, neighbor isolation, PCM=%0d", nonzero_pcm);
+        $stop;
+    end
+    initial
+    begin
+        #60_000_000;
+        $fatal(1, "Auto diagnostic watchdog key=%0d velocity=%0d", dut_u.auto_key_r, dut_u.note_velocity[0]);
+    end
+    initial
+    begin
+        forever
+        begin
+            #5_000_000;
+            $display("INFO: auto time=%0t key=%0d velocity=%0d", $time, dut_u.auto_key_r, dut_u.note_velocity[0]);
+        end
+    end
+endmodule

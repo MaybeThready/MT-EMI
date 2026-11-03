@@ -234,6 +234,15 @@ sim/*.cr.mti
 sim/transcript
 sim/modelsim.ini
 *.mpf
+!sim/MT-EMI.mpf
 
 # Misc
 ai_workspace/
+
+# Locally generated LCD simulation libraries/results
+sim/vendor/
+sim/lcd_ui/work_*/
+sim/lcd_ui/results/
+sim/drivers/results/
+
+assets/fs

@@ -15,7 +15,7 @@ for subdir in ('src/ui', 'sim/tb/ui', 'sim/assets', 'sim/assets/system', 'result
     (ROOT / subdir).mkdir(parents=True, exist_ok=True)
 FIELDS = [
     ('wavetable_0', 4, 0, True), ('wavetable_1', 4, 1, True),
-    ('interp_percent', 7, 0, True), ('phase_degrees', 9, 0, True),
+    ('interp_percent', 7, 0, True), ('detune_percent', 7, 0, True),
     ('attack_ms', 11, 5, True), ('decay_ms', 11, 150, True),
     ('sustain_percent', 7, 70, True), ('release_ms', 13, 200, True),
     ('master_percent', 7, 30, False), ('reverb_mix_percent', 7, 0, False),
@@ -26,7 +26,7 @@ ENCODED = [
     ('wavetable_0', 4, True, 'wavetable_0[0]'),
     ('wavetable_1', 4, True, 'wavetable_1[0]'),
     ('wavetable_interp', 16, True, 'encode_interp(interp_percent[0])'),
-    ('init_phase', 16, True, 'encode_phase(phase_degrees[0])'),
+    ('detune', 16, True, 'encode_percent(detune_percent[0])'),
     ('attack_ticks', 20, True, 'encode_time(attack_ms[0])'),
     ('decay_ticks', 20, True, 'encode_time(decay_ms[0])'),
     ('sustain_level', 16, True, 'encode_percent(sustain_percent[0])'),
@@ -50,7 +50,7 @@ def controller():
     s = '''/**
  * 根据旋钮动作修改音色参数，处理粗细调、限幅和恢复默认值。
  * knob_delta: 每路 -1/0/+1 步；mode/fine_adjust: 本次使用的模式及微调开关。
- * 参数按百分比、角度、毫秒保存；按下旋钮恢复默认，优先于同次转动。
+ * 参数按百分比、毫秒保存；按下旋钮恢复默认，优先于同次转动。
  * frame_done_valid: 本次旋钮已处理完成，即使没有修改参数也返回确认。
  * parameter_valid: 有一整组参数可读取；等待时保持，后续修改留到下一组输出。
  * WAVE_SELECT_STEPS: 换一张波形需累计的步数，合法范围 1～32767。
@@ -181,7 +181,7 @@ module knob_parameter_controller
                 else wave_progress_next = wave_sum[WAVE_PROGRESS_WIDTH-1:0];
             end
 '''
-    mappings=[('master_percent',2,None,0,100,5,1),('interp_percent',1,0,0,100,5,1),('phase_degrees',1,1,0,359,5,1),('attack_ms',4,0,1,2000,10,1),('decay_ms',5,0,1,2000,10,1),('sustain_percent',6,0,0,100,5,1),('release_ms',7,0,0,5000,50,1)]
+    mappings=[('master_percent',2,None,0,100,5,1),('interp_percent',1,0,0,100,5,1),('detune_percent',1,1,0,100,5,1),('attack_ms',4,0,1,2000,10,1),('decay_ms',5,0,1,2000,10,1),('sustain_percent',6,0,0,100,5,1),('release_ms',7,0,0,5000,50,1)]
     mappings += [(n,4+i,1,0,100,5,1) for i,n in enumerate(['reverb_mix_percent','delay_mix_percent','distortion_mix_percent','chorus_mix_percent'])]
     widths={n:(w,d) for n,w,d,a in FIELDS}
     for n,k,m,lo,hi,coarse,fine in mappings:
@@ -276,7 +276,7 @@ endmodule
 
 def encoder():
     s='''/**
- * 把百分比、角度和毫秒换算成音频模块使用的参数编码。
+ * 把百分比和毫秒换算成音频模块使用的参数编码。
  * SMP_TICK_FREQ: 采样率，Hz，范围 1000～209715；毫秒换算采用四舍五入。
  * attack_ticks/decay_ticks/release_ticks: 20 位采样周期数，相对 S1 改了单位和位宽。
  * wavetable_interp: UQ1.15，0～8000 表示 0～100%；其余比例用 UQ0.16。
@@ -348,14 +348,6 @@ module ui_parameter_encoder
             encode_interp = scaled[15:0];
         end
     endfunction
-    function [15:0] encode_phase;
-        input [8:0] degrees;
-        reg [31:0] scaled;
-        begin
-            scaled = (32'd65536 * degrees + 32'd180) / 32'd360;
-            encode_phase = scaled[15:0];
-        end
-    endfunction
     function [31:0] encode_time;
         input [12:0] milliseconds;
         reg [63:0] scaled;
@@ -403,7 +395,7 @@ module ui_parameter_encoder
 endmodule
 '''
     # 对有限输入域使用精确查表，避免高云将
-    # phase*65536/360 综合为长除法路径；查找表由独立
+    # 百分比换算的除数为常量；查找表由独立
     # 算术参考模型穷举验证，不近似舍入规则。
     def table_function(name, arg, width, values, fallback):
         lines=[f'    function [15:0] {name};',f'        input [{width-1}:0] {arg};',
@@ -414,7 +406,6 @@ endmodule
     tables = '    // 对有限合法输入域进行精确组合查表。\n'
     tables += table_function('encode_percent','percent',7,[min(65535,(p*65536+50)//100) for p in range(101)],65535)
     tables += table_function('encode_interp','percent',7,[(p*32768+50)//100 for p in range(101)],0)
-    tables += table_function('encode_phase','degrees',9,[(d*65536+180)//360 for d in range(360)],0)
     first=s.index('    // 仅使用常量除数')
     last=s.index('    function [31:0] encode_time;')
     s=s[:first]+tables+s[last:]

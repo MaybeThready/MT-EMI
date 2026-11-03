@@ -1,0 +1,163 @@
+/**
+ * 双窗SDP自检：每个字比对、READY背压、读锁不覆盖、整窗丢弃、序号回绕、
+ * 最后采样与旧锁释放撞拍、数据保持、非法释放以及半窗复位恢复。
+ */
+`timescale 1ns/1ps
+module lcd_pcm_capture_tb;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg signed [15:0] audio_in = 16'sd0;
+    reg in_valid = 1'b0, window_ready = 1'b0, window_release = 1'b0, rd_en = 1'b0;
+    reg [9:0] rd_addr = 10'd0;
+    wire in_ready, window_valid, protocol_error;
+    wire [31:0] window_seq, dropped_windows;
+    wire signed [15:0] rd_data;
+    reg test_passed = 1'b0;
+    integer sent = 0;
+    integer n;
+
+    lcd_pcm_capture #(.INITIAL_SEQ(32'hfffffffe)) lcd_pcm_capture_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .audio_in(audio_in),
+        .in_valid(in_valid), .in_ready(in_ready), .window_valid(window_valid),
+        .window_ready(window_ready), .window_seq(window_seq), .window_release(window_release),
+        .rd_en(rd_en), .rd_addr(rd_addr), .rd_data(rd_data),
+        .dropped_windows(dropped_windows), .protocol_error(protocol_error)
+    );
+
+    function [15:0] value_at;
+        input integer index;
+        begin
+            value_at = (index * 73 + 19) ^ 16'h9635;
+        end
+    endfunction
+
+    task send_count;
+        input integer count;
+        integer k;
+        begin
+            for (k = 0; k < count; k = k + 1)
+            begin
+                @(negedge clk_sys);
+                audio_in = value_at(sent);
+                in_valid = 1'b1;
+                @(posedge clk_sys);
+                if (!in_ready) $fatal(1, "capture backpressured PCM");
+                sent = sent + 1;
+            end
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+        end
+    endtask
+
+    task take_window;
+        begin
+            @(negedge clk_sys);
+            if (!window_valid) $fatal(1, "expected complete window");
+            window_ready = 1'b1;
+            @(negedge clk_sys);
+            window_ready = 1'b0;
+            if (window_valid) $fatal(1, "window delivered twice");
+        end
+    endtask
+
+    task read_window;
+        input integer base;
+        integer k;
+        begin
+            for (k = 0; k < 1024; k = k + 1)
+            begin
+                @(negedge clk_sys);
+                rd_en = 1'b1;
+                rd_addr = k;
+                @(posedge clk_sys);
+                #1;
+                if (rd_data !== value_at(base + k))
+                    $fatal(1, "PCM mismatch base=%0d addr=%0d got=%h wanted=%h", base,k,rd_data,value_at(base+k));
+            end
+            @(negedge clk_sys);
+            rd_en = 1'b0;
+        end
+    endtask
+
+    task reset_capture;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            window_ready = 1'b0;
+            window_release = 1'b0;
+            rd_en = 1'b0;
+            sent = 0;
+            #1;
+            if (in_ready || window_valid) $fatal(1, "capture reset outputs");
+            repeat (3) @(negedge clk_sys);
+            rst_n = 1'b1;
+        end
+    endtask
+
+    initial
+    begin
+        reset_capture;
+        send_count(1024);
+        if (!window_valid || window_seq !== 32'hfffffffe || dropped_windows !== 32'd0)
+            $fatal(1, "first window descriptor");
+        send_count(2048);
+        if (!window_valid || window_seq !== 32'hfffffffe || dropped_windows !== 32'd2)
+            $fatal(1, "stalled READY overwritten or whole-window count wrong");
+        take_window;
+        read_window(0);
+        send_count(1023);
+        // At the last sample of sequence1, release the old locked bank.
+        @(negedge clk_sys);
+        audio_in = value_at(sent);
+        in_valid = 1'b1;
+        window_release = 1'b1;
+        @(posedge clk_sys);
+        sent = sent + 1;
+        #1;
+        if (!window_valid || window_seq !== 32'd1 || dropped_windows !== 32'd2)
+            $fatal(1, "release/final-sample collision lost the new window");
+        if (rd_data !== value_at(1023)) $fatal(1, "bank swap corrupted held read result");
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        window_release = 1'b0;
+        take_window;
+        read_window(3072);
+        if (protocol_error) $fatal(1, "unexpected capture protocol error");
+        @(negedge clk_sys);
+        window_release = 1'b1;
+        repeat (2) @(negedge clk_sys);
+        window_release = 1'b0;
+        if (!protocol_error) $fatal(1, "unowned second release was not detected");
+
+        reset_capture;
+        send_count(37);
+        reset_capture;
+        send_count(1024);
+        send_count(1023);
+        // A pending descriptor accepted now is still owned; it cannot be
+        // reused for the simultaneously completed next window.
+        @(negedge clk_sys);
+        audio_in = value_at(sent);
+        in_valid = 1'b1;
+        window_ready = 1'b1;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        window_ready = 1'b0;
+        if (window_valid || dropped_windows !== 32'd1 || window_seq !== 32'hfffffffe)
+            $fatal(1, "accept/final-sample collision overwrote the transferred bank");
+        read_window(0);
+        if (protocol_error) $fatal(1, "reset did not clear protocol error");
+        test_passed = 1'b1;
+        $display("LCD_PCM_CAPTURE_PASS real_sdp all_words ready_lock whole_drops wrap collisions reset");
+        $finish;
+    end
+
+    initial
+    begin
+        #2000000;
+        $fatal(1, "capture watchdog");
+    end
+endmodule

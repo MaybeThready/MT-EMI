@@ -1,53 +1,51 @@
-/** 直接用十二平均律实数表达式核对全部 24 键、非法索引、空声部、背压及复位。 */
 `timescale 1ns/1ps
+/** Independent equal-temperament check: every MIDI code0..127, occupied masks,
+ * frozen payload under five-cycle backpressure and asynchronous reset. */
 module note_frequency_mapper_tb;
-    reg clk_sys = 1'b0;
-    always #5 clk_sys = ~clk_sys;
-    reg rst_n = 1'b0;
-    reg [4:0] key_id [2:0];
-    reg [2:0] occupied = 3'b111;
-    reg in_valid = 1'b0;
-    wire in_ready, out_valid;
-    reg out_ready = 1'b0;
-    wire [31:0] note_freq [2:0];
+    reg clk_sys=0, rst_n=0;
+    always #5 clk_sys=~clk_sys;
+    reg [6:0] note_number [2:0];
+    reg [2:0] occupied=3'b111;
+    reg in_valid=0, out_ready=0;
+    wire in_ready,out_valid;
+    wire [31:0] freq [2:0];
     reg [31:0] expected [2:0];
-    integer key_index, voice, stall;
-    note_frequency_mapper #(.MAX_POLYPHONY(3)) note_frequency_mapper_u (
-        .clk_sys(clk_sys), .rst_n(rst_n), .key_id(key_id), .occupied(occupied),
-        .in_valid(in_valid), .in_ready(in_ready), .note_freq(note_freq), .out_valid(out_valid), .out_ready(out_ready)
+    integer n,v,s;
+    reg test_passed=0;
+    note_frequency_mapper #(.MAX_POLYPHONY(3)) dut (
+        .clk_sys(clk_sys),.rst_n(rst_n),.note_number(note_number),.occupied(occupied),
+        .in_valid(in_valid),.in_ready(in_ready),.note_freq(freq),.out_valid(out_valid),.out_ready(out_ready)
     );
     initial
     begin
-        repeat (3) @(negedge clk_sys);
-        rst_n = 1'b1;
-        for (key_index = 0; key_index < 64; key_index = key_index + 1)
+        repeat(3) @(negedge clk_sys); rst_n=1;
+        for(n=0;n<256;n=n+1)
         begin
-            occupied = (key_index < 32) ? 3'b111 : 3'b101;
-            for (voice = 0; voice < 3; voice = voice + 1)
+            occupied=(n<128) ? 3'b111 : 3'b101;
+            for(v=0;v<3;v=v+1)
             begin
-                key_id[voice] = (key_index + voice) % 32;
-                expected[voice] = (occupied[voice] && (key_id[voice] < 24)) ?
-                    $rtoi(440.0 * (2.0 ** (($itor(key_id[voice]) - 9.0) / 12.0)) * 65536.0 + 0.5) : 0;
+                note_number[v]=(n+v)%128;
+                expected[v]=(occupied[v] && note_number[v]>=60 && note_number[v]<=90) ?
+                    $rtoi(440.0*(2.0**(($itor(note_number[v])-69.0)/12.0))*65536.0+0.5) : 0;
             end
-            in_valid = 1'b1;
-            @(negedge clk_sys);
-            in_valid = 1'b0;
-            for (voice = 0; voice < 3; voice = voice + 1) key_id[voice] = 5'd31;
-            for (stall = 0; stall < 5; stall = stall + 1)
+            in_valid=1;
+            do @(posedge clk_sys); while(!in_ready);
+            @(negedge clk_sys); in_valid=0;
+            for(v=0;v<3;v=v+1) note_number[v]=127;
+            occupied=0;
+            for(s=0;s<5;s=s+1)
             begin
-                if (!out_valid) $fatal(1, "频率结果无效");
-                for (voice = 0; voice < 3; voice = voice + 1)
-                    if (note_freq[voice] !== expected[voice]) $fatal(1, "音高编码错误");
+                if(!out_valid) $fatal(1,"frequency valid");
+                for(v=0;v<3;v=v+1) if(freq[v]!==expected[v]) $fatal(1,"frequency n=%0d v=%0d",n,v);
                 @(negedge clk_sys);
             end
-            out_ready = 1'b1;
-            @(negedge clk_sys);
-            out_ready = 1'b0;
+            out_ready=1;
+            @(negedge clk_sys); out_ready=0;
         end
-        rst_n = 1'b0;
-        #1;
-        if (out_valid || note_freq[0]) $fatal(1, "复位失败");
-        $display("NOTE_FREQUENCY_MAPPER_PASS cases=64 voices=3");
+        rst_n=0; #1;
+        if(out_valid || freq[0]) $fatal(1,"frequency reset");
+        test_passed=1;
+        $display("NOTE_FREQUENCY_MAPPER_PASS codes=128 masks=2 lanes=3");
         $finish;
     end
 endmodule

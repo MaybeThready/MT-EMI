@@ -1,0 +1,279 @@
+/**
+ * 测试真实24位165扫描、8路正反转/按压、LED映射、消抖、同时动作、背压和复位。
+ * 保留默认12kHz扫描/1ms消抖，仅缩短事件灯保持；全部正确打印TEST_KNOB_DRIVER_PASS。
+ */
+`timescale 1ns/1ps
+module test_knob_driver_tb;
+    reg clk_sys = 1'b0;
+    reg rst_n = 1'b0;
+    reg monitor_ready = 1'b1;
+    reg [7:0] physical_a = 8'hFF;
+    reg [7:0] physical_b = 8'hFF;
+    reg [7:0] physical_pressed = 8'h80;
+    reg [23:0] serial_r = 24'hFFFFFF;
+    wire serial_data = serial_r[23];
+    wire load_n, shift_clk;
+    wire [5:0] status_led;
+    reg regression_passed = 1'b0;
+    integer phase = 0;
+    integer serial_frames = 0, shifts = 0;
+    reg have_loaded = 1'b0;
+    reg [31:0] expected [0:255];
+    integer expected_write = 0, expected_read = 0;
+    integer checked_frames = 0, positive_steps = 0, negative_steps = 0, press_events = 0;
+    reg first_output = 1'b1;
+    reg [7:0] observer_pressed = 8'd0;
+    reg [7:0] positive_mask, negative_mask;
+    reg [31:0] actual;
+    reg driver_stalled = 1'b0, event_stalled = 1'b0;
+    reg [23:0] previous_driver;
+    reg [31:0] previous_event;
+    integer lane, knob, saved_read, saved_positive, saved_negative;
+
+    always #(1.0e9 / (2.0 * 98304000.0)) clk_sys = ~clk_sys;
+    test_knob_driver_core #(.EVENT_LED_SCANS(4)) dut_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .serial_data(serial_data), .monitor_ready(monitor_ready),
+        .load_n(load_n), .shift_clk(shift_clk), .status_led(status_led)
+    );
+
+    // PCB三片165：先A8..A1，再B8..B1，再低有效SW8..SW1。
+    always @(negedge load_n or posedge shift_clk)
+    begin
+        if (!load_n)
+        begin
+            if (rst_n && have_loaded && shifts != 23)
+                $fatal(1, "A 24-bit packet must have 23 shift edges, got %0d", shifts);
+            serial_r = {physical_a, physical_b, ~physical_pressed};
+            shifts = 0;
+            have_loaded = 1'b1;
+            serial_frames = serial_frames + 1;
+        end
+        else
+        begin
+            serial_r = {serial_r[22:0], 1'b1};
+            shifts = shifts + 1;
+        end
+    end
+
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            if (dut_u.driver_overflow || dut_u.scan_error || dut_u.fault_r)
+                $fatal(1, "Unexpected board fault phase=%0d", phase);
+            positive_mask = 8'd0;
+            negative_mask = 8'd0;
+            for (lane = 0; lane < 8; lane = lane + 1)
+            begin
+                if (dut_u.knob_delta[lane] == 2'sd1) positive_mask[lane] = 1'b1;
+                else if (dut_u.knob_delta[lane] == -2'sd1) negative_mask[lane] = 1'b1;
+                else if (dut_u.knob_delta[lane] !== 2'sd0) $fatal(1, "Invalid signed delta");
+            end
+            actual = {dut_u.pressed_snapshot_r, dut_u.knob_pressed_event, positive_mask, negative_mask};
+            if (driver_stalled && (!dut_u.driver_valid ||
+                {dut_u.knob_states, dut_u.knob_dirs, dut_u.knob_pressed} !== previous_driver))
+                $fatal(1, "Driver payload changed under backpressure");
+            if (event_stalled && (!dut_u.event_valid || actual !== previous_event))
+                $fatal(1, "UI event/snapshot changed under backpressure");
+            driver_stalled = dut_u.driver_valid && !dut_u.driver_ready;
+            event_stalled = dut_u.event_valid && !monitor_ready;
+            previous_driver = {dut_u.knob_states, dut_u.knob_dirs, dut_u.knob_pressed};
+            previous_event = actual;
+            if (dut_u.event_fire)
+            begin
+                checked_frames = checked_frames + 1;
+                if (first_output || positive_mask != 0 || negative_mask != 0 ||
+                    dut_u.knob_pressed_event != 0 || dut_u.pressed_snapshot_r != observer_pressed)
+                begin
+                    if (expected_read >= expected_write || actual !== expected[expected_read])
+                        $fatal(1, "Event mismatch phase=%0d index=%0d got=%h expected=%h", phase,
+                            expected_read, actual, expected[expected_read]);
+                    expected_read = expected_read + 1;
+                end
+                for (lane = 0; lane < 8; lane = lane + 1)
+                begin
+                    if (positive_mask[lane]) positive_steps = positive_steps + 1;
+                    if (negative_mask[lane]) negative_steps = negative_steps + 1;
+                    if (dut_u.knob_pressed_event[lane]) press_events = press_events + 1;
+                end
+                observer_pressed = dut_u.pressed_snapshot_r;
+                first_output = 1'b0;
+            end
+        end
+        else
+        begin
+            driver_stalled = 1'b0;
+            event_stalled = 1'b0;
+        end
+    end
+
+    task expect_event;
+        input [7:0] held;
+        input [7:0] pressed;
+        input [7:0] positive;
+        input [7:0] negative;
+        begin
+            expected[expected_write] = {held, pressed, positive, negative};
+            expected_write = expected_write + 1;
+        end
+    endtask
+    task wait_scans;
+        input integer count;
+        begin
+            repeat (count) @(posedge dut_u.knob_driver_u.frame_valid);
+            repeat (20) @(negedge clk_sys);
+        end
+    endtask
+    task drain_events;
+        integer wait_cycles;
+        begin
+            wait_cycles = 0;
+            while (expected_read != expected_write)
+            begin
+                @(negedge clk_sys);
+                wait_cycles = wait_cycles + 1;
+                if (wait_cycles > 400000) $fatal(1, "Missing event phase=%0d", phase);
+            end
+            repeat (20) @(negedge clk_sys);
+        end
+    endtask
+    task set_ab;
+        input integer key;
+        input [1:0] value;
+        begin
+            physical_a[key] = value[1];
+            physical_b[key] = value[0];
+            wait_scans(3);
+        end
+    endtask
+    task rotate_one;
+        input integer key;
+        input positive;
+        integer before_read;
+        begin
+            before_read = expected_read;
+            expect_event(physical_pressed, 8'd0, positive ? (8'd1 << key) : 8'd0,
+                positive ? 8'd0 : (8'd1 << key));
+            set_ab(key, positive ? 2'b10 : 2'b01);
+            set_ab(key, 2'b00);
+            set_ab(key, positive ? 2'b01 : 2'b10);
+            if (monitor_ready && expected_read != before_read)
+                $fatal(1, "Reported a full step before four valid transitions");
+            set_ab(key, 2'b11);
+        end
+    endtask
+    task check_selected;
+        input integer key;
+        input direction;
+        begin
+            drain_events;
+            if (status_led[2:0] !== ~key[2:0] || status_led[3] !== !direction || status_led[5] !== 1'b0)
+                $fatal(1, "Wrong knob/direction/event LED key=%0d led=%b", key, status_led);
+        end
+    endtask
+
+    initial
+    begin
+        // 上电K8已按住：报告保持态，不制造一次按下事件或事件灯闪烁。
+        expect_event(8'h80, 8'd0, 8'd0, 8'd0);
+        repeat (8) @(negedge clk_sys);
+        if (status_led !== 6'h3F) $fatal(1, "Reset LEDs not cleared");
+        rst_n = 1'b1;
+        drain_events;
+        if (status_led[4] !== 1'b0 || status_led[5] !== 1'b1 || press_events != 0)
+            $fatal(1, "Boot-held switch created an action");
+        expect_event(8'd0, 8'd0, 8'd0, 8'd0);
+        physical_pressed = 8'd0;
+        wait_scans(16);
+        drain_events;
+        if (status_led[4] !== 1'b1) $fatal(1, "Boot-held switch release lost");
+
+        phase = 1;
+        for (knob = 0; knob < 8; knob = knob + 1)
+        begin
+            rotate_one(knob, 1'b1);
+            check_selected(knob, 1'b1);
+            rotate_one(knob, 1'b0);
+            check_selected(knob, 1'b0);
+            // 少于1ms的按压抖动不应成为按下/松开事件。
+            saved_read = expected_read;
+            physical_pressed[knob] = 1'b1;
+            wait_scans(2);
+            physical_pressed[knob] = 1'b0;
+            wait_scans(16);
+            if (expected_read != saved_read || status_led[4] !== 1'b1)
+                $fatal(1, "Short switch bounce was accepted key=%0d", knob);
+            expect_event(8'd1 << knob, 8'd1 << knob, 8'd0, 8'd0);
+            physical_pressed[knob] = 1'b1;
+            wait_scans(16);
+            drain_events;
+            if (status_led[2:0] !== ~knob[2:0] || status_led[4] !== 1'b0)
+                $fatal(1, "Pressed LED mapping differs key=%0d", knob);
+            // 按住时仍可转动；持续按住不会重复产生pressed_event。
+            rotate_one(knob, 1'b1);
+            check_selected(knob, 1'b1);
+            expect_event(8'd0, 8'd0, 8'd0, 8'd0);
+            physical_pressed[knob] = 1'b0;
+            wait_scans(16);
+            drain_events;
+            if (status_led[4] !== 1'b1) $fatal(1, "Release LED stuck key=%0d", knob);
+        end
+        $display("PASS: all8 PCB mapping, four transitions/step, both directions, debounce and hold+turn");
+
+        phase = 2;
+        // K1增加与K8减少出现在同一完整帧，事件全部保留，LED编号选K8。
+        expect_event(8'd0, 8'd0, 8'h01, 8'h80);
+        physical_b[0] = 1'b0; physical_a[7] = 1'b0; wait_scans(3);
+        physical_a[0] = 1'b0; physical_b[7] = 1'b0; wait_scans(3);
+        physical_b[0] = 1'b1; physical_a[7] = 1'b1; wait_scans(3);
+        physical_a[0] = 1'b1; physical_b[7] = 1'b1; wait_scans(3);
+        check_selected(7, 1'b0);
+
+        phase = 3;
+        monitor_ready = 1'b0;
+        wait (dut_u.event_valid);
+        @(negedge clk_sys);
+        saved_positive = positive_steps;
+        saved_negative = negative_steps;
+        rotate_one(1, 1'b1);
+        rotate_one(1, 1'b0);
+        expect_event(8'h04, 8'h04, 8'd0, 8'd0);
+        physical_pressed = 8'h04; wait_scans(16);
+        expect_event(8'd0, 8'd0, 8'd0, 8'd0);
+        physical_pressed = 8'd0; wait_scans(16);
+        rotate_one(5, 1'b1);
+        if (positive_steps != saved_positive || negative_steps != saved_negative)
+            $fatal(1, "Monitor consumed an event while not ready");
+        monitor_ready = 1'b1;
+        drain_events;
+        check_selected(5, 1'b1);
+        wait_scans(6);
+        if (status_led[5] !== 1'b1) $fatal(1, "Event LED did not expire after idle scans");
+        $display("PASS: simultaneous inputs and queued turn/press/release order under backpressure");
+
+        phase = 4;
+        rst_n = 1'b0;
+        #1;
+        if (status_led !== 6'h3F || load_n !== 1'b1 || shift_clk !== 1'b0)
+            $fatal(1, "Asynchronous board-test reset failed");
+        have_loaded = 1'b0;
+        first_output = 1'b1;
+        observer_pressed = 8'd0;
+        expect_event(8'd0, 8'd0, 8'd0, 8'd0);
+        repeat (8) @(negedge clk_sys);
+        rst_n = 1'b1;
+        drain_events;
+        rotate_one(3, 1'b1);
+        check_selected(3, 1'b1);
+        regression_passed = 1'b1;
+        $display("TEST_KNOB_DRIVER_PASS serial=%0d ui_frames=%0d events=%0d positive=%0d negative=%0d presses=%0d",
+            serial_frames, checked_frames, expected_read, positive_steps, negative_steps, press_events);
+        $stop;
+    end
+
+    initial
+    begin
+        #150_000_000;
+        $fatal(1, "test_knob_driver_tb watchdog phase=%0d", phase);
+    end
+endmodule

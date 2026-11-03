@@ -1,0 +1,99 @@
+/**
+ * LCD提示计时差分验证：与计时优化前冻结模型逐拍比较公开场景和状态输出。
+ * 覆盖节拍相位、1..16位计时器、活动/默认提示到期、复位、绘制期间输入及背压，不强制内部状态。
+ */
+`timescale 1ns/1ps
+module ui_interaction_timer_tb;
+    parameter CLK_HZ=100000;
+    parameter HOLD_MS=800;
+    localparam DIV=(CLK_HZ+500)/1000;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys=0,rst_n=0,input_valid=0,out_ready=0,render_done=0,inflight=0;
+    always #5 clk_sys=~clk_sys;
+    reg [544:0] input_state=0;
+    reg [31:0] rng=32'h137a5201;
+    wire [1:0] ready,ov,pv,pe,ce,wv,sv,clip,overflow,ar;
+    wire [544:0] scene [0:1];
+    wire [21:0] highlight [0:1],defaults [0:1];
+    wire [31:0] ws [0:1],ss [0:1],sd [0:1],drops [0:1];
+    wire [15:0] peak [0:1],column_data [0:1];
+    wire [767:0] public_bus [0:1];
+    integer i,checks=0;
+    reg test_passed=0;
+    ui_interaction #(.CLK_SYS_HZ(CLK_HZ),.HIGHLIGHT_MS(HOLD_MS)) ui_interaction_u (
+        .clk_sys(clk_sys),.rst_n(rst_n),.display_in_state(input_state),
+        .display_in_valid(input_valid),.display_in_ready(ready[0]),
+        .audio_in(16'sd0),.audio_in_valid(1'b0),.audio_in_ready(ar[0]),
+        .scene_state(scene[0]),.highlight_mask(highlight[0]),.default_mask(defaults[0]),
+        .out_valid(ov[0]),.out_ready(out_ready),.render_done(render_done),
+        .scene_wave_valid(wv[0]),.scene_wave_seq(ws[0]),.scene_output_peak(peak[0]),.scene_pcm_valid(pv[0]),
+        .scene_spectrum_valid(sv[0]),.scene_spectrum_seq(ss[0]),.scene_spectrum_clipped(clip[0]),.scene_fft_overflow(overflow[0]),
+        .scene_dropped_windows(sd[0]),.column_rd_en(1'b0),.column_rd_addr(11'd0),.column_rd_data(column_data[0]),
+        .dropped_windows(drops[0]),.protocol_error(pe[0]),.configuration_error(ce[0])
+    );
+    assign public_bus[0]={ready[0],ov[0],ar[0],scene[0],highlight[0],defaults[0],wv[0],ws[0],peak[0],pv[0],
+        sv[0],ss[0],clip[0],overflow[0],sd[0],column_data[0],drops[0],pe[0],ce[0]};
+    ui_interaction_timer_reference #(.CLK_SYS_HZ(CLK_HZ),.HIGHLIGHT_MS(HOLD_MS)) ui_interaction_timer_reference_u (
+        .clk_sys(clk_sys),.rst_n(rst_n),.display_in_state(input_state),
+        .display_in_valid(input_valid),.display_in_ready(ready[1]),
+        .audio_in(16'sd0),.audio_in_valid(1'b0),.audio_in_ready(ar[1]),
+        .scene_state(scene[1]),.highlight_mask(highlight[1]),.default_mask(defaults[1]),
+        .out_valid(ov[1]),.out_ready(out_ready),.render_done(render_done),
+        .scene_wave_valid(wv[1]),.scene_wave_seq(ws[1]),.scene_output_peak(peak[1]),.scene_pcm_valid(pv[1]),
+        .scene_spectrum_valid(sv[1]),.scene_spectrum_seq(ss[1]),.scene_spectrum_clipped(clip[1]),.scene_fft_overflow(overflow[1]),
+        .scene_dropped_windows(sd[1]),.column_rd_en(1'b0),.column_rd_addr(11'd0),.column_rd_data(column_data[1]),
+        .dropped_windows(drops[1]),.protocol_error(pe[1]),.configuration_error(ce[1])
+    );
+    assign public_bus[1]={ready[1],ov[1],ar[1],scene[1],highlight[1],defaults[1],wv[1],ws[1],peak[1],pv[1],
+        sv[1],ss[1],clip[1],overflow[1],sd[1],column_data[1],drops[1],pe[1],ce[1]};
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if(!rst_n) inflight<=0;
+        else
+        begin
+            if(ov[0] && out_ready) inflight<=!render_done;
+            else if(render_done) inflight<=0;
+        end
+    end
+    always @(negedge clk_sys)
+    begin
+        if(checks>2 && public_bus[0]!==public_bus[1])
+            $fatal(1,"LCD timer public outputs differ H=%0d DIV=%0d cycle=%0d",HOLD_MS,DIV,checks);
+        if(rst_n && (pe[0] || ce[0])) $fatal(1,"LCD timer protocol/configuration");
+        checks=checks+1;
+    end
+    initial
+    begin
+        // Independent source/render traffic; each accepted event uses legalV2.
+        for(i=0;i<4096;i=i+1)
+        begin
+            @(negedge clk_sys);#1;
+            rng={rng[30:0],rng[31]^rng[21]^rng[1]^rng[0]};
+            rst_n=(i%511>1);
+            input_valid=rng[0];out_ready=rng[6];
+            input_state=545'd0;
+            input_state[31:0]=i;
+            input_state[477:456]=rng[21:0];
+            input_state[499:478]=(rng[2] ? 22'h155555 : 22'd0);
+            input_state[500]=rng[30];
+            render_done=((ov[0] && out_ready) || inflight) && rng[3];
+        end
+        @(negedge clk_sys);#1;rst_n=0;input_valid=0;out_ready=1;render_done=0;
+        repeat(3) @(negedge clk_sys);
+        #1;rst_n=1;
+        // One event followed by complete expiry, including65535ms boundary.
+        @(negedge clk_sys);#1;
+        input_state=0;input_state[477:456]=22'h3fffff;input_state[499:478]=22'h155555;
+        input_valid=1;
+        @(negedge clk_sys);#1;input_valid=0;
+        repeat((HOLD_MS+8)*DIV+16)
+        begin
+            @(negedge clk_sys);#1;
+            render_done=ov[0] || inflight;
+        end
+        if(highlight[0]!==22'd0 || defaults[0]!==22'd0) $fatal(1,"LCD expiry did not finish");
+        test_passed=1;
+        $display("UI_INTERACTION_TIMER_PASS H=%0d DIV=%0d cycles=%0d exact_public_outputs reset freeze expiry",HOLD_MS,DIV,checks);
+        $finish;
+    end
+endmodule

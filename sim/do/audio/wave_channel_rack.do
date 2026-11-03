@@ -7,6 +7,8 @@ add wave -radix unsigned sim:/channel_rack_tb/sample_index
 add wave sim:/channel_rack_tb/note_on
 add wave sim:/channel_rack_tb/note_off
 add wave sim:/channel_rack_tb/note_busy
+add wave sim:/channel_rack_tb/note_busy_valid
+add wave sim:/channel_rack_tb/note_busy_ready
 add wave sim:/channel_rack_tb/in_valid
 add wave sim:/channel_rack_tb/in_ready
 add wave sim:/channel_rack_tb/out_valid

@@ -30,6 +30,7 @@ module keyboard_event_handler_tb;
     reg [4095:0] assets;
     reg [4095:0] filename;
     keyboard_event_handler #(.KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY)) keyboard_event_handler_u (
+        .play_mode(1'b0), .note_number(),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .key_states(key_states), .key_velocity(key_velocity), .frame_velocity(frame_velocity),
         .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
         .note_on(note_on), .note_off(note_off), .key_id(key_id), .occupied(occupied), .held(held),

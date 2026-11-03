@@ -1,0 +1,80 @@
+`timescale 1ns/1ps
+/** Publisher: stable backpressure, coalesced events, promotion+commit collision,
+ * sequence wrap, reset cancellation and complete data versions. No shared packer.
+ */
+module ui_display_snapshot_tb;
+    reg clk_sys=0;
+    always #5 clk_sys=~clk_sys;
+    reg rst_n=0, model_commit=0, out_ready=0;
+    reg [512:0] model_payload=0;
+    wire [544:0] out_state;
+    wire out_valid;
+    reg test_passed=0;
+    ui_display_snapshot #(.INITIAL_SEQ(32'hfffffffe)) ui_display_snapshot_u (
+        .clk_sys(clk_sys),.rst_n(rst_n),.model_commit(model_commit),.model_payload(model_payload),
+        .out_state(out_state),.out_valid(out_valid),.out_ready(out_ready)
+    );
+    task offer;
+        input [15:0] tag;
+        input [21:0] activity,reset_mask;
+        begin
+            @(negedge clk_sys);
+            model_payload=0;
+            model_payload[15:0]=tag;
+            model_payload[445:424]=activity;
+            model_payload[467:446]=reset_mask;
+            model_commit=1;
+            @(negedge clk_sys); model_commit=0;
+        end
+    endtask
+    reg [544:0] held;
+    initial
+    begin
+        repeat(3) @(negedge clk_sys); rst_n=1;
+        offer(16'h1111,22'h1,0);
+        if(!out_valid || out_state[31:0]!==32'hfffffffe) $fatal(1,"first sequence");
+        held=out_state;
+        offer(16'h2222,22'h2,22'h2);
+        offer(16'h3333,22'h4,0);
+        repeat(15)
+        begin
+            @(negedge clk_sys);
+            if(!out_valid || out_state!==held) $fatal(1,"stalled snapshot changed");
+        end
+        out_ready=1;
+        @(negedge clk_sys); out_ready=0;
+        if(!out_valid || out_state[47:32]!==16'h3333 || out_state[31:0]!==0 ||
+            out_state[477:456]!==22'h6 || out_state[499:478]!==22'h2)
+            $fatal(1,"coalescing/wrap/event merge");
+        // New latest while C is stalled, then promotion plus new commit E.
+        offer(16'h4444,22'h8,22'h8);
+        @(negedge clk_sys);
+        out_ready=1; model_commit=1; model_payload=0;
+        model_payload[15:0]=16'h5555; model_payload[445:424]=22'h10;
+        @(negedge clk_sys);
+        out_ready=0; model_commit=0;
+        if(out_state[47:32]!==16'h4444 || out_state[31:0]!==1 || out_state[477:456]!==22'h8)
+            $fatal(1,"promoted model corrupted by coincident commit");
+        out_ready=1;
+        @(negedge clk_sys); out_ready=0;
+        if(out_state[47:32]!==16'h5555 || out_state[31:0]!==2 ||
+            out_state[477:456]!==22'h10 || out_state[499:478]!==0)
+            $fatal(1,"new event lost or old event replayed");
+        #1 rst_n=0; #1;
+        if(out_valid!==0) $fatal(1,"async reset did not cancel pending");
+        repeat(3) @(negedge clk_sys); rst_n=1;
+        offer(16'h6666,0,0);
+        if(out_state[31:0]!==32'hfffffffe) $fatal(1,"reset sequence");
+        out_ready=1;
+        repeat(3) @(negedge clk_sys);
+        if(out_valid) $fatal(1,"duplicate transfer");
+        test_passed=1;
+        $display("UI_DISPLAY_SNAPSHOT_PASS stable coalescing collision wrap reset");
+        $finish;
+    end
+    initial
+    begin
+        #100000;
+        $fatal(1,"publisher watchdog");
+    end
+endmodule

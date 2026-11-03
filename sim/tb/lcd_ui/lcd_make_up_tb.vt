@@ -1,0 +1,63 @@
+`timescale 1ns/1ps
+
+/** Advanced effect page: K3 shares the play-mode mix; K4 shows UQ1.15 make-up. */
+module lcd_make_up_tb;
+    reg [544:0] state = 545'd0;
+    reg [5:0] object_index = 6'd0;
+    wire object_valid, number_enable;
+    wire [6:0] object_col;
+    wire [4:0] object_row;
+    wire [3:0] object_color;
+    wire [7:0] string_id;
+    wire [23:0] number_value;
+    wire [2:0] number_scale, decimal_places, minimum_digits;
+    wire [1:0] font_style, sign_mode;
+    wire [3:0] suffix;
+    wire negative;
+    wire [31:0] scene_config;
+    integer effect;
+
+    lcd_page_program dut (
+        .s(state), .activity(22'd0), .defaults(22'd0),
+        .pcm_valid(1'b0), .graph_valid(1'b0),
+        .fft_overflow(1'b0), .spectrum_clipped(1'b0),
+        .output_peak(16'd0), .object_index(object_index),
+        .object_valid(object_valid), .object_col(object_col), .object_row(object_row),
+        .object_color(object_color), .string_id(string_id),
+        .number_enable(number_enable), .number_value(number_value),
+        .number_scale(number_scale), .font_style(font_style),
+        .decimal_places(decimal_places), .suffix(suffix),
+        .negative(negative), .sign_mode(sign_mode),
+        .minimum_digits(minimum_digits), .scene_config(scene_config)
+    );
+
+    initial begin
+        state[422:420] = 3'd7;
+        state[544] = 1'b1;
+        for (effect = 0; effect < 4; effect = effect + 1) begin
+            state[435:434] = effect[1:0];
+            state[32+16*(8+effect) +: 16] = 16'd25 + effect;
+            state[543:528] = effect == 0 ? 16'h8000 :
+                             effect == 1 ? 16'h0000 :
+                             effect == 2 ? 16'hffff : 16'h4000;
+            object_index = 6'd4; #1;
+            if (!object_valid || !number_enable || number_value !== 25 + effect ||
+                number_scale !== 3'd0 || suffix !== 4'd1)
+                $fatal(1,"K3 mix display mismatch effect=%0d",effect);
+            object_index = 6'd15; #1;
+            if (!object_valid || !number_enable || number_value !== {8'd0,state[543:528]} ||
+                number_scale !== 3'd6 || decimal_places !== 3'd4 || minimum_digits !== 3'd5 ||
+                suffix !== 4'd3)
+                $fatal(1,"K4 make-up display mismatch effect=%0d",effect);
+            object_index = 6'd14; #1;
+            if (!object_valid || string_id !== 8'd151) $fatal(1,"K4 gain title top");
+            object_index = 6'd16; #1;
+            if (!object_valid || string_id !== 8'd152) $fatal(1,"K4 gain title bottom");
+        end
+        state[544] = 1'b0;
+        object_index = 6'd15; #1;
+        if (object_valid) $fatal(1,"legacy snapshot unexpectedly shows K4");
+        $display("LCD_MAKE_UP_PASS four effects K3/K4 including zero and near-two gain");
+        $finish;
+    end
+endmodule

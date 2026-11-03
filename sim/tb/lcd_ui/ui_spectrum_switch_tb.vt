@@ -1,0 +1,227 @@
+/**
+ * 波形/频谱切换及缓存所有权验证：构建期间切换、匹配旧频谱复用、渲染停顿期间的新PCM/UI、FFT期间下一窗口及复位。
+ * 每个被接受的波形/频谱缓存字均与独立PCM/谱线参考核对。
+ */
+`timescale 1ns/1ps
+module ui_spectrum_switch_tb;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys=1'b0, rst_n=1'b0;
+    always #5 clk_sys=~clk_sys;
+    reg [544:0] display_state=545'd0;
+    reg display_valid=1'b0, audio_valid=1'b0;
+    reg signed [15:0] audio_in=16'sd0;
+    reg out_ready=1'b0, render_done=1'b0, column_rd_en=1'b0;
+    reg [10:0] column_rd_addr=11'd0;
+    wire display_ready, audio_ready, out_valid, wave_valid, spectrum_valid, pcm_valid, clipped, overflow;
+    wire [544:0] scene_state;
+    wire [31:0] wave_seq, spectrum_seq, scene_drops, drops;
+    wire [15:0] peak, column_rd_data;
+    wire protocol_error, configuration_error;
+    reg [15:0] samples [0:17*1024-1];
+    reg [47:0] expected [0:17*513-1];
+    reg [661:0] held_metadata;
+    wire [661:0] metadata={scene_state,wave_valid,wave_seq,peak,scene_drops,pcm_valid,
+        spectrum_valid,spectrum_seq,clipped,overflow};
+    reg test_passed=1'b0;
+    integer i,j,k,last,first,bin_number,min_y,max_y,y,m,checked_words=0;
+    localparam LAST_BIN=(64'd1024*2048*2000)/98245614;
+    localparam BIN_COUNT=LAST_BIN+1;
+
+    ui_interaction ui_interaction_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(display_state),
+        .display_in_valid(display_valid), .display_in_ready(display_ready),
+        .audio_in(audio_in), .audio_in_valid(audio_valid), .audio_in_ready(audio_ready),
+        .scene_state(scene_state), .highlight_mask(), .default_mask(),
+        .out_valid(out_valid), .out_ready(out_ready), .render_done(render_done),
+        .scene_wave_valid(wave_valid), .scene_wave_seq(wave_seq), .scene_output_peak(peak),
+        .scene_pcm_valid(pcm_valid), .scene_dropped_windows(scene_drops),
+        .scene_spectrum_valid(spectrum_valid), .scene_spectrum_seq(spectrum_seq),
+        .scene_spectrum_clipped(clipped), .scene_fft_overflow(overflow),
+        .column_rd_en(column_rd_en), .column_rd_addr(column_rd_addr), .column_rd_data(column_rd_data),
+        .dropped_windows(drops), .protocol_error(protocol_error), .configuration_error(configuration_error)
+    );
+    always @(posedge clk_sys)
+    begin
+        if (rst_n)
+        begin
+            if (!audio_ready || !display_ready || protocol_error || configuration_error)
+                $fatal(1,"switch test stalled/protocol error");
+            if ((wave_valid && scene_state[500]) || (spectrum_valid && !scene_state[500]) ||
+                (wave_valid && spectrum_valid)) $fatal(1,"cache kind and frozen UI disagree");
+        end
+    end
+    task offer_ui;
+        input view;
+        begin
+            @(negedge clk_sys);
+            display_state[31:0]=display_state[31:0]+32'd1;
+            display_state[500]=view;
+            display_valid=1'b1;
+            @(negedge clk_sys);
+            display_valid=1'b0;
+        end
+    endtask
+    task offer_pcm;
+        input integer vector;
+        integer n;
+        begin
+            for (n=0; n<1024; n=n+1)
+            begin
+                @(negedge clk_sys);
+                audio_in=samples[vector*1024+n];
+                audio_valid=1'b1;
+            end
+            @(negedge clk_sys);
+            audio_valid=1'b0;
+        end
+    endtask
+    task take_scene;
+        begin
+            wait (out_valid);
+            @(negedge clk_sys);
+            out_ready=1'b1;
+            @(negedge clk_sys);
+            out_ready=1'b0;
+        end
+    endtask
+    task finish_scene;
+        begin
+            @(negedge clk_sys);
+            column_rd_en=1'b0;
+            render_done=1'b1;
+            @(negedge clk_sys);
+            render_done=1'b0;
+        end
+    endtask
+    function integer map_y;
+        input signed [15:0] value;
+        integer raw;
+        begin
+            raw=value;
+            if (raw>8191) raw=32767;
+            else if (raw< -8192) raw=-32768;
+            else raw=raw*4;
+            map_y=303-(((raw+32768)*207+32768)/65536);
+        end
+    endfunction
+    task read_word;
+        input integer address;
+        input integer wanted;
+        begin
+            @(negedge clk_sys);
+            column_rd_en=1'b1; column_rd_addr=address;
+            @(posedge clk_sys);
+            #1;
+            if (column_rd_data!==wanted[15:0]) $fatal(1,"switch/cache word=%0d got=%0d wanted=%0d",address,column_rd_data,wanted);
+            checked_words=checked_words+1;
+        end
+    endtask
+    task check_cache;
+        input integer vector;
+        input spec;
+        input integer seq;
+        begin
+            if (wave_seq!==seq || spectrum_seq!==seq || !pcm_valid ||
+                (spec ? (!spectrum_valid || wave_valid) : (!wave_valid || spectrum_valid)))
+                $fatal(1,"cache expected type=%0d seq=%0d",spec,seq);
+            first=0;
+            for (j=0; j<544; j=j+1)
+            begin
+                if (spec)
+                begin
+                    bin_number=((j+1)*BIN_COUNT+543)/544-1;
+                    m=expected[vector*513+bin_number][47:32];
+                    if (m>=2048) m=32768;
+                    else m=m*16;
+                    min_y=303-((m*207+16384)/32768);
+                    max_y=303;
+                end
+                else
+                begin
+                    last=((j+1)*1024+543)/544;
+                    min_y=479; max_y=0;
+                    for (k=(first==0 ? 0 : first-1); k<last; k=k+1)
+                    begin
+                        y=map_y(samples[vector*1024+k]);
+                        if (y<min_y) min_y=y;
+                        if (y>max_y) max_y=y;
+                    end
+                    first=last;
+                end
+                read_word(2*j,min_y);
+                read_word(2*j+1,max_y);
+            end
+            @(negedge clk_sys);
+            column_rd_en=1'b0;
+        end
+    endtask
+    initial
+    begin
+        $readmemh("../assets/lcd_ui/fft_input.hex",samples);
+        $readmemh("../assets/lcd_ui/fft_expected.hex",expected);
+        repeat (3) @(negedge clk_sys);
+        rst_n=1'b1;
+        offer_ui(1'b0);
+        take_scene; finish_scene;
+        offer_pcm(6);
+        repeat (50) @(negedge clk_sys);
+        offer_ui(1'b1); // Wave calculation is still in flight.
+        take_scene;
+        if (!scene_state[500] || wave_valid || spectrum_valid || !pcm_valid)
+            $fatal(1,"wave cache was relabelled spectrum");
+        finish_scene;
+        offer_pcm(6);
+        repeat (50) @(negedge clk_sys);
+        offer_ui(1'b0); // FFT PCM load is still in flight.
+        take_scene;
+        if (scene_state[500] || wave_valid || spectrum_valid || !pcm_valid)
+            $fatal(1,"FFT cache was relabelled waveform");
+        finish_scene;
+        offer_ui(1'b1); // Reuse completed spectrum without a new PCM window.
+        wait (out_valid);
+        @(negedge clk_sys);
+        held_metadata=metadata;
+        offer_pcm(11);
+        offer_pcm(13);
+        if (!out_valid || metadata!==held_metadata || drops==32'd0)
+            $fatal(1,"stalled spectrum/whole window retention");
+        take_scene;
+        check_cache(6,1'b1,1);
+        offer_ui(1'b0);
+        repeat (100) @(negedge clk_sys);
+        if (metadata!==held_metadata) $fatal(1,"render changed after latest view arrived");
+        finish_scene;
+        take_scene;
+        check_cache(11,1'b0,2);
+        finish_scene;
+
+        offer_ui(1'b1); take_scene; finish_scene;
+        offer_pcm(13);
+        repeat (50) @(negedge clk_sys);
+        rst_n=1'b0;
+        #1;
+        if (out_valid || wave_valid || spectrum_valid || audio_ready) $fatal(1,"FFT reset cancel");
+        repeat (3) @(negedge clk_sys);
+        rst_n=1'b1;
+        offer_ui(1'b1); take_scene; finish_scene;
+        offer_pcm(13);
+        // The first window is released after load, but the FFT is still busy.
+        repeat (4000) @(negedge clk_sys);
+        offer_ui(1'b0);
+        offer_pcm(11); // Queue another type before the first FFT finishes.
+        take_scene;
+        if (wave_valid || spectrum_valid || !pcm_valid) $fatal(1,"mid-FFT type mismatch not withheld");
+        finish_scene;
+        take_scene;
+        check_cache(11,1'b0,1);
+        finish_scene;
+        test_passed=1'b1;
+        $display("UI_SPECTRUM_SWITCH_PASS words=%0d load_compute_switch owner queued_window frozen_cache reset",checked_words);
+        $finish;
+    end
+    initial
+    begin
+        #10000000;
+        $fatal(1,"spectrum switch watchdog");
+    end
+endmodule

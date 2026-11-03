@@ -1,0 +1,265 @@
+/**
+ * 测试单音±200音分换算、全部位置单调性、随机背压、饱和及复位；应打印PASS。
+ */
+`timescale 1ns/1ps
+
+module pitch_bend_frequency_mapper_tb();
+    reg clk_sys;
+    reg rst_n;
+    reg [31:0] base_freq;
+    reg [15:0] bend_value;
+    reg in_valid;
+    reg out_ready;
+    wire [31:0] note_freq;
+    wire in_ready;
+    wire out_valid;
+    reg regression_passed;
+    reg regression_failed;
+    integer checked_frames;
+    integer checked_stalls;
+    reg expected_pending;
+    real expected_frequency;
+    reg expected_center;
+    reg [31:0] expected_base;
+    reg was_stalled;
+    reg [31:0] held_frequency;
+    reg [31:0] last_frequency;
+    reg [31:0] previous_frequency;
+    reg [31:0] random_state;
+    integer position;
+    integer trial;
+    integer stall_cycles;
+    real actual_frequency;
+    real absolute_error;
+    real tolerance;
+
+    pitch_bend_frequency_mapper pitch_bend_frequency_mapper_u (
+        .clk_sys(clk_sys), .rst_n(rst_n), .base_freq(base_freq),
+        .bend_value(bend_value), .in_valid(in_valid), .out_ready(out_ready),
+        .note_freq(note_freq), .in_ready(in_ready), .out_valid(out_valid)
+    );
+
+    initial clk_sys = 1'b0;
+    always #5.086263 clk_sys = ~clk_sys;
+
+    task automatic fail;
+        input [8*160-1:0] reason;
+        begin
+            regression_failed = 1'b1;
+            regression_passed = 1'b0;
+            $display("FAIL: %0s (frame=%0d time=%0t)", reason, checked_frames, $time);
+            $fatal(1, "pitch_bend_frequency_mapper_tb failed");
+        end
+    endtask
+
+    function real unsigned_real;
+        input [31:0] value;
+        begin
+            unsigned_real = value[31:16] * 65536.0 + value[15:0];
+        end
+    endfunction
+
+    // 独立实数参考，不复用被测查找表；正负半程均映射到精确的200音分。
+    function real reference_frequency;
+        input [31:0] frequency;
+        input [15:0] bend;
+        real cents;
+        real result;
+        begin
+            if (bend <= 16'h8000)
+                cents = (bend - 32768.0) * 200.0 / 32768.0;
+            else
+                cents = (bend - 32768.0) * 200.0 / 32767.0;
+            result = unsigned_real(frequency) * $exp($ln(2.0) * cents / 1200.0);
+            reference_frequency = (result > 4294967295.0) ? 4294967295.0 : result;
+        end
+    endfunction
+
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n)
+        begin
+            expected_pending = 1'b0;
+            was_stalled = 1'b0;
+            held_frequency = 32'd0;
+        end
+        else
+        begin
+            if (was_stalled && (!out_valid || note_freq !== held_frequency))
+                fail("output valid or frequency changed while backpressured");
+            was_stalled = out_valid && !out_ready;
+            held_frequency = note_freq;
+            if (was_stalled)
+                checked_stalls = checked_stalls + 1;
+
+            if (in_valid && in_ready)
+            begin
+                if (expected_pending)
+                    fail("accepted another input before the pending result was delivered");
+                expected_pending = 1'b1;
+                expected_frequency = reference_frequency(base_freq, bend_value);
+                expected_center = (bend_value == 16'h8000);
+                expected_base = base_freq;
+            end
+
+            if (out_valid && out_ready)
+            begin
+                if (!expected_pending)
+                    fail("unexpected or repeated output transaction");
+                if ((^note_freq) === 1'bx)
+                    fail("unknown bits in output frequency");
+                actual_frequency = unsigned_real(note_freq);
+                absolute_error = actual_frequency - expected_frequency;
+                if (absolute_error < 0.0)
+                    absolute_error = -absolute_error;
+                // 11 ppm约0.019音分，另留1.1个UQ16.16最低位作量化余量。
+                tolerance = expected_frequency * 0.000011 + 1.1;
+                if (absolute_error > tolerance)
+                begin
+                    $display("expected=%f actual=%f error=%f tolerance=%f",
+                        expected_frequency, actual_frequency, absolute_error, tolerance);
+                    fail("frequency exceeds the independent mathematical reference tolerance");
+                end
+                if (expected_center && note_freq !== expected_base)
+                    fail("center position did not preserve the exact base frequency");
+                expected_pending = 1'b0;
+                last_frequency = note_freq;
+                checked_frames = checked_frames + 1;
+            end
+        end
+    end
+
+    task automatic send;
+        input [31:0] frequency;
+        input [15:0] bend;
+        input integer stalled_cycles;
+        begin
+            @(negedge clk_sys);
+            while (!in_ready) @(negedge clk_sys);
+            base_freq = frequency;
+            bend_value = bend;
+            in_valid = 1'b1;
+            out_ready = (stalled_cycles == 0);
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            // 输入一旦握手即可改变，结果只能属于已锁存的那一组数据。
+            base_freq = 32'hDEADBEEF;
+            bend_value = 16'hCDEF;
+            repeat (stalled_cycles) @(negedge clk_sys);
+            while (!out_valid) @(negedge clk_sys);
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            if (expected_pending)
+                fail("result handshake did not clear the expected transaction");
+        end
+    endtask
+
+    task automatic reset_dut;
+        begin
+            @(negedge clk_sys);
+            rst_n = 1'b0;
+            in_valid = 1'b0;
+            out_ready = 1'b0;
+            repeat (3) @(negedge clk_sys);
+            if (in_ready || out_valid || note_freq !== 32'd0)
+                fail("reset did not clear ready, output valid and data");
+            rst_n = 1'b1;
+            repeat (3) @(negedge clk_sys);
+        end
+    endtask
+
+    initial
+    begin
+        rst_n = 1'b0;
+        base_freq = 32'd0;
+        bend_value = 16'h8000;
+        in_valid = 1'b0;
+        out_ready = 1'b0;
+        regression_passed = 1'b0;
+        regression_failed = 1'b0;
+        checked_frames = 0;
+        checked_stalls = 0;
+        expected_pending = 1'b0;
+        last_frequency = 32'd0;
+        random_state = 32'h84E91B37;
+        reset_dut;
+
+        // A4: 最低约392Hz、回中严格440Hz、最高约493.883Hz。
+        send(32'd28835840, 16'h0000, 20);
+        send(32'd28835840, 16'h8000, 0);
+        if (last_frequency !== 32'd28835840) fail("A4 center is not exactly 440 Hz");
+        send(32'd28835840, 16'hFFFF, 30);
+        send(32'd0, 16'hFFFF, 0);
+        if (last_frequency !== 32'd0) fail("zero frequency became nonzero");
+        send(32'hFFFFFFFF, 16'hFFFF, 0);
+        if (last_frequency !== 32'hFFFFFFFF) fail("positive frequency overflow did not saturate");
+        send(32'hFFFFFFFF, 16'h8000, 0);
+        send(32'd1, 16'h0000, 0);
+        send(32'd1, 16'hFFFF, 0);
+
+        // 运算中异步复位：被丢弃的事务不能在复位后重现。
+        @(negedge clk_sys);
+        base_freq = 32'd28835840;
+        bend_value = 16'hFFFF;
+        in_valid = 1'b1;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        reset_dut;
+        out_ready = 1'b1;
+        repeat (12) @(negedge clk_sys);
+        if (out_valid || checked_frames != 8) fail("reset leaked an unfinished calculation");
+        send(32'd17145900, 16'h8000, 0);
+
+        // 等待下游期间复位，必须丢弃旧的有效输出。
+        @(negedge clk_sys);
+        base_freq = 32'd28835840;
+        bend_value = 16'h0000;
+        in_valid = 1'b1;
+        out_ready = 1'b0;
+        @(negedge clk_sys);
+        in_valid = 1'b0;
+        while (!out_valid) @(negedge clk_sys);
+        repeat (3) @(negedge clk_sys);
+        reset_dut;
+        out_ready = 1'b1;
+        repeat (12) @(negedge clk_sys);
+        if (out_valid || checked_frames != 9) fail("reset replayed a stalled output");
+
+        // 全部65536个位置逐个验证数学精度与单调性。
+        previous_frequency = 32'd0;
+        for (position = 0; position < 65536; position = position + 1)
+        begin
+            send(32'd28835840, position[15:0], 0);
+            if (last_frequency < previous_frequency)
+                fail("pitch decreased while the wheel position increased");
+            previous_frequency = last_frequency;
+        end
+
+        // 更换基准频率，随机位置及长短背压。
+        for (trial = 0; trial < 256; trial = trial + 1)
+        begin
+            random_state = {random_state[30:0], random_state[31] ^ random_state[21] ^
+                random_state[1] ^ random_state[0]};
+            stall_cycles = random_state[4:0];
+            send(random_state, random_state[27:12], stall_cycles);
+        end
+        repeat (16) @(negedge clk_sys);
+        if (regression_failed || expected_pending || checked_frames != 65801 || checked_stalls == 0)
+        begin
+            fail("previous failure, missing transaction or missing backpressure coverage");
+        end
+        else
+        begin
+            regression_passed = 1'b1;
+            $display("PASS: pitch_bend_frequency_mapper_tb checked %0d frames, all 65536 positions and %0d stalled cycles",
+                checked_frames, checked_stalls);
+            $stop;
+        end
+    end
+
+    initial
+    begin
+        #20000000;
+        fail("simulation timeout");
+    end
+endmodule

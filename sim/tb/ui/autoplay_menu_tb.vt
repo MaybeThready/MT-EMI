@@ -1,0 +1,116 @@
+`timescale 1ns/1ps
+module autoplay_menu_tb;
+    GSR GSR (.GSRI(1'b1));
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0, in_valid = 1'b0, autoplay_done = 1'b0;
+    reg [3:0] pressed = 4'd0;
+    wire in_ready, active, song, running;
+    wire [2:0] page, selection;
+    reg [5:0] object_index = 6'd0;
+    reg [544:0] s = '0;
+    wire [7:0] string_id;
+    wire [31:0] scene_config;
+    wire [11:0] text_start;
+    wire [7:0] text_count;
+    wire [31:0] text_entry;
+    reg [3:0] glyph_y = 4'd0;
+    wire [7:0] glyph_row;
+    reg test_passed = 1'b0;
+    integer row, visible_rows;
+    lcd_text_info label_info_u (.string_id(8'd153), .start_addr(text_start), .entry_count(text_count));
+    lcd_text_rom label_rom_u (.clk(clk_sys), .rst_n(rst_n), .rd_en(1'b1),
+        .entry_addr(text_start), .entry_data(text_entry));
+    lcd_tile_rom glyph_rom_u (.clk(clk_sys), .rst_n(rst_n), .rd_en(1'b1),
+        .tile_id(text_entry[12:0]), .glyph_y(glyph_y), .glyph_row(glyph_row));
+    ui_control_state control_u (
+        .clk_sys(clk_sys), .rst_n(rst_n),
+        .button_pressed_event(pressed), .button_released_event(4'd0),
+        .button_held(4'd0), .in_valid(in_valid), .in_ready(in_ready),
+        .context_ready(1'b1), .menu_page(page), .menu_selection(selection),
+        .menu_autoplay_active(active), .autoplay_song(song),
+        .autoplay_running(running), .autoplay_done(autoplay_done),
+        .preset_command_ready(1'b1), .preset_result_valid(1'b0),
+        .preset_result_status(4'd0)
+    );
+    always @(*) begin
+        s = '0;
+        s[422:420] = page;
+        s[424:423] = selection[1:0];
+        s[509] = active || selection[2];
+        s[510] = active;
+        s[511] = song;
+        s[500] = running;
+    end
+    lcd_page_program display_u (
+        .s(s), .activity(22'd0), .defaults(22'd0),
+        .pcm_valid(1'b0), .graph_valid(1'b0), .fft_overflow(1'b0),
+        .spectrum_clipped(1'b0), .output_peak(16'd0),
+        .object_index(object_index), .string_id(string_id),
+        .scene_config(scene_config)
+    );
+    task press;
+        input [3:0] value;
+        begin
+            @(negedge clk_sys);
+            while (!in_ready) @(negedge clk_sys);
+            pressed = value;
+            in_valid = 1'b1;
+            @(negedge clk_sys);
+            in_valid = 1'b0;
+            pressed = 4'd0;
+            repeat (2) @(negedge clk_sys);
+        end
+    endtask
+    initial begin
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        press(4'h1); // Open main menu.
+        repeat (4) press(4'h4); // B3 to fifth item.
+        if (page !== 3'd1 || selection !== 3'd4) $fatal(1,"AutoPlay entry missing");
+        object_index = 6'd12;
+        #1;
+        if (string_id !== 8'd153 || scene_config[31] !== 1'b1)
+            $fatal(1,"AutoPlay main-menu label or highlight mismatch");
+        object_index = 6'd11;
+        #1;
+        if (string_id !== 8'd159) $fatal(1,"Fifth menu number missing");
+        press(4'h1); // Enter.
+        if (!active || running) $fatal(1,"AutoPlay submenu state mismatch");
+        object_index = 6'd4;
+        #1;
+        if (string_id !== 8'd154) $fatal(1,"First song label mismatch");
+        press(4'h4); // B3 selects second song.
+        if (!song || !active) $fatal(1,"Second song selection failed");
+        press(4'h2); // B2 returns to first song.
+        if (song) $fatal(1,"First song selection failed");
+        press(4'h4);
+        object_index = 6'd6;
+        #1;
+        if (string_id !== 8'd155) $fatal(1,"Second song label mismatch");
+        press(4'h1); // Play.
+        if (!running) $fatal(1,"Play action failed");
+        object_index = 6'd9;
+        #1;
+        if (string_id !== 8'd156) $fatal(1,"Playing status missing");
+        autoplay_done = 1'b1;
+        @(negedge clk_sys);
+        autoplay_done = 1'b0;
+        if (running) $fatal(1,"Song completion did not stop UI");
+        press(4'h8); // Back.
+        if (active || page !== 3'd1) $fatal(1,"Back did not leave submenu");
+        if (text_start !== 12'd2855 || text_count !== 8'd8 ||
+            text_entry[12:0] < 13'd1977 || text_entry[12:0] >= 13'd2003)
+            $fatal(1,"AutoPlay text ROM metadata/data mismatch");
+        visible_rows = 0;
+        for (row=0; row<16; row=row+1) begin
+            glyph_y = row;
+            repeat (2) @(negedge clk_sys);
+            if (glyph_row != 8'd0) visible_rows = visible_rows + 1;
+        end
+        if (visible_rows < 4) $fatal(1,"AutoPlay glyph ROM is blank");
+        test_passed = 1'b1;
+        $display("AUTOPLAY_MENU_PASS");
+        $stop;
+    end
+endmodule

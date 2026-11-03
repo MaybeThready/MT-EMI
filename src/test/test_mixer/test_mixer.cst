@@ -1,0 +1,28 @@
+// test_mixer: common keyboard/I2S pinout, two status LEDs.
+// data_a/data_b receive the two keyboard boards' serial outputs.
+IO_LOC "clk_core" P16;
+IO_PORT "clk_core" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "rst_n" K16;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "data_a" W21;
+IO_PORT "data_a" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "data_b" P21;
+IO_PORT "data_b" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "load_n" U16;
+IO_PORT "load_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "key_clk" U15;
+IO_PORT "key_clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "i2s_bclk" C21;
+IO_PORT "i2s_bclk" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "i2s_lrck" B20;
+IO_PORT "i2s_lrck" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "i2s_dout" B19;
+IO_PORT "i2s_dout" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "sd_mode_n" A17;
+IO_PORT "sd_mode_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[0]" J14;
+IO_PORT "status_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[1]" R26;
+IO_PORT "status_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+GROUP pll_init_bottom = {"sys_clocker_u/gowin_pll_u/u_pll_init/waitcnt_*" "sys_clocker_u/gowin_pll_u/u_pll_init/locksig_*" "sys_clocker_u/gowin_pll_u/u_pll_init/enable_r_*" "sys_clocker_u/gowin_pll_u/u_pll_init/RomDreg_*" "sys_clocker_u/gowin_pll_u/u_pll_init/RomAddr_*" "sys_clocker_u/gowin_pll_u/u_pll_init/state_*" "sys_clocker_u/gowin_pll_u/u_pll_init/laststep_*" "sys_clocker_u/gowin_pll_u/u_pll_init/Waitlock_*"};
+GRP_LOC pll_init_bottom R[85:95]C[150:165];

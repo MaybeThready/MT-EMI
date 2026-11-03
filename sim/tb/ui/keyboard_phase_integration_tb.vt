@@ -40,8 +40,10 @@ module keyboard_phase_integration_tb;
         .i2s_tick_up(), .i2s_tick_down(), .smp_tick_down(), .scan_tick_down()
     );
     keyboard_note_pipeline #(.MAX_POLYPHONY(3)) keyboard_note_pipeline_u (
+        .play_mode(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(smp_tick_up), .scan_tick_up(scan_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .note_busy(note_busy),
+        .bend_value(16'h8000),
         .in_valid(in_valid), .in_ready(in_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity), .out_valid(ui_valid), .out_ready(ui_ready),
         .sample_ready(), .sample_overrun(sample_overrun)

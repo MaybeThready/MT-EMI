@@ -1,0 +1,265 @@
+/**
+ * 2026-11-02 和弦整机联合自检：真实串行键盘/按钮→UI→32声部→mixer→I2S引脚与LCD。
+ * 直接实例化正式src/top.v；不使用诊断顶层或整机副本，保留2048周期ticker。
+ * 长测直接提供系统时钟；USE_REAL_PLL=1单独跑真实PLL冒烟，避免PLL时间精度拖慢完整PCM/FFT窗口。
+ * 按键去抖加速；触摸回归PRESSURE_ENABLE=0，模拟ADC由独立联合测试验证。
+ * 保留800x480场景，只缩扫描视口加快安全提交。ROM/RAM使用已与厂商模型全址对照的同步模型。
+ * 检查候选/确认/取消、旧音保持、三on/三off、工作模式独立、播放引脚解码、波形/FFT及运行中复位。
+ */
+`timescale 1ns/1ps
+module chord_system_tb;
+    parameter USE_REAL_PLL=0;
+    parameter FULL_WINDOWS=1;
+    GSR GSR(.GSRI(1'b1));
+    reg clk_core=0,rst_n=0;
+    always #(USE_REAL_PLL ? 10 : 5.089285) clk_core=~clk_core;
+    reg [3:0] ui_button=4'd0;
+    reg [23:0] keys=0;
+    reg [15:0] board_a=0,board_b=0;
+    wire load_n,key_clk,i2s_bclk,i2s_lrck,i2s_dout,sd_mode_n;
+    wire flash_cs_n,flash_clk,flash_mosi,flash_wp_n,flash_hold_n;
+    tri1 flash_miso;
+    wire [5:0] status_led;
+    wire [3:0] mux_addr;
+    wire mux_en_a_n,mux_en_b_n,knob_load_n,knob_shift_clk;
+    wire lcd_clk,lcd_en,lcd_bl,lcd_hs_n,lcd_vs_n;
+    wire [5:0] lcd_r,lcd_g,lcd_b;
+    reg test_passed=0;
+    integer updates=0,commits=0,pcm_count=0,nonzero_pcm=0,backpressured_cycles=0,pcm_while_waiting=0;
+    integer last_on=0,last_off=0,paired_events=0,visible_pixels=0,cycle_count=0,last_tick=0;
+    reg [544:0] last_display=0,last_render=0;
+    reg [31:0] front_config;
+    integer i,t;
+    top #(.BUTTON_DEBOUNCE_CYCLES(8),.KEY_DEBOUNCE_TICKS(0),.KNOB_DEBOUNCE_TICKS(0),
+        .ADC_STARTUP_TICKS(128),.MUX_SETTLE_TICKS(8),.SHARED_SETTLE_TICKS(8),
+        .BEND_SETTLE_TICKS(8),.BEND_DEBOUNCE_TICKS(0),.BEND_FILTER_SHIFT(0),
+        .FLASH_HALF_PERIOD_CYCLES(4),.FLASH_POWER_UP_CYCLES(10)) dut(
+        .clk_core(clk_core),.rst_n(rst_n),.ui_button(ui_button),
+        .data_a(board_a[15]),.data_b(board_b[15]),.load_n(load_n),.key_clk(key_clk),
+        .mux_addr(mux_addr),.mux_en_a_n(mux_en_a_n),.mux_en_b_n(mux_en_b_n),
+        .knob_serial_data(1'b1),.knob_load_n(knob_load_n),.knob_shift_clk(knob_shift_clk),
+        .i2s_bclk(i2s_bclk),.i2s_lrck(i2s_lrck),.i2s_dout(i2s_dout),.sd_mode_n(sd_mode_n),
+        .status_led(status_led),
+        .flash_cs_n(flash_cs_n),.flash_clk(flash_clk),.flash_mosi(flash_mosi),.flash_miso(flash_miso),
+        .flash_wp_n(flash_wp_n),.flash_hold_n(flash_hold_n),.lcd_clk(lcd_clk),.lcd_en(lcd_en),
+        .lcd_r(lcd_r),.lcd_g(lcd_g),.lcd_b(lcd_b),.lcd_bl(lcd_bl),.lcd_hs_n(lcd_hs_n),.lcd_vs_n(lcd_vs_n));
+    spi_nor_model flash_u(.clk_sys(dut.clk_sys),.cs_n(flash_cs_n),.sck(flash_clk),.mosi(flash_mosi),.miso(flash_miso));
+    defparam dut.keyboard_driver_u.PRESSURE_ENABLE=0;
+    defparam dut.lcd_display_u.lcd_driver_u.H_ACTIVE=65;
+    defparam dut.lcd_display_u.lcd_driver_u.V_ACTIVE=33;
+    defparam dut.lcd_display_u.lcd_driver_u.H_BACK=3;
+    defparam dut.lcd_display_u.lcd_driver_u.H_FRONT=5;
+    defparam dut.lcd_display_u.lcd_driver_u.V_BACK=2;
+    defparam dut.lcd_display_u.lcd_driver_u.V_FRONT=3;
+    defparam dut.lcd_display_u.lcd_driver_u.lcd_scene_u.H_ACTIVE=800;
+    defparam dut.lcd_display_u.lcd_driver_u.lcd_scene_u.V_ACTIVE=480;
+    generate
+        if(USE_REAL_PLL)
+        begin : accelerate_pll_start
+            initial force dut.sys_clocker_u.gowin_pll_u.u_pll_init.waitcnt='1;
+        end
+    endgenerate
+    always @(negedge load_n)
+    begin
+        board_a={4'd0,keys[11:0]};board_b={4'd0,keys[23:12]};
+    end
+    always @(posedge key_clk)
+    begin
+        board_a={board_a[14:0],1'b0};board_b={board_b[14:0],1'b0};
+    end
+    always @(posedge lcd_clk)
+    begin
+        if(dut.rst_sys_n && lcd_en && {lcd_r,lcd_g,lcd_b}!=0) visible_pixels=visible_pixels+1;
+    end
+    always @(posedge dut.clk_sys)
+    begin
+        if(dut.rst_sys_n)
+        begin
+            cycle_count=cycle_count+1;
+            if(dut.smp_tick_up)
+            begin
+                if(last_tick && cycle_count-last_tick!=2048) $fatal(1,"real sample tick period changed");
+                last_tick=cycle_count;
+            end
+            if(dut.configuration_error || dut.sample_overrun || dut.underrun_r || dut.lcd_protocol_error || dut.lcd_configuration_error)
+                $fatal(1,"whole-system protocol/config/overrun error");
+            if(dut.preset_storage_driver_u.fault_r)
+                $fatal(1,"Flash startup fault status=%0d",dut.preset_storage_driver_u.fault_status_r);
+            if(!dut.played_pcm_ready) $fatal(1,"LCD backpressured I2S played PCM");
+            if(dut.ui_display_valid && dut.ui_display_ready)
+            begin
+                updates=updates+1;last_display=dut.ui_display_state;
+            end
+            if(dut.ui_out_valid && dut.ui_audio_ready)
+            begin
+                if(|dut.note_on) last_on=$countones(dut.note_on);
+                if(|dut.note_off) last_off=$countones(dut.note_off);
+                if((dut.note_on & dut.note_off)!=0) $fatal(1,"same voice has on and off");
+                if($countones(dut.note_on)==3 && $countones(dut.note_off)==1) paired_events=paired_events+1;
+            end
+            if(dut.lcd_display_u.present_valid && !dut.lcd_display_u.present_ready)
+                backpressured_cycles=backpressured_cycles+1;
+            if(dut.played_pcm_valid && dut.played_pcm_ready)
+            begin
+                pcm_count=pcm_count+1;
+                if((pcm_count%256)==0) $display("CHORD_SYSTEM_PROGRESS PCM=%0d FlashCatalog=%0d",pcm_count,dut.storage_catalog_valid);
+                if(dut.played_pcm!=0) nonzero_pcm=nonzero_pcm+1;
+                if(dut.lcd_display_u.present_valid && !dut.lcd_display_u.present_ready) pcm_while_waiting=pcm_while_waiting+1;
+            end
+            if(dut.lcd_display_u.render_done)
+            begin
+                commits=commits+1;last_render=dut.lcd_display_u.scene_state;
+                front_config=dut.lcd_display_u.lcd_driver_u.lcd_scene_u.front_bank_r ?
+                    dut.lcd_display_u.lcd_driver_u.lcd_scene_u.config_r[1] : dut.lcd_display_u.lcd_driver_u.lcd_scene_u.config_r[0];
+                if(front_config[2:0]!==last_render[422:420] || front_config[24]!==last_render[510])
+                    $fatal(1,"committed LCD identity differs from frozen snapshot");
+                if(front_config[24] && front_config[5:4]!=={1'b0,last_render[511]})
+                    $fatal(1,"committed candidate mismatch");
+            end
+        end
+        else last_tick=0;
+    end
+
+    // Independent mixer-accept queue -> tick-selected PCM -> LCD mirror -> I2S pins.
+    reg [15:0] accepted[0:8191],played[0:8191],expected_played[0:8191];
+    integer accepted_count=0,consumed_count=0,frame_count=0,mirror_count=0;
+    integer decoded_left=0,decoded_right=0,decoder_bits=0;
+    reg decoder_started=0,decoder_channel=1;
+    reg [15:0] decoded_word=0;
+    always @(posedge dut.clk_sys)
+    begin
+        if(!dut.rst_sys_n)
+        begin accepted_count=0;consumed_count=0;frame_count=0;mirror_count=0;end
+        else
+        begin
+            if(dut.mixer_out_valid && dut.i2s_ready)
+            begin accepted[accepted_count]=dut.mixer_audio;accepted_count=accepted_count+1;end
+            if(dut.smp_tick_up)
+            begin
+                if(consumed_count<accepted_count)
+                begin expected_played[frame_count]=accepted[consumed_count];consumed_count=consumed_count+1;end
+                else expected_played[frame_count]=0;
+                frame_count=frame_count+1;
+            end
+            if(dut.played_pcm_valid && dut.played_pcm_ready)
+            begin
+                if(mirror_count>=frame_count || dut.played_pcm!==expected_played[mirror_count])
+                    $fatal(1,"played PCM differs from mixer queue");
+                played[mirror_count]=dut.played_pcm;mirror_count=mirror_count+1;
+            end
+        end
+    end
+    always @(negedge dut.rst_sys_n)
+    begin decoder_started=0;decoder_channel=1;decoder_bits=0;decoded_word=0;decoded_left=0;decoded_right=0;end
+    always @(posedge i2s_bclk)
+    begin
+        if(dut.rst_sys_n)
+        begin
+            if(!decoder_started)
+            begin
+                if(!i2s_lrck) begin decoder_started=1;decoder_channel=0;decoder_bits=0;decoded_word=0;end
+            end
+            else
+            begin
+                decoded_word={decoded_word[14:0],i2s_dout};
+                if(decoder_bits==15)
+                begin
+                    if(i2s_lrck===decoder_channel) $fatal(1,"I2S LRCK phase");
+                    if(!decoder_channel)
+                    begin
+                        if(decoded_left>=mirror_count || decoded_word!==played[decoded_left]) $fatal(1,"I2S pin PCM mismatch");
+                        decoded_left=decoded_left+1;
+                    end
+                    else
+                    begin if(decoded_word!=0) $fatal(1,"I2S right channel not silent");decoded_right=decoded_right+1;end
+                    decoder_channel=i2s_lrck;decoder_bits=0;decoded_word=0;
+                end
+                else
+                begin
+                    if(i2s_lrck!==decoder_channel) $fatal(1,"early I2S LRCK");
+                    decoder_bits=decoder_bits+1;
+                end
+            end
+        end
+    end
+    task settle;
+        begin repeat(20000) @(negedge dut.clk_sys);end
+    endtask
+    task press;
+        input integer bit_index;
+        begin
+            @(negedge dut.clk_sys);ui_button=(4'b1<<bit_index);
+            settle;
+            ui_button=4'd0;settle;
+        end
+    endtask
+    task check_state;
+        input [2:0] page;
+        input active,mode;
+        input integer candidate;
+        begin
+            t=0;
+            while((last_display[422:420]!==page || last_display[510]!==active || last_display[509]!==mode ||
+                   last_render[422:420]!==page || last_render[510]!==active || last_render[509]!==mode ||
+                   (candidate>=0 && (last_display[511]!==candidate[0] || last_render[511]!==candidate[0]))) && t<120000)
+            begin @(negedge dut.clk_sys);t=t+1;end
+            if(t==120000) $fatal(1,"LCD state timeout page=%0d submenu=%0d mode=%0d",page,active,mode);
+            $display("CHORD_SYSTEM_STATE page=%0d submenu=%0d confirmed=%0d candidate=%0d PCM=%0d",page,active,mode,last_display[511],pcm_count);
+        end
+    endtask
+    initial
+    begin
+        repeat(6) @(negedge clk_core);rst_n=1;wait(dut.rst_sys_n);settle;
+        check_state(0,0,0,-1);
+        keys=24'h000001;last_on=0;settle;if(last_on!=1) $fatal(1,"default normal note");
+        if(!FULL_WINDOWS)
+        begin
+            if(commits<1 || nonzero_pcm==0 || visible_pixels==0) $fatal(1,"PLL full-chain smoke incomplete");
+            test_passed=1;$display("CHORD_SYSTEM_SMOKE_PASS PLL=%0d keyboard UI rack mixer I2S LCD PCM=%0d commits=%0d",USE_REAL_PLL,pcm_count,commits);$finish;
+        end
+        t=0;
+        while(!dut.storage_catalog_valid && t<400000) begin @(negedge dut.clk_sys);t=t+1;end
+        if(!dut.storage_catalog_valid || flash_u.command_count==0) $fatal(1,"Flash boot catalogue timeout");
+        $display("CHORD_SYSTEM_FLASH_READY commands=%0d PCM=%0d",flash_u.command_count,pcm_count);
+        press(0);check_state(1,0,0,-1);
+        press(0);check_state(1,1,0,0);
+        press(2);check_state(1,1,0,1); // Candidate does not change the sounding mode yet.
+        keys=24'h800001;last_on=0;press(0);check_state(0,0,1,1);
+        if(last_on!=1) $fatal(1,"high group B5 must remain a single note");
+        last_off=0;keys=24'h800000;settle;if(last_off!=1) $fatal(1,"held normal note expanded during switch");
+        last_on=0;last_off=0;keys=24'h000200;settle;
+        if(last_on!=3 || last_off!=1 || paired_events==0) $fatal(1,"low-group triad and high-group release not paired");
+        press(1);check_state(0,0,1,-1);
+        if(last_display[417:416]!=1) $fatal(1,"work mode not independent");
+        press(0);press(0);check_state(1,1,1,1);
+        press(1);check_state(1,1,1,0);
+        press(3);check_state(1,0,1,0);
+        press(3);check_state(0,0,1,-1);
+        last_off=0;keys=0;settle;if(last_off!=3) $fatal(1,"cancel changed held chord");
+        press(0);press(0);press(1);press(0);check_state(0,0,0,0);
+        keys=24'h000004;last_on=0;settle;if(last_on!=1) $fatal(1,"normal confirmation not effective");
+        // Back to chord for continuous waveform and FFT windows from real played PCM.
+        press(0);press(0);press(2);press(0);check_state(0,0,1,1);
+        keys=24'h000008;settle;
+        t=0;
+        while(!dut.lcd_display_u.wave_valid && t<2600000) begin @(negedge dut.clk_sys);t=t+1;end
+        if(!dut.lcd_display_u.wave_valid) $fatal(1,"played waveform window never committed");
+        $display("CHORD_SYSTEM_WAVE_READY PCM=%0d",pcm_count);
+        press(2);
+        t=0;
+        while(!dut.lcd_display_u.spectrum_valid && t<2600000) begin @(negedge dut.clk_sys);t=t+1;end
+        if(!dut.lcd_display_u.spectrum_valid) $fatal(1,"played FFT window never committed");
+        $display("CHORD_SYSTEM_FFT_READY PCM=%0d",pcm_count);
+        if(!dut.storage_catalog_valid || flash_u.command_count==0) $fatal(1,"real Flash startup not exercised");
+        if(nonzero_pcm<100 || decoded_left<1000 || commits<15 || visible_pixels==0 || pcm_while_waiting==0)
+            $fatal(1,"incomplete whole-system coverage");
+        $display("CHORD_SYSTEM_DATA PCM=%0d nonzero=%0d I2S_L=%0d I2S_R=%0d commits=%0d LCD_wait_cycles=%0d PCM_during_LCD_wait=%0d",pcm_count,nonzero_pcm,decoded_left,decoded_right,commits,backpressured_cycles,pcm_while_waiting);
+        rst_n=0;keys=0;ui_button=4'd0;#2;
+        if(lcd_bl || lcd_en || i2s_bclk) $fatal(1,"asynchronous system reset");
+        repeat(6) @(negedge clk_core);rst_n=1;wait(dut.rst_sys_n);settle;
+        check_state(0,0,0,0);
+        if(dut.lcd_protocol_error || !lcd_bl || !sd_mode_n) $fatal(1,"system reset restart");
+        test_passed=1;$display("CHORD_SYSTEM_PASS keyboard buttons UI32 mixer I2S_pins Flash LCD_RGB chord candidate cancel waveform FFT reset");$finish;
+    end
+    initial begin #100000000;$fatal(1,"whole-system watchdog");end
+endmodule

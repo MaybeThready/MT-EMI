@@ -1,0 +1,189 @@
+/**
+ * 第四版59场景接口回归：背压、冻结、576列、提交、峰值帧差及复位取消。
+ * 33769条已独立数值/几何校验的指令及242个数字串逐条比较；存储模型已经原厂全址对照。
+ */
+`timescale 1ns/1ps
+module drawers_tb;
+    GSR GSR(.GSRI(1'b1));
+    reg clk=1'b0,rst_n=1'b0;
+    always #5 clk=~clk;
+    reg in_valid=1'b0;
+    wire in_ready;
+    reg [544:0] scene=545'd0;
+    reg [21:0] activity=22'd0,defaults=22'd0;
+    reg [20:0] metadata=21'd0;
+    reg [15:0] frame_count=0;
+    wire column_en;
+    wire [10:0] column_addr;
+    reg [15:0] column_data=16'd0;
+    wire word_valid,word_kind,present_valid,done,error;
+    wire [11:0] word_addr;
+    wire [31:0] word_data;
+    reg word_ready=1'b0,present_ready=1'b0;
+    reg [15:0] random_r=16'h9215;
+    reg [7:0] present_wait=8'd0;
+    reg [544:0] cases[0:63];
+    reg [21:0] acts[0:63],defs[0:63];
+    reg [20:0] metas[0:63];
+    integer case_count=59,case_id=-1,fd,cycles=0,words=0,reads=0,presents=0,dones=0;
+    reg [44:0] stalled_word;
+    reg was_stalled=1'b0;
+    reg outstanding=1'b0,committed=1'b0;
+    reg [4095:0] results_dir;
+    localparam COMMAND_COUNT=33769, NUMBER_COUNT=242;
+    reg [45:0] expected_commands[0:COMMAND_COUNT-1];
+    reg [139:0] expected_numbers[0:NUMBER_COUNT-1];
+    integer command_index=0,number_index=0;
+    reg test_passed=1'b0;
+    task check_command;
+        input [45:0] value;
+        begin
+            if(command_index>=COMMAND_COUNT || value!==expected_commands[command_index])
+                $fatal(1,"V4 command mismatch case=%0d command=%0d",case_id,command_index);
+            command_index=command_index+1;
+        end
+    endtask
+    drawers drawers_u(.frame_count(frame_count),.clk_sys(clk),.rst_n(rst_n),.in_valid(in_valid),.in_ready(in_ready),
+        .scene_state(scene),.highlight_mask(activity),.default_mask(defaults),
+        .scene_wave_valid(metadata[0]),.scene_spectrum_valid(metadata[1]),.scene_pcm_valid(metadata[2]),
+        .scene_output_peak(metadata[20:5]),.scene_fft_overflow(metadata[3]),.scene_spectrum_clipped(metadata[4]),
+        .column_rd_en(column_en),.column_rd_addr(column_addr),.column_rd_data(column_data),
+        .word_valid(word_valid),.word_ready(word_ready),.word_kind(word_kind),.word_addr(word_addr),.word_data(word_data),
+        .present_valid(present_valid),.present_ready(present_ready),.render_done(done),.protocol_error(error));
+    always @(negedge clk)
+    begin
+        random_r={random_r[14:0],random_r[15]^random_r[13]^random_r[12]^random_r[10]};
+        word_ready=rst_n && random_r[2:0]!=3'd0;
+        present_ready=rst_n && present_wait>=8'd17;
+    end
+    always @(posedge clk)
+    begin
+        cycles=cycles+1;
+        if(!rst_n)
+        begin
+            was_stalled=1'b0;
+            outstanding=1'b0;
+            committed=1'b0;
+            present_wait=8'd0;
+        end
+        else
+        begin
+            if(was_stalled && (!word_valid || {word_kind,word_addr,word_data}!==stalled_word)) $fatal(1,"word changed while stalled");
+            was_stalled=word_valid && !word_ready;
+            stalled_word={word_kind,word_addr,word_data};
+            if(in_valid && in_ready)
+            begin
+                outstanding=1'b1;
+                committed=1'b0;
+            end
+            if(column_en)
+            begin
+                if(!outstanding || column_addr>=1152) $fatal(1,"column read outside job");
+                column_data<=column_addr[0] ? (cases[case_id][500] ? 16'd327 : 16'd164+((column_addr>>1)%40)) : (case_id>=52 && case_id<=56) ? ((case_id==52) ? 16'd100 : 16'd200) : 16'd140+((column_addr>>1)%40);
+                reads=reads+1;
+            end
+            if(word_valid && word_ready)
+            begin
+                if(!outstanding) $fatal(1,"word outside job");
+                if(!word_kind && word_addr!=4095 && word_addr>=3000) $fatal(1,"tile out of bounds");
+                if(word_kind && (word_addr<40 || word_addr>615)) $fatal(1,"graph crossed region");
+                if(case_id<case_count) check_command({1'b0,word_kind,word_addr,word_data});
+                words=words+1;
+                $fdisplay(fd,"W %0d %0d %08h",word_kind,word_addr,word_data);
+            end
+            if(present_valid) present_wait=present_wait+8'd1;
+            else present_wait=8'd0;
+            if(present_valid && present_ready)
+            begin
+                check_command(46'h200000000000);
+                committed=1'b1;
+                presents=presents+1;
+                $fdisplay(fd,"P");
+            end
+            if(done)
+            begin
+                if(!outstanding || !committed) $fatal(1,"premature/duplicate done");
+                outstanding=1'b0;
+                dones=dones+1;
+            end
+            if(drawers_u.state[drawers_u.NUM_READY])
+            begin
+                if(number_index>=NUMBER_COUNT || {case_id[5:0],drawers_u.object_index_r,drawers_u.ascii_r}!==expected_numbers[number_index])
+                    $fatal(1,"V4 numeric string mismatch case=%0d object=%0d",case_id,drawers_u.object_index_r);
+                number_index=number_index+1;
+            end
+            if(drawers_u.state[drawers_u.NUM_READY]) $fdisplay(fd,"N %0d %0d %032h",case_id,drawers_u.object_index_r,drawers_u.ascii_r);
+            if(error) $fatal(1,"drawing protocol error");
+        end
+        if(cycles>2000000) $fatal(1,"drawers watchdog");
+    end
+    initial
+    begin
+        $readmemh("../assets/lcd_ui/v4/commands.hex",expected_commands);
+        $readmemh("../assets/lcd_ui/v4/numbers.hex",expected_numbers);
+        if($value$plusargs("CASES=%d",case_count))
+        begin
+        end
+        if(case_count!=59) $fatal(1,"V4 fixed vector count");
+        $readmemh("../assets/lcd_ui/v4/states.hex",cases);
+        $readmemh("../assets/lcd_ui/v4/activity.hex",acts);
+        $readmemh("../assets/lcd_ui/v4/defaults.hex",defs);
+        $readmemh("../assets/lcd_ui/v4/metadata.hex",metas);
+        if(!$value$plusargs("RESULTS=%s",results_dir)) results_dir="../ai_workspace/sim/lcd_v4/units/results";
+        fd=$fopen($sformatf("%0s/draw_words.txt",results_dir),"w");
+        if(fd==0) $fatal(1,"Cannot open drawing trace");
+        repeat(4) @(negedge clk);
+        rst_n=1'b1;
+        for(case_id=0;case_id<case_count;case_id=case_id+1)
+        begin
+            wait(in_ready);
+            @(negedge clk);
+            $fdisplay(fd,"F %0d",case_id);
+            case (case_id)
+                52:frame_count=10;
+                53:frame_count=15;
+                54:frame_count=20;
+                55:frame_count=23;
+                56:frame_count=150;
+                default:frame_count=case_id;
+            endcase
+            scene=cases[case_id];
+            activity=acts[case_id];
+            defaults=defs[case_id];
+            metadata=metas[case_id];
+            in_valid=1'b1;
+            @(negedge clk);
+            in_valid=1'b0;
+            scene=~scene;
+            activity=~activity;
+            defaults=~defaults;
+            metadata=21'd0;
+            wait(done);
+            @(negedge clk);
+        end
+        @(posedge clk);
+        #1;
+        if(dones!=case_count || presents!=case_count || words<10000 || reads<1152) $fatal(1,"incomplete drawing coverage dones=%0d presents=%0d reads=%0d words=%0d",dones,presents,reads,words);
+        if(command_index!=COMMAND_COUNT || number_index!=NUMBER_COUNT) $fatal(1,"V4 reference coverage incomplete");
+        // Reset an accepted job before its presentation; no ghost completion.
+        wait(in_ready);
+        @(negedge clk);
+        scene=cases[0];
+        metadata=metas[0];
+        in_valid=1'b1;
+        @(negedge clk);
+        in_valid=1'b0;
+        repeat(40) @(negedge clk);
+        rst_n=1'b0;
+        #1;
+        if(word_valid || present_valid || done) $fatal(1,"reset did not cancel drawing");
+        repeat(3) @(negedge clk);
+        rst_n=1'b1;
+        repeat(20) @(negedge clk);
+        if(!in_ready || done) $fatal(1,"reset recovery");
+        $fclose(fd);
+        test_passed=1'b1;
+        $display("DRAWERS_PASS cases=%0d words=%0d reads=%0d backpressure frozen decimal commit reset",case_count,words,reads);
+        $finish;
+    end
+endmodule

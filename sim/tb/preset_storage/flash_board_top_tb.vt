@@ -1,0 +1,71 @@
+`timescale 1ns/1ps
+/** 完整 top 板测模式：真实数字PLL封装/复位/消抖，SPI引脚模型；模拟PLL受控替身。 */
+module flash_board_top_tb;
+    reg clk_core = 1'b0;
+    reg reset_button = 1'b1;
+    reg [3:0] buttons_n = 4'hf;
+    wire cs_n, sck, mosi;
+    tri1 miso;
+    wire [1:0] leds, value_leds;
+    reg test_passed = 1'b0;
+    integer program_count;
+    always #10 clk_core = ~clk_core;
+    top #(.BUTTON_DEBOUNCE_CYCLES(8), .FLASH_HALF_PERIOD_CYCLES(4),
+        .FLASH_POWER_UP_CYCLES(10), .FLASH_BOARD_TEST(1)) top_u (
+        .clk_core(clk_core), .reset_button(reset_button), .ui_button_n(buttons_n),
+        .flash_cs_n(cs_n), .flash_clk(sck), .flash_mosi(mosi), .flash_miso(miso),
+        .flash_wp_n(), .flash_hold_n(), .status_led(leds), .saved_value_led(value_leds), .clock_status_led(),
+        .lcd_clk(), .lcd_en(), .lcd_r(), .lcd_g(), .lcd_b(), .lcd_bl(), .lcd_hs_n(), .lcd_vs_n()
+    );
+    defparam top_u.sys_clocker_u.clock_recovery_u.RESET_CYCLES = 4;
+    defparam top_u.sys_clocker_u.clock_recovery_u.ACQUIRE_CYCLES = 4096;
+    defparam top_u.sys_clocker_u.clock_recovery_u.LOSS_CYCLES = 1024;
+    defparam top_u.sys_clocker_u.clock_recovery_u.STABLE_CYCLES = 128;
+    initial force top_u.sys_clocker_u.gowin_pll_u.u_pll_init.waitcnt = '1;
+    spi_nor_model flash_u (.clk_sys(top_u.clk_sys), .cs_n(cs_n), .sck(sck), .mosi(mosi), .miso(miso));
+    initial
+    begin
+        #1000; reset_button = 1'b0;
+        wait (top_u.flash_test_status == 3'd2);
+        if (!top_u.storage_catalog_valid || top_u.storage_jedec_id != 24'hef4018 || flash_u.program_commands != 0)
+            $fatal(1, "Top identification/read-only boot");
+        if (value_leds != 3) $fatal(1, "LED2/3 must start off");
+        #1000;
+        buttons_n = 4'hb; #2000; buttons_n = 4'hf; #2000;
+        if (value_leds != 2) $fatal(1, "S2 must light only physical LED2");
+        buttons_n = 4'h7; #2000; buttons_n = 4'hf; #2000;
+        if (value_leds != 0) $fatal(1, "S3 must light physical LED3");
+        if (flash_u.program_commands != 0) $fatal(1, "Edit must not save");
+        // 短于消抖阈值的抖动不触发保存。
+        buttons_n = 4'he; #20; buttons_n = 4'hf; #1000;
+        if (flash_u.program_commands != 0) $fatal(1, "Button bounce wrote flash");
+        buttons_n = 4'he;
+        wait (top_u.flash_test_status == 0);
+        wait (top_u.flash_test_status == 1);
+        #2000;
+        if (leds != 2'b00 || value_leds != 0) $fatal(1, "Active-low success LEDs");
+        buttons_n = 4'hf;
+        program_count = flash_u.program_commands;
+        #2000;
+        // 修改为全灭但不保存，复位必须恢复已保存的全亮。
+        buttons_n = 4'h3; #2000; buttons_n = 4'hf; #2000;
+        if (value_leds != 3) $fatal(1, "Unsaved edit must turn both off");
+        reset_button = 1'b1; #1000; reset_button = 1'b0;
+        wait (top_u.flash_test_status == 1);
+        if (flash_u.program_commands != program_count || value_leds != 0) $fatal(1, "Restart restore / unexpected write");
+        #2000;
+        buttons_n = 4'hd;
+        wait (top_u.flash_test_status == 0);
+        buttons_n = 4'hf;
+        wait (top_u.flash_test_status == 1);
+        if (flash_u.program_commands != program_count) $fatal(1, "Read button wrote flash");
+        $display("FLASH_BOARD_TOP_PASS physical_S2_S3 LED2_LED3 debounce save read unsaved_discard restart_no_write active_low_LEDs controlled_PLL");
+        test_passed = 1'b1;
+        $finish;
+    end
+    initial
+    begin
+        #20000000;
+        $fatal(1, "Full board top watchdog");
+    end
+endmodule

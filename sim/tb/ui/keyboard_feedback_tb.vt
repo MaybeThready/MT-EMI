@@ -1,0 +1,149 @@
+`timescale 1ns/1ps
+/**
+ * 有效反馈回收自检：单声部强制抢占、连续busy、旧键保护、无输入回收、
+ * 极短音、无效反馈、结果背压及等待反馈时复位。使用公开握手，不强制DUT状态。
+ * 时序优化回归：命令握手后紧邻下一沿给出反馈，检查确认／反馈寄存不丢事件。
+ */
+module keyboard_feedback_tb;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0;
+    reg tick = 1'b0;
+    reg [2:0] keys = 3'd0;
+    reg [15:0] pressure [2:0];
+    reg busy = 1'b0;
+    reg feedback_valid = 1'b0;
+    wire feedback_ready;
+    reg in_valid = 1'b0;
+    wire in_ready, out_valid, sample_ready, overrun;
+    reg out_ready = 1'b0;
+    wire note_on, note_off;
+    wire [31:0] frequency [0:0];
+    wire [15:0] velocity [0:0];
+    reg test_passed = 1'b0;
+    reg last_busy = 1'b0;
+    reg last_occupied = 1'b0;
+    integer i;
+    keyboard_note_pipeline #(.KEY_NUM(3), .MAX_POLYPHONY(1)) keyboard_note_pipeline_u (
+        .play_mode(1'b0),
+        .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(1'b0), .smp_tick_up(tick),
+        .key_states(keys), .key_velocity(pressure), .bend_value(16'h8000),
+        .note_busy(busy), .note_busy_valid(feedback_valid), .note_busy_ready(feedback_ready),
+        .in_valid(in_valid), .in_ready(in_ready), .out_valid(out_valid), .out_ready(out_ready),
+        .note_on(note_on), .note_off(note_off), .note_freq(frequency), .note_velocity(velocity),
+        .sample_ready(sample_ready), .sample_overrun(overrun)
+    );
+    task frame;
+        input [2:0] value;
+        begin
+            @(negedge clk_sys); keys = value; in_valid = 1'b1;
+            do @(posedge clk_sys); while (!in_ready);
+            @(negedge clk_sys); in_valid = 1'b0;
+            repeat (4) @(negedge clk_sys);
+            if (!keyboard_note_pipeline_u.frame_pending_r)
+            begin
+                command(0,0);
+                feedback(last_busy,last_occupied);
+            end
+            wait (keyboard_note_pipeline_u.frame_pending_r);
+            wait (sample_ready);
+        end
+    endtask
+    task immediate_feedback;
+        input expected_on;
+        input expected_off;
+        input value;
+        input expected_occupied;
+        begin
+            wait (sample_ready);
+            @(negedge clk_sys); tick = 1'b1;
+            @(negedge clk_sys); tick = 1'b0;
+            wait (out_valid);
+            @(negedge clk_sys);
+            if (note_on !== expected_on || note_off !== expected_off)
+                $fatal(1, "Immediate feedback command mismatch");
+            out_ready = 1'b1;
+            @(negedge clk_sys);
+            out_ready = 1'b0;
+            busy = value;
+            feedback_valid = 1'b1;
+            if (!feedback_ready) $fatal(1, "Feedback receiver not ready");
+            @(negedge clk_sys);
+            feedback_valid = 1'b0;
+            busy = !value;
+            wait (sample_ready);
+            @(negedge clk_sys);
+            if (keyboard_note_pipeline_u.event_occupied !== expected_occupied)
+                $fatal(1, "Immediate feedback lost or sampled wrong busy");
+            last_busy = value;
+            last_occupied = expected_occupied;
+        end
+    endtask
+    task command;
+        input expected_on;
+        input expected_off;
+        reg [31:0] held_frequency;
+        begin
+            wait (sample_ready);
+            @(negedge clk_sys); tick = 1'b1;
+            @(negedge clk_sys); tick = 1'b0;
+            wait (out_valid);
+            held_frequency = frequency[0];
+            repeat (100)
+            begin
+                @(negedge clk_sys);
+                if (!out_valid || note_on !== expected_on || note_off !== expected_off
+                    || frequency[0] !== held_frequency)
+                    $fatal(1, "Command/stall mismatch on=%b off=%b", note_on, note_off);
+            end
+            out_ready = 1'b1;
+            @(negedge clk_sys); out_ready = 1'b0;
+            repeat (10) @(negedge clk_sys);
+            if (out_valid || sample_ready) $fatal(1, "Did not wait for feedback");
+        end
+    endtask
+    task feedback;
+        input value;
+        input expected_occupied;
+        begin
+            last_busy = value;
+            last_occupied = expected_occupied;
+            @(negedge clk_sys); busy = value; feedback_valid = 1'b1;
+            if (!feedback_ready) $fatal(1, "Feedback receiver not ready");
+            @(negedge clk_sys); feedback_valid = 1'b0; busy = !value;
+            wait (sample_ready);
+            @(negedge clk_sys);
+            if (keyboard_note_pipeline_u.event_occupied !== expected_occupied)
+                $fatal(1, "Feedback snapshot/reclaim mismatch");
+        end
+    endtask
+    initial
+    begin
+        for (i = 0; i < 3; i = i + 1) pressure[i] = 16'h8000;
+        repeat (4) @(negedge clk_sys); rst_n = 1'b1;
+        frame(3'b001); command(1,0); feedback(1,1);
+        // 同一声部抢占，busy无需出现低沿。
+        frame(3'b011); command(1,0); feedback(1,1);
+        frame(3'b010); command(0,0); feedback(1,1); // 旧键松开不能停新音
+        frame(3'b000); command(0,1); feedback(1,1); // 尾音仍占用
+        busy = 0;
+        repeat (30) @(negedge clk_sys);
+        if (!keyboard_note_pipeline_u.event_occupied) $fatal(1, "Invalid busy reclaimed voice");
+        command(0,0); feedback(0,0); // 无新的输入帧也回收
+        frame(3'b100); command(1,0); feedback(0,1); // 极短音但仍按住，保留归属
+        frame(3'b000); command(0,1); feedback(0,0); // 首次有效结束反馈即可回收
+        frame(3'b010); immediate_feedback(1,0,0,1);
+        frame(3'b000); immediate_feedback(0,1,0,0);
+        $display("PASS: next-edge feedback, delayed command acknowledgement, busy snapshot");
+        frame(3'b001); command(1,0);
+        @(negedge clk_sys); rst_n = 0;
+        repeat (3) @(negedge clk_sys); rst_n = 1;
+        repeat (3) @(negedge clk_sys);
+        if (!sample_ready || keyboard_note_pipeline_u.event_occupied) $fatal(1, "Reset cancellation failed");
+        if (overrun) $fatal(1, "Unexpected overrun");
+        test_passed = 1;
+        $display("KEYBOARD_FEEDBACK_PASS steal_continuous_busy old_key tail no_input short_note stalls reset");
+        $finish;
+    end
+    initial begin #1000000; $fatal(1, "Feedback watchdog"); end
+endmodule

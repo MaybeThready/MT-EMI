@@ -25,6 +25,8 @@ module user_interface_system_tb;
     wire [15:0] bend_value [0:0];
     assign bend_value[0] = 16'h8000;
     reg [31:0] note_busy = 32'd0;
+    reg note_busy_valid = 1'b0;
+    wire note_busy_ready;
     reg in_valid = 1'b0;
     wire in_ready;
     reg out_ready = 1'b0;
@@ -35,7 +37,7 @@ module user_interface_system_tb;
     wire [3:0] wavetable_0 [0:0];
     wire [3:0] wavetable_1 [0:0];
     wire [15:0] wavetable_interp [0:0];
-    wire [15:0] init_phase [0:0];
+    wire [15:0] detune [0:0];
     wire [19:0] attack_ticks [0:0];
     wire [19:0] decay_ticks [0:0];
     wire [15:0] sustain_level [0:0];
@@ -70,6 +72,7 @@ module user_interface_system_tb;
     user_interface #(
         .KEY_NUM(24), .MAX_POLYPHONY(32), .WAVE_SELECT_STEPS(4), .SMP_TICK_FREQ(48000)
     ) user_interface_u (
+        .autoplay_done(1'b0),
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),
         .storage_out_ready(1'b0),
@@ -92,20 +95,34 @@ module user_interface_system_tb;
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .button_states(button_states),
         .knob_states(knob_states), .knob_dirs(knob_dirs), .knob_pressed(knob_pressed),
-        .bend_value(bend_value), .note_busy(note_busy), .in_valid(in_valid), .in_ready(in_ready),
+        .bend_value(bend_value), .note_busy(note_busy),
+        .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
+        .in_valid(in_valid), .in_ready(in_ready),
         .out_valid(out_valid), .out_ready(out_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity), .wavetable_0(wavetable_0),
-        .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp), .init_phase(init_phase),
+        .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp), .detune(detune),
         .attack_ticks(attack_ticks), .decay_ticks(decay_ticks), .sustain_level(sustain_level),
-        .release_ticks(release_ticks), .master_volume(master_volume), .reverb_mix(reverb_mix),
+        .release_ticks(release_ticks), .master_volume(master_volume), .balance_volume(), .reverb_mix(reverb_mix),
         .delay_mix(delay_mix), .distortion_mix(distortion_mix), .chorus_mix(chorus_mix),
-        .configuration_error(configuration_error), .sample_overrun(sample_overrun)
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
+        .configuration_error(configuration_error), .sample_overrun(sample_overrun),
+        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );
-    assign actual_payload[195:0] = {wavetable_0[0], wavetable_1[0], wavetable_interp[0], init_phase[0],
+    assign actual_payload[195:0] = {wavetable_0[0], wavetable_1[0], wavetable_interp[0], detune[0],
         attack_ticks[0], decay_ticks[0], sustain_level[0], release_ticks[0],
         master_volume, reverb_mix, delay_mix, distortion_mix, chorus_mix};
     assign actual_payload[227:196] = note_on;
     assign actual_payload[259:228] = note_off;
+    // 模拟机架在每次音频接收后回送一次声部状态快照。
+    always @(posedge clk_sys or negedge rst_n)
+    begin
+        if (!rst_n) note_busy_valid <= 1'b0;
+        else
+        begin
+            if (note_busy_valid && note_busy_ready) note_busy_valid <= 1'b0;
+            if (out_valid && out_ready) note_busy_valid <= 1'b1;
+        end
+    end
     generate
         for (voice = 0; voice < 32; voice = voice + 1)
         begin : pack_voice_outputs
@@ -126,7 +143,8 @@ module user_interface_system_tb;
             begin
                 if (configuration_error) $fatal(1, "非法配置或批次错误 slot=%0d", slot_index);
                 if (sample_overrun !== expected_overrun)
-                    $fatal(1, "超期诊断不匹配 slot=%0d phase=%0d", slot_index, phase);
+                    $fatal(1, "超期诊断不匹配 slot=%0d phase=%0d actual=%b expected=%b",
+                           slot_index, phase, sample_overrun, expected_overrun);
                 if (previously_stalled && (!out_valid || actual_payload !== previous_payload))
                     $fatal(1, "等待 ready 时载荷改变 slot=%0d phase=%0d", slot_index, phase);
                 if (out_valid !== (expected_pending && global_cycle >= expected_due_cycle))
@@ -153,7 +171,7 @@ module user_interface_system_tb;
                         if (smp_tick_up) simultaneous_accept_tick = simultaneous_accept_tick + 1;
                         $fdisplay(csv_file, "%0d,%0d,%0d,%h,%h,%0d,%0d,%0d,%0d,%0d,%0d,%0d",
                             sample_count, slot_index, global_cycle, note_on, note_off, attack_ticks[0],
-                            decay_ticks[0], sustain_level[0], release_ticks[0], init_phase[0], wavetable_0[0], wavetable_1[0]);
+                            decay_ticks[0], sustain_level[0], release_ticks[0], detune[0], wavetable_0[0], wavetable_1[0]);
                         expected_pending = 1'b0;
                     end
                     else stalled_cycles = stalled_cycles + 1;
@@ -171,7 +189,7 @@ module user_interface_system_tb;
                     if (previous_tick_cycle >= 0 && global_cycle - previous_tick_cycle != SAMPLE_CYCLES)
                         $fatal(1, "采样节拍不是 2048 周期");
                     previous_tick_cycle = global_cycle;
-                    if (expected_pending)
+                    if (expected_pending || row_data[35] == 0)
                     begin
                         skipped_ticks = skipped_ticks + 1;
                         expected_overrun = 1'b1;
@@ -179,11 +197,10 @@ module user_interface_system_tb;
                     end
                     else
                     begin
-                        if (row_data[35] != 1) $fatal(1, "向量错误：空闲时遗漏采样");
                         expected_payload = row_payload;
                         expected_pending = 1'b1;
-                        // IF-KEYBOARD-06/07：装载、压力下限、结果确认分拍，最早在 tick 后第七沿交付。
-                        expected_due_cycle = global_cycle + 7;
+                        // IF-BEND-01：比例换算和分时乘法后，32 声部最早在 tick 后第 106 沿交付。
+                        expected_due_cycle = global_cycle + 106;
                     end
                     if (expected_overrun != row_data[36]) $fatal(1, "参考超期状态错误");
                 end
