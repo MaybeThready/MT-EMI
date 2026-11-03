@@ -45,7 +45,13 @@ if {![regexp {<Numbers of Setup Violated Endpoints>:([0-9]+)} $timing -> setup_v
     ![regexp {<Numbers of Hold Violated Endpoints>:([0-9]+)} $timing -> hold_violations]} {
     error "Cannot confirm timing status; inspect $timing_file"
 }
-if {$setup_violations != 0 || $hold_violations != 0} {
+set negative_slack 0
+set reported_slacks [regexp -all -inline {Slack\s*:\s*(-?[0-9]+\.[0-9]+)} $timing]
+if {[llength $reported_slacks] == 0} {error "No detailed path slacks found in $timing_file"}
+foreach {entry slack} $reported_slacks {
+    if {$slack < 0} {set negative_slack 1}
+}
+if {$setup_violations != 0 || $hold_violations != 0 || $negative_slack} {
     puts "FULL_SYSTEM_TIMING_NOT_MET setup=$setup_violations hold=$hold_violations"
     error "Bitstream exists, but timing is not closed. Do not treat it as an accepted board build: $timing_file"
 }

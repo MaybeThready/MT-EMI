@@ -124,6 +124,7 @@ do do/test/run_test_full_system_drivers.do
 | 项目 | 结果 |
 | --- | --- |
 | 输入汇合 / ModelSim | 445 次输入接收、444 次完整帧交付、139 个背压周期；剩余一帧在复位时清除，全部断言通过 |
+| 外设专项 / ModelSim | `TEST_FULL_SYSTEM_DRIVERS_PASS`：琴键、ADC、24 路压力/FIFO/故障恢复、按钮、旋钮、I2S 和弯音全部通过；弯音检查 1794 组位置及 1794 次频率映射 |
 | 整机自检 / Verilator | `TEST_FULL_SYSTEM_PASS`；32 声部，约 129 ms；1282 次压力请求、26 组完整压力、236 次弯音请求；I2S 左/右各 6176 帧比对，121 次 LCD 场景提交；包含音色实际 SPI 模型存取 |
 | 四级 mixer 参考向量 / ModelSim | 1850 个输出逐点通过，最长处理 131 个系统周期；共享 RAM 和背压检查通过 |
 | dev 正式 UI/和弦回归 / ModelSim | `CHORD_FORMAL_UI_PASS`，包括存储 IP 等价、32 声部分配/抢占、模式上下文、压力/弯音、参数存取和音频联合回归 |
