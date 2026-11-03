@@ -5,7 +5,7 @@
  * FFT仅输出0..floor(FREQ_VIEW_MAX_HZ*1024/Fs)谱线；用加减相位累加器扩展到显示列。
  * 多个谱线落入同一列时取最大幅度，无变量除法；每列写两个16位字，上/下端点使用低9位y坐标。
  * 调用方维护波形/频谱共享列缓存，busy期间禁止读缓存；本模块不复制列RAM，也不为每列实例化FFT或DSP。
- * 所有列写完后才一并提交序号、峰值、标志与spectrum_valid；绘图幅值放大4倍并在满幅处削波，原始峰值和FFT标志不变。
+ * 所有列写完后才一并提交序号、峰值、标志与spectrum_valid；绘图幅值放大16倍并在满幅处削波，原始峰值和FFT标志不变。
  */
 module lcd_spectrum_builder
 #(
@@ -14,7 +14,7 @@ module lcd_spectrum_builder
     parameter GRAPH_Y_MAX = 303,  // Pixel integers,0<=MIN<MAX<=479.
     parameter SAMPLE_RATE_NUM = 98245614, // Hz numerator,positive integer.
     parameter SAMPLE_RATE_DEN = 2048,     // Hz denominator,positive integer.
-    parameter FREQ_VIEW_MAX_HZ = 20000    // >0 and <=Fs/2; changes display only.
+    parameter FREQ_VIEW_MAX_HZ = 2000     // >0 and <=Fs/2; limits FFT output bins and display range.
 )(
     input clk_sys,
     input rst_n,
@@ -63,8 +63,8 @@ module lcd_spectrum_builder
     wire core_clipped, core_overflow;
     wire start_fire = start_valid && start_ready;
     // Amplify the graph only. FFT clipping flags retain their original meaning.
-    wire [15:0] display_magnitude = (group_max_r >= 16'd8192) ? 16'd32768 :
-        {group_max_r[13:0],2'b00};
+    wire [15:0] display_magnitude = (group_max_r >= 16'd2048) ? 16'd32768 :
+        {group_max_r[11:0],4'b0000};
     wire [24:0] height_product = display_magnitude * Y_SPAN + 25'd16384;
 
     assign configuration_error = (WAVE_COLUMNS < 1) || (WAVE_COLUMNS > 1024) ||

@@ -200,6 +200,7 @@ module test_velocity_core
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY),
         .CHANNEL_NUM(1), .WAVE_SELECT_STEPS(4)
     ) user_interface_u (
+        .autoplay_done(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity),
         .knob_states(8'd0), .knob_dirs(8'd0), .knob_pressed(8'd0),

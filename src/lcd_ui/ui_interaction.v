@@ -22,7 +22,7 @@ module ui_interaction
     parameter GRAPH_Y_MAX = 303,
     parameter SPECTRUM_SAMPLE_RATE_NUM = 98245614, // Actual Hz numerator.
     parameter SPECTRUM_SAMPLE_RATE_DEN = 2048,     // Actual Hz denominator.
-    parameter SPECTRUM_MAX_HZ = 20000             // Display frequency range only.
+    parameter SPECTRUM_MAX_HZ = 2000              // Limits FFT output bins and display range.
 )(
     input clk_sys,
     input rst_n,

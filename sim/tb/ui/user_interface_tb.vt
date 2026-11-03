@@ -57,6 +57,7 @@ module user_interface_tb;
         master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
         attack_ticks[0], detune[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),
         .storage_out_ready(1'b0),

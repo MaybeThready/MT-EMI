@@ -72,6 +72,7 @@ module user_interface_system_tb;
     user_interface #(
         .KEY_NUM(24), .MAX_POLYPHONY(32), .WAVE_SELECT_STEPS(4), .SMP_TICK_FREQ(48000)
     ) user_interface_u (
+        .autoplay_done(1'b0),
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),
         .storage_out_ready(1'b0),

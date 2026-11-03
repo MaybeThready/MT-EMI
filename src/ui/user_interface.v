@@ -98,7 +98,11 @@ module user_interface
     output menu_effect_reset,
     output [127:0] menu_advanced_parameters,
     output [2:0] menu_page,
-    output [1:0] menu_selection,
+    output [2:0] menu_selection,
+    output menu_autoplay_active,
+    output autoplay_song,
+    output autoplay_running,
+    input autoplay_done,
     output [3:0] menu_slot,
     output menu_save,
     output [3:0] menu_result_status,
@@ -113,7 +117,8 @@ module user_interface
     // [453:420]menu/catalog; [455:454]configuration_error/sample_overrun;
     // [477:456]activity22; [499:478]reset22; [500]view0=WAVE/1=FFT;
     // [506:501]busy count; [507]busy-known; [508]bend-known;
-    // [509]play_mode, [510]mode submenu active, [511]mode candidate;
+    // On play page [509] is play_mode. On menu page it marks AutoPlay;
+    // [510] marks a submenu and [511] is its selected option/song.
     // [527:512]calibrated bend request (0000/8000/FFFF).
     // [543:528]selected effect make-up UQ1.15; [544]extension valid.
     // Transfer only on display_out_valid && display_out_ready. While waiting,
@@ -409,6 +414,8 @@ module user_interface
         .menu_advanced_parameters(menu_advanced_parameters),
         .menu_page(menu_page),
         .menu_selection(menu_selection),
+        .menu_autoplay_active(menu_autoplay_active), .autoplay_song(autoplay_song),
+        .autoplay_running(autoplay_running), .autoplay_done(autoplay_done),
         .menu_slot(menu_slot),
         .menu_save(menu_save),
         .menu_result_status(menu_result_status),

@@ -1,0 +1,4 @@
+# do sim/do/lcd_ui/run_unit_format.do
+# unit_format
+# ** Error: Cannot open macro file: do/lcd_ui/v4_common.do
+# Executing ONERROR command at macro ./sim/do/lcd_ui/run_unit_format.do line 5

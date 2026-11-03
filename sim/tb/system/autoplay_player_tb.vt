@@ -1,0 +1,79 @@
+`timescale 1ns/1ps
+module autoplay_player_tb;
+    GSR GSR (.GSRI(1'b1));
+    localparam VOICES = 32;
+    reg clk_sys = 1'b0;
+    always #5 clk_sys = ~clk_sys;
+    reg rst_n = 1'b0, enable = 1'b0, song_select = 1'b0;
+    wire ui_ready, out_valid, auto_route_active, song_done;
+    wire [VOICES-1:0] note_on, note_off;
+    reg [VOICES-1:0] ui_note_on = '0, ui_note_off = '0;
+    reg [31:0] ui_note_freq [VOICES-1:0];
+    reg [15:0] ui_note_velocity [VOICES-1:0];
+    wire [31:0] note_freq [VOICES-1:0];
+    wire [15:0] note_velocity [VOICES-1:0];
+    reg test_passed = 1'b0;
+    integer i, count, first_song_cycles;
+    initial for (i = 0; i < VOICES; i = i + 1) begin
+        ui_note_freq[i] = 32'd0;
+        ui_note_velocity[i] = 16'd0;
+    end
+    autoplay_player dut (
+        .clk_sys(clk_sys), .rst_n(rst_n), .enable(enable), .song_select(song_select),
+        .ui_valid(1'b1), .ui_ready(ui_ready), .out_valid(out_valid), .out_ready(1'b1),
+        .ui_note_on(ui_note_on), .ui_note_off(ui_note_off),
+        .ui_note_freq(ui_note_freq), .ui_note_velocity(ui_note_velocity),
+        .note_on(note_on), .note_off(note_off), .note_freq(note_freq),
+        .note_velocity(note_velocity), .auto_route_active(auto_route_active),
+        .song_done(song_done)
+    );
+    initial begin
+        repeat (4) @(negedge clk_sys);
+        rst_n = 1'b1;
+        song_select = 1'b1;
+        enable = 1'b1;
+        count = 0;
+        do begin
+            @(negedge clk_sys);
+            count = count + 1;
+            if (count > 100) $fatal(1, "Second song did not start");
+        end while (!(out_valid && note_on[0]));
+        if (note_on[2:0] !== 3'b111 || note_freq[0] == 0 ||
+            note_velocity[0] !== 16'd56760 ||
+            note_velocity[1] !== 16'd51600 || note_velocity[2] !== 16'd51600)
+            $fatal(1, "MIDI chord or velocities mismatch");
+        @(negedge clk_sys);
+        enable = 1'b0;
+        count = 0;
+        do begin
+            @(negedge clk_sys);
+            count = count + 1;
+            if (count > 100) $fatal(1, "Stop did not release notes");
+        end while (!(out_valid && note_off == {VOICES{1'b1}}));
+        repeat (3) @(negedge clk_sys);
+        if (auto_route_active) $fatal(1, "Manual route did not resume");
+        song_select = 1'b0;
+        enable = 1'b1;
+        count = 0;
+        do begin
+            @(negedge clk_sys);
+            count = count + 1;
+            if (count > 200000) $fatal(1, "First song did not reach first note");
+        end while (!(out_valid && note_on[0]));
+        if (note_velocity[0] !== 16'd53148 || note_freq[0] == 0)
+            $fatal(1, "First song velocity or pitch mismatch");
+        first_song_cycles = count;
+        @(negedge clk_sys);
+        dut.event_index_r = 11'd528;
+        dut.sample_index_r = 21'd1186908;
+        count = 0;
+        do begin
+            @(negedge clk_sys);
+            count = count + 1;
+            if (count > 20) $fatal(1, "Song completion pulse missing");
+        end while (!song_done);
+        test_passed = 1'b1;
+        $display("AUTOPLAY_PLAYER_PASS first_song_cycles=%0d", first_song_cycles);
+        $stop;
+    end
+endmodule

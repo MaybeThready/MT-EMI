@@ -70,7 +70,7 @@ module test_ui
     wire [7:0] knob_states, knob_dirs, knob_pressed;
     wire knob_valid, knob_ready, knob_overflow, knob_scan_error;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire storage_out_valid, storage_out_ready, storage_out_write;
     wire [3:0] storage_out_slot;
     wire [511:0] storage_out_data;
@@ -219,6 +219,7 @@ module test_ui
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY),
         .CHANNEL_NUM(1), .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) user_interface_u (
+        .autoplay_done(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
         .key_states(key_frame_r), .key_velocity(velocity_frame_r),
         .knob_states(knob_steps_r), .knob_dirs(knob_dirs_r), .knob_pressed(knob_pressed_r),

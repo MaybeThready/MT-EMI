@@ -1,6 +1,6 @@
 /** 力度自检：5% 下限、满量程、双向平滑、尾音冻结、抢占重置、空声部、
  * 背压、差值恰好等于步长及其相邻值、非法键号、各流水阶段复位取消。
- * 独立整数模型逐事务计算；严格检查新增流水延迟及输入捕获后隔离。
+ * 独立整数模型逐事务计算；检查逐声部版本的握手和输入捕获后隔离。
  */
 `timescale 1ns/1ps
 module note_velocity_controller_tb;
@@ -70,18 +70,20 @@ module note_velocity_controller_tb;
             in_valid = 1'b0;
             for (voice = 0; voice < 3; voice = voice + 1)
                 key_velocity[voice] = ~key_velocity[voice];
-            // E0 已捕获，E1 下限处理、E2 计算差值／候选、E3 提交结果。
             if (out_valid || in_ready) $fatal(1, "力度计算阶段时序错误");
             occupied = 3'b000;
             held = 3'b000;
             note_on = 3'b000;
             for (voice = 0; voice < 3; voice = voice + 1)
                 key_id[voice] = 2'd3;
-            @(negedge clk_sys);
-            if (out_valid || in_ready) $fatal(1, "压力下限处理阶段提前发布结果");
-            @(negedge clk_sys);
-            if (out_valid || in_ready) $fatal(1, "中间计算阶段提前发布结果");
-            @(negedge clk_sys);
+            boundary = 0;
+            while (!out_valid && boundary < 3 * 3 + 3)
+            begin
+                @(negedge clk_sys);
+                boundary = boundary + 1;
+            end
+            if (!out_valid || in_ready) $fatal(1, "逐声部力度处理超时");
+            if (boundary != 9) $fatal(1, "力度处理拍数错误：%0d", boundary);
             for (stall = 0; stall < (frame % 5) + 1; stall = stall + 1)
             begin
                 if (!out_valid || in_ready) $fatal(1, "力度握手失败");
@@ -93,7 +95,7 @@ module note_velocity_controller_tb;
             @(negedge clk_sys);
             out_ready = 1'b0;
         end
-        // 分别在压力捕获、下限处理、候选计算、结果等待期间取消事务。
+        // 分别在处理中的若干位置复位，旧事务必须取消。
         for (stage = 0; stage < 4; stage = stage + 1)
         begin
             occupied = 3'b111;
@@ -118,13 +120,18 @@ module note_velocity_controller_tb;
             repeat (4) @(negedge clk_sys);
             if (out_valid || !in_ready) $fatal(1, "复位后泄漏旧事务");
         end
-        // ready 预先为高仍必须完成 E0/E1/E2/E3，并在 E4 仅交付一次。
+        // ready 预先为高仍必须处理完整帧，并且只交付一次。
         out_ready = 1'b1;
         in_valid = 1'b1;
         @(negedge clk_sys);
         in_valid = 1'b0;
-        repeat (3) @(negedge clk_sys);
-        if (!out_valid) $fatal(1, "预置 ready 时未产生 valid");
+        boundary = 0;
+        while (!out_valid && boundary < 3 * 3 + 3)
+        begin
+            @(negedge clk_sys);
+            boundary = boundary + 1;
+        end
+        if (!out_valid || boundary != 9) $fatal(1, "预置 ready 时力度交付拍数错误");
         for (voice = 0; voice < 3; voice = voice + 1)
             if (note_velocity[voice] !== 16'hffff) $fatal(1, "复位后新事务错误");
         @(negedge clk_sys);
