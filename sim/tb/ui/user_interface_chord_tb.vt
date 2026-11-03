@@ -108,14 +108,20 @@ module user_interface_chord_tb;
     endtask
     task check_triad;
         input integer root;
-        integer lane,tone;
+        integer lane,tone,third,fifth;
         reg [31:0] expected_freq;
         begin
+            case(root%12)
+                0,5,7: begin third=4; fifth=7; end
+                2,4,9: begin third=3; fifth=7; end
+                11: begin third=3; fifth=6; end
+                default: $fatal(1,"not a C-major scale root: %0d",root);
+            endcase
             tone=0;
             for(lane=0;lane<32;lane=lane+1)
                 if(last_on[lane])
                 begin
-                    expected_freq=$rtoi(440.0*(2.0**(($itor(root+((tone==0) ? 0 : ((tone==1) ? 4 : 7)))-69.0)/12.0))*65536.0+0.5);
+                    expected_freq=$rtoi(440.0*(2.0**(($itor(root+((tone==0) ? 0 : ((tone==1) ? third : fifth)))-69.0)/12.0))*65536.0+0.5);
                     if(last_freq[lane]!==expected_freq) $fatal(1,"triad root=%0d tone=%0d freq=%0d/%0d",root,tone,last_freq[lane],expected_freq);
                     tone=tone+1;
                 end
@@ -138,7 +144,7 @@ module user_interface_chord_tb;
         frame(1,24'h000001,0,0); frame(0,24'h000001,0,0);
         frame(1,24'h000001,0,0); frame(0,24'h000001,0,0);
         frame(4,24'h000001,0,0); frame(0,24'h000001,0,0);
-        frame(1,24'h000201,3,0); // Confirm chord + press A4 in exactly the same frame.
+        frame(1,24'h000201,3,0); // 同帧确认和弦，A4应为小三和弦。
         check_triad(69);
         frame(0,24'h000201,0,0);
         frame(0,24'h000200,0,1); // C4 was started in normal mode: only one off.
@@ -147,8 +153,8 @@ module user_interface_chord_tb;
         choose_normal;
         frame(8,0,0,0); frame(0,0,0,0);
         frame(8,0,0,0); frame(0,0,0,0);
-        frame(0,24'h800000,3,0); check_triad(83);
-        frame(0,24'h000001,3,3); check_triad(60);
+        frame(0,24'h800000,1,0); // 高音组B5保持单音。
+        frame(0,24'h000001,3,1); check_triad(60);
         // Pressure changes must not retrigger any of the three voices.
         for(i=0;i<24;i=i+1) pressure[i]=16'h4000;
         frame(0,24'h000001,0,0);
@@ -172,9 +178,13 @@ module user_interface_chord_tb;
             end
         bend=16'h8000;
         frame(0,0,0,3);
-        frame(0,24'hffffff,30,0);
+        frame(0,24'h000800,3,0); check_triad(71); // B4减三和弦。
+        frame(0,0,0,3);
+        frame(0,24'h000002,1,0); // C#4调外音。
+        frame(0,0,0,1);
+        frame(0,24'hffffff,32,0);
         frame(0,24'hffffff,0,0);
-        frame(0,0,0,30);
+        frame(0,0,0,32);
         choose_normal;
         frame(1,24'hffffff,24,0); // Confirm normal and full keyboard in one frame.
         frame(0,0,0,24);

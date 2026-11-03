@@ -89,7 +89,7 @@ module chord_system_tb;
                 if(|dut.note_on) last_on=$countones(dut.note_on);
                 if(|dut.note_off) last_off=$countones(dut.note_off);
                 if((dut.note_on & dut.note_off)!=0) $fatal(1,"same voice has on and off");
-                if($countones(dut.note_on)==3 && $countones(dut.note_off)==3) paired_events=paired_events+1;
+                if($countones(dut.note_on)==3 && $countones(dut.note_off)==1) paired_events=paired_events+1;
             end
             if(dut.lcd_display_u.present_valid && !dut.lcd_display_u.present_ready)
                 backpressured_cycles=backpressured_cycles+1;
@@ -219,10 +219,10 @@ module chord_system_tb;
         press(0);check_state(1,1,0,0);
         press(2);check_state(1,1,0,1); // Candidate does not change the sounding mode yet.
         keys=24'h800001;last_on=0;press(0);check_state(0,0,1,1);
-        if(last_on!=3) $fatal(1,"confirmed chord not three notes");
+        if(last_on!=1) $fatal(1,"high group B5 must remain a single note");
         last_off=0;keys=24'h800000;settle;if(last_off!=1) $fatal(1,"held normal note expanded during switch");
         last_on=0;last_off=0;keys=24'h000200;settle;
-        if(last_on!=3 || last_off!=3 || paired_events==0) $fatal(1,"three on/off same command not delivered");
+        if(last_on!=3 || last_off!=1 || paired_events==0) $fatal(1,"low-group triad and high-group release not paired");
         press(1);check_state(0,0,1,-1);
         if(last_display[417:416]!=1) $fatal(1,"work mode not independent");
         press(0);press(0);check_state(1,1,1,1);
