@@ -1,23 +1,15 @@
 /**
- * note_velocity_controller 模块 v3
- * v3版本修改：原始输入逐拍暂存，每 8 声部独立寄存装载控制，保持原交付拍数。
- * v2版本修改：压力选取与最低值判断分拍，缩短计算路径。
- * 将琴键压力换算成声部力度，按住时平滑变化，松开后保持最后力度。
- * key_id/key_velocity: 对应键号与压力；须和 occupied、held、note_on 属于同次输入。
- * note_velocity: 16 位 UQ0.16 压力音量，不包含总音量和 ADSR。
- * MIN_VELOCITY: 最小力度，3277 约为 5%；SLEW_STEP: 每次采样最大变化量。
- * 新音直接采用不低于最小值的压力；默认步长 274 在 48 kHz 下满程约 5 ms。
- * IF-KEYBOARD-07：输入接收、下限处理、候选计算、更新分四拍；
- * 最早在接收后的第四个上升沿交付，数值与背压规则不变。
- * NOTE: 只使用加减比较；等待接收时保持结果，不重复推进平滑。
+ * 声部力度控制候选：锁存整帧输入，再以一个运算通道逐声部处理。
+ * 输出与原模块一致；每声部按读取、计算、提交三拍处理。
+ * in_valid && in_ready 锁存输入，out_valid && out_ready 交付结果。
  */
 module note_velocity_controller
 #(
-    parameter KEY_NUM = 24,  // 琴键数量，至少为 1
-    parameter MAX_POLYPHONY = 32,  // 声部数量，默认 32
-    parameter KEY_ID_WIDTH = (KEY_NUM > 1) ? $clog2(KEY_NUM) : 1,  // 琴键编号位宽，至少为 1
-    parameter [15:0] MIN_VELOCITY = 16'd3277,  // 最小压力音量，UQ0.16；3277 约为 5%
-    parameter [15:0] SLEW_STEP = 16'd274  // 每次采样最大力度变化，UQ0.16 编码
+    parameter KEY_NUM = 24,
+    parameter MAX_POLYPHONY = 32,
+    parameter KEY_ID_WIDTH = (KEY_NUM > 1) ? $clog2(KEY_NUM) : 1,
+    parameter [15:0] MIN_VELOCITY = 16'd3277,
+    parameter [15:0] SLEW_STEP = 16'd274
 )(
     input clk_sys,
     input rst_n,
@@ -32,184 +24,140 @@ module note_velocity_controller
     output out_valid,
     input out_ready
 );
+    localparam INDEX_WIDTH = (MAX_POLYPHONY > 1) ? $clog2(MAX_POLYPHONY) : 1;
     localparam STATE_WAIT_SAMPLE = 3'd0;
-    localparam STATE_CLAMP_TARGET_PRESSURE = 3'd1;
-    localparam STATE_CALCULATE_STEP_CANDIDATES = 3'd2;
-    localparam STATE_APPLY_SMOOTHING = 3'd3;
+    localparam STATE_SELECT = 3'd1;
+    localparam STATE_CALCULATE = 3'd2;
+    localparam STATE_COMMIT = 3'd3;
     localparam STATE_WAIT_RESULT_ACCEPT = 3'd4;
-    // 每组最多 8 声部；非整组配置只生成剩余声部，不增加公开参数。
-    localparam LOAD_GROUP_SIZE = 8;
-    localparam LOAD_GROUP_COUNT = (MAX_POLYPHONY + LOAD_GROUP_SIZE - 1) / LOAD_GROUP_SIZE;
-    localparam signed [16:0] POSITIVE_SLEW_STEP = $signed({1'b0, SLEW_STEP});
-    localparam signed [16:0] NEGATIVE_SLEW_STEP = -POSITIVE_SLEW_STEP;
+    localparam signed [16:0] POSITIVE_STEP = $signed({1'b0, SLEW_STEP});
+    localparam signed [16:0] NEGATIVE_STEP = -POSITIVE_STEP;
+
     wire [2:0] current_state;
     reg [2:0] next_state;
+    reg [INDEX_WIDTH-1:0] voice_index;
+    reg [KEY_ID_WIDTH-1:0] key_id_r [MAX_POLYPHONY-1:0];
+    reg [15:0] key_velocity_r [KEY_NUM-1:0];
+    reg [MAX_POLYPHONY-1:0] occupied_r, held_r, note_on_r;
     reg [15:0] velocity_r [MAX_POLYPHONY-1:0];
-    wire [15:0] selected_pressure [MAX_POLYPHONY-1:0];
-    reg [15:0] pressure_r [MAX_POLYPHONY-1:0];
-    reg [15:0] target_r [MAX_POLYPHONY-1:0];
-    reg signed [16:0] difference_r [MAX_POLYPHONY-1:0];
-    reg [15:0] increased_velocity_r [MAX_POLYPHONY-1:0];
-    reg [15:0] decreased_velocity_r [MAX_POLYPHONY-1:0];
-    reg [MAX_POLYPHONY-1:0] occupied_r;
-    reg [MAX_POLYPHONY-1:0] held_r;
-    reg [MAX_POLYPHONY-1:0] note_on_r;
-    reg [MAX_POLYPHONY-1:0] sampled_occupied_r;
-    reg [MAX_POLYPHONY-1:0] sampled_held_r;
-    reg [MAX_POLYPHONY-1:0] sampled_note_on_r;
-    integer voice;
-    integer sampled_voice;
-    integer candidate_voice;
-    genvar voice_index;
-    genvar group_index;
+    reg selected_occupied_r, selected_held_r, selected_note_on_r;
+    reg [15:0] selected_pressure_r, selected_velocity_r;
+    reg [15:0] target_r;
+    reg signed [16:0] difference_r;
 
+    wire [KEY_ID_WIDTH-1:0] selected_key = key_id_r[voice_index];
+    wire selected_occupied = occupied_r[voice_index] && (selected_key < KEY_NUM);
+    wire [15:0] pressure = selected_occupied ? key_velocity_r[selected_key] : 16'd0;
+    wire [15:0] target = selected_pressure_r < MIN_VELOCITY ?
+                         MIN_VELOCITY : selected_pressure_r;
+    wire [15:0] step_delta = difference_r > 0 ? SLEW_STEP : -SLEW_STEP;
+    wire [15:0] stepped_velocity = selected_velocity_r + step_delta;
+
+    assign in_ready = rst_n && (current_state == STATE_WAIT_SAMPLE);
+    assign out_valid = current_state == STATE_WAIT_RESULT_ACCEPT;
+
+    genvar lane;
     generate
-        for (voice_index = 0; voice_index < MAX_POLYPHONY; voice_index = voice_index + 1)
-        begin : velocity_outputs
-            assign selected_pressure[voice_index] = (key_id[voice_index] < KEY_NUM) ?
-                key_velocity[key_id[voice_index]] : 16'd0;
-            assign note_velocity[voice_index] = velocity_r[voice_index];
-        end
-
-        for (group_index = 0; group_index < LOAD_GROUP_COUNT; group_index = group_index + 1)
-        begin : pressure_load_groups
-            localparam FIRST_VOICE = group_index * LOAD_GROUP_SIZE;
-            localparam LAST_VOICE = ((FIRST_VOICE + LOAD_GROUP_SIZE) < MAX_POLYPHONY) ?
-                (FIRST_VOICE + LOAD_GROUP_SIZE) : MAX_POLYPHONY;
-            // 保留各组的本地寄存器，避免综合合并成一个高扇出装载信号。
-            reg load_accepted_r /* synthesis syn_preserve = 1 */;
-            integer group_voice;
-
-            always @(posedge clk_sys or negedge rst_n)
-            begin
-                if (!rst_n)
-                    load_accepted_r <= 1'b0;
-                else
-                    load_accepted_r <= in_valid && (current_state == STATE_WAIT_SAMPLE);
-            end
-
-            always @(posedge clk_sys or negedge rst_n)
-            begin
-                if (!rst_n)
-                begin
-                    for (group_voice = FIRST_VOICE; group_voice < LAST_VOICE; group_voice = group_voice + 1)
-                    begin
-                        occupied_r[group_voice] <= 1'b0;
-                        held_r[group_voice] <= 1'b0;
-                        note_on_r[group_voice] <= 1'b0;
-                        target_r[group_voice] <= 16'd0;
-                    end
-                end
-                else if (load_accepted_r)
-                begin
-                    // E1 读取 E0 的暂存值；外部输入在握手后变化也不会混入本次结果。
-                    for (group_voice = FIRST_VOICE; group_voice < LAST_VOICE; group_voice = group_voice + 1)
-                    begin
-                        occupied_r[group_voice] <= sampled_occupied_r[group_voice];
-                        held_r[group_voice] <= sampled_held_r[group_voice];
-                        note_on_r[group_voice] <= sampled_note_on_r[group_voice];
-                        target_r[group_voice] <= (pressure_r[group_voice] < MIN_VELOCITY) ?
-                            MIN_VELOCITY : pressure_r[group_voice];
-                    end
-                end
-            end
+        for (lane = 0; lane < MAX_POLYPHONY; lane = lane + 1)
+        begin : output_lanes
+            assign note_velocity[lane] = velocity_r[lane];
         end
     endgenerate
-    assign in_ready = rst_n && (current_state == STATE_WAIT_SAMPLE);
-    // 复位状态本身无有效结果；异步复位仍保留在状态与数据寄存器。
-    assign out_valid = (current_state == STATE_WAIT_RESULT_ACCEPT);
+
     fsm #(.W(3), .INITIAL_STATE(STATE_WAIT_SAMPLE)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
     );
+
     always @(*)
     begin
         case (current_state)
-            STATE_WAIT_SAMPLE: next_state = in_valid ? STATE_CLAMP_TARGET_PRESSURE : STATE_WAIT_SAMPLE;
-            STATE_CLAMP_TARGET_PRESSURE: next_state = STATE_CALCULATE_STEP_CANDIDATES;
-            STATE_CALCULATE_STEP_CANDIDATES: next_state = STATE_APPLY_SMOOTHING;
-            STATE_APPLY_SMOOTHING: next_state = STATE_WAIT_RESULT_ACCEPT;
-            STATE_WAIT_RESULT_ACCEPT: next_state = out_ready ? STATE_WAIT_SAMPLE : STATE_WAIT_RESULT_ACCEPT;
+            STATE_WAIT_SAMPLE: next_state = in_valid ? STATE_SELECT : STATE_WAIT_SAMPLE;
+            STATE_SELECT: next_state = STATE_CALCULATE;
+            STATE_CALCULATE: next_state = STATE_COMMIT;
+            STATE_COMMIT: next_state = voice_index == MAX_POLYPHONY - 1 ?
+                STATE_WAIT_RESULT_ACCEPT : STATE_SELECT;
+            STATE_WAIT_RESULT_ACCEPT: next_state = out_ready ?
+                STATE_WAIT_SAMPLE : STATE_WAIT_RESULT_ACCEPT;
             default: next_state = STATE_WAIT_SAMPLE;
         endcase
     end
-    // 原始输入每拍暂存，不再由一个组合条件驱动全部输入寄存器的 CE。
-    // 只有有效握手产生的分组标记才能将这批暂存数据送入后续计算。
+
+    integer voice, key;
     always @(posedge clk_sys or negedge rst_n)
     begin
         if (!rst_n)
         begin
-            sampled_occupied_r <= '0;
-            sampled_held_r <= '0;
-            sampled_note_on_r <= '0;
-            for (sampled_voice = 0; sampled_voice < MAX_POLYPHONY; sampled_voice = sampled_voice + 1)
-                pressure_r[sampled_voice] <= 16'd0;
+            voice_index <= '0;
+            occupied_r <= '0;
+            held_r <= '0;
+            note_on_r <= '0;
+            selected_occupied_r <= 1'b0;
+            selected_held_r <= 1'b0;
+            selected_note_on_r <= 1'b0;
+            selected_pressure_r <= 16'd0;
+            selected_velocity_r <= 16'd0;
+            target_r <= 16'd0;
+            difference_r <= 17'sd0;
+            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+            begin
+                key_id_r[voice] <= '0;
+                velocity_r[voice] <= 16'd0;
+            end
+            for (key = 0; key < KEY_NUM; key = key + 1)
+                key_velocity_r[key] <= 16'd0;
         end
         else
         begin
-            sampled_held_r <= held;
-            sampled_note_on_r <= note_on;
-            for (sampled_voice = 0; sampled_voice < MAX_POLYPHONY; sampled_voice = sampled_voice + 1)
-            begin
-                sampled_occupied_r[sampled_voice] <= occupied[sampled_voice] && (key_id[sampled_voice] < KEY_NUM);
-                pressure_r[sampled_voice] <= selected_pressure[sampled_voice];
-            end
+            case (current_state)
+                STATE_WAIT_SAMPLE:
+                begin
+                    if (in_valid)
+                    begin
+                        voice_index <= '0;
+                        occupied_r <= occupied;
+                        held_r <= held;
+                        note_on_r <= note_on;
+                        for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
+                            key_id_r[voice] <= key_id[voice];
+                        for (key = 0; key < KEY_NUM; key = key + 1)
+                            key_velocity_r[key] <= key_velocity[key];
+                    end
+                end
+                STATE_SELECT:
+                begin
+                    selected_occupied_r <= selected_occupied;
+                    selected_held_r <= held_r[voice_index];
+                    selected_note_on_r <= note_on_r[voice_index];
+                    selected_pressure_r <= pressure;
+                    selected_velocity_r <= velocity_r[voice_index];
+                end
+                STATE_CALCULATE:
+                begin
+                    target_r <= target;
+                    difference_r <= $signed({1'b0, target}) -
+                                    $signed({1'b0, selected_velocity_r});
+                end
+                STATE_COMMIT:
+                begin
+                    if (!selected_occupied_r)
+                        velocity_r[voice_index] <= 16'd0;
+                    else if (selected_note_on_r)
+                        velocity_r[voice_index] <= target_r;
+                    else if (selected_held_r)
+                    begin
+                        if (difference_r > POSITIVE_STEP || difference_r < NEGATIVE_STEP)
+                            velocity_r[voice_index] <= stepped_velocity;
+                        else
+                            velocity_r[voice_index] <= target_r;
+                    end
+                    if (voice_index != MAX_POLYPHONY - 1)
+                        voice_index <= voice_index + 1'b1;
+                end
+                default: ;
+            endcase
         end
     end
 
-    always @(posedge clk_sys or negedge rst_n)
-    begin
-        if (!rst_n)
-        begin
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-                velocity_r[voice] <= 16'd0;
-        end
-        else if (current_state == STATE_APPLY_SMOOTHING)
-        begin
-            for (voice = 0; voice < MAX_POLYPHONY; voice = voice + 1)
-            begin
-                if (!occupied_r[voice])
-                    velocity_r[voice] <= 16'd0;
-                else if (note_on_r[voice])
-                    velocity_r[voice] <= target_r[voice];
-                else if (held_r[voice])
-                begin
-                    if (difference_r[voice] > POSITIVE_SLEW_STEP)
-                        velocity_r[voice] <= increased_velocity_r[voice];
-                    else if (difference_r[voice] < NEGATIVE_SLEW_STEP)
-                        velocity_r[voice] <= decreased_velocity_r[voice];
-                    else
-                        velocity_r[voice] <= target_r[voice];
-                end
-            end
-        end
-    end
-    // 中间候选连续计算，不需要一个状态信号驱动 32 路的 1568 个 CE。
-    // E0 原始压力捕获，E1 下限处理，E2 候选稳定；只有 E3 提交状态改变公开力度。
-    // 背压期间中间量可变化，公开结果仍保持；异步复位行为保持原约定。
-    always @(posedge clk_sys or negedge rst_n)
-    begin
-        if (!rst_n)
-        begin
-            for (candidate_voice = 0; candidate_voice < MAX_POLYPHONY; candidate_voice = candidate_voice + 1)
-            begin
-                difference_r[candidate_voice] <= 17'sd0;
-                increased_velocity_r[candidate_voice] <= 16'd0;
-                decreased_velocity_r[candidate_voice] <= 16'd0;
-            end
-        end
-        else
-        begin
-            for (candidate_voice = 0; candidate_voice < MAX_POLYPHONY; candidate_voice = candidate_voice + 1)
-            begin
-                difference_r[candidate_voice] <= $signed({1'b0, target_r[candidate_voice]}) - $signed({1'b0, velocity_r[candidate_voice]});
-                // 候选允许模 65536 运算；仅在差值超过步长时选用对应方向。
-                // 此时 current+step<target<=65535 或 current-step>target>=0，
-                // 因此被选中的候选必不溢出；步长以内直接选目标值。
-                increased_velocity_r[candidate_voice] <= velocity_r[candidate_voice] + SLEW_STEP;
-                decreased_velocity_r[candidate_voice] <= velocity_r[candidate_voice] - SLEW_STEP;
-            end
-        end
-    end
     // synthesis translate_off
     initial
     begin
