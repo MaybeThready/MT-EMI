@@ -10,25 +10,29 @@ module mixer_tb();
     localparam CLK_SYS_PERIOD_CNT = 64'd1_000_000_000_000 / `CLK_SYS_FREQ;
     localparam VECTOR_COUNT = 1850;
     localparam [15:0] DISTORTION_MIX = 16'h9000;
+    localparam [15:0] DISTORTION_MAKE_UP = 16'ha000;
     localparam [15:0] DISTORTION_GAIN = 16'h3000;
     localparam [15:0] DISTORTION_TONE = 16'hb000;
     localparam [15:0] CHORUS_MIX = 16'h6000;
+    localparam [15:0] CHORUS_MAKE_UP = 16'hc000;
     localparam [15:0] CHORUS_RATE = 16'h3000;
     localparam [7:0] CHORUS_DEPTH = 8'd96;
     localparam [15:0] DELAY_MIX = 16'h6000;
+    localparam [15:0] DELAY_MAKE_UP = 16'h6000;
     localparam [15:0] DELAY_TIME = 16'd12000;
     localparam [15:0] DELAY_FEEDBACK = 16'h8000;
     localparam [15:0] REVERB_MIX = 16'h7000;
+    localparam [15:0] REVERB_MAKE_UP = 16'h9000;
     localparam [15:0] REVERB_FEEDBACK = 16'ha000;
     localparam [15:0] REVERB_DAMPING = 16'h2800;
 
     reg clk_sys, rst_n, smp_tick_up;
     reg signed [20:0] audio_in;
     reg [15:0] balance_volume, master_volume;
-    reg [15:0] reverb_mix, reverb_feedback, reverb_damping;
-    reg [15:0] delay_mix, delay_time, delay_feedback;
-    reg [15:0] distortion_mix, distortion_gain, distortion_tone;
-    reg [15:0] chorus_mix, chorus_rate;
+    reg [15:0] reverb_mix, reverb_make_up, reverb_feedback, reverb_damping;
+    reg [15:0] delay_mix, delay_make_up, delay_time, delay_feedback;
+    reg [15:0] distortion_mix, distortion_make_up, distortion_gain, distortion_tone;
+    reg [15:0] chorus_mix, chorus_make_up, chorus_rate;
     reg [7:0] chorus_depth;
     reg in_valid, out_ready;
     wire out_valid, in_ready;
@@ -37,13 +41,16 @@ module mixer_tb();
     mixer #(.MAX_POLYPHONY(32)) mixer_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .smp_tick_up(smp_tick_up),
         .audio_in(audio_in),
-        .reverb_mix(reverb_mix), .reverb_feedback(reverb_feedback),
+        .reverb_mix(reverb_mix), .reverb_make_up(reverb_make_up),
+        .reverb_feedback(reverb_feedback),
         .reverb_damping(reverb_damping),
-        .delay_mix(delay_mix), .delay_time(delay_time),
+        .delay_mix(delay_mix), .delay_make_up(delay_make_up), .delay_time(delay_time),
         .delay_feedback(delay_feedback),
-        .distortion_mix(distortion_mix), .distortion_gain(distortion_gain),
+        .distortion_mix(distortion_mix), .distortion_make_up(distortion_make_up),
+        .distortion_gain(distortion_gain),
         .distortion_tone(distortion_tone),
-        .chorus_mix(chorus_mix), .chorus_rate(chorus_rate),
+        .chorus_mix(chorus_mix), .chorus_make_up(chorus_make_up),
+        .chorus_rate(chorus_rate),
         .chorus_depth(chorus_depth),
         .balance_volume(balance_volume), .master_volume(master_volume),
         .audio_out(audio_out),
@@ -137,15 +144,19 @@ module mixer_tb();
         balance_volume = '0;
         master_volume = '0;
         reverb_mix = REVERB_MIX;
+        reverb_make_up = REVERB_MAKE_UP;
         reverb_feedback = REVERB_FEEDBACK;
         reverb_damping = REVERB_DAMPING;
         delay_mix = DELAY_MIX;
+        delay_make_up = DELAY_MAKE_UP;
         delay_time = DELAY_TIME;
         delay_feedback = DELAY_FEEDBACK;
         distortion_mix = DISTORTION_MIX;
+        distortion_make_up = DISTORTION_MAKE_UP;
         distortion_gain = DISTORTION_GAIN;
         distortion_tone = DISTORTION_TONE;
         chorus_mix = CHORUS_MIX;
+        chorus_make_up = CHORUS_MAKE_UP;
         chorus_rate = CHORUS_RATE;
         chorus_depth = CHORUS_DEPTH;
         in_valid = 1'b0;
@@ -178,15 +189,19 @@ module mixer_tb();
             balance_volume = vectors[sample_index][47:32];
             master_volume = vectors[sample_index][31:16];
             reverb_mix = REVERB_MIX;
+            reverb_make_up = REVERB_MAKE_UP;
             reverb_feedback = REVERB_FEEDBACK;
             reverb_damping = REVERB_DAMPING;
             delay_mix = DELAY_MIX;
+            delay_make_up = DELAY_MAKE_UP;
             delay_time = DELAY_TIME;
             delay_feedback = DELAY_FEEDBACK;
             distortion_mix = DISTORTION_MIX;
+            distortion_make_up = DISTORTION_MAKE_UP;
             distortion_gain = DISTORTION_GAIN;
             distortion_tone = DISTORTION_TONE;
             chorus_mix = CHORUS_MIX;
+            chorus_make_up = CHORUS_MAKE_UP;
             chorus_rate = CHORUS_RATE;
             chorus_depth = CHORUS_DEPTH;
             expected_audio = vectors[sample_index][15:0];
@@ -198,19 +213,23 @@ module mixer_tb();
                 $fatal(1, "Input not accepted at sample %0d", sample_index);
             in_valid = 1'b0;
             smp_tick_up = 1'b0;
-            // 两个增益应在输入握手时锁存。
+            // 四级补偿和两级音量均应在输入握手时锁存。
             balance_volume = ~balance_volume;
             master_volume = ~master_volume;
             reverb_mix = '0;
+            reverb_make_up = '0;
             reverb_feedback = '0;
             reverb_damping = '0;
             delay_mix = '0;
+            delay_make_up = '0;
             delay_time = '0;
             delay_feedback = '0;
             distortion_mix = '0;
+            distortion_make_up = '0;
             distortion_gain = '0;
             distortion_tone = '0;
             chorus_mix = '0;
+            chorus_make_up = '0;
             chorus_rate = '0;
             chorus_depth = '0;
             while (!out_valid)
