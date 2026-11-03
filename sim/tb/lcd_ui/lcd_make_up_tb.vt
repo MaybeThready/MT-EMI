@@ -46,8 +46,13 @@ module lcd_make_up_tb;
                 $fatal(1,"K3 mix display mismatch effect=%0d",effect);
             object_index = 6'd15; #1;
             if (!object_valid || !number_enable || number_value !== {8'd0,state[543:528]} ||
-                number_scale !== 3'd6 || decimal_places !== 3'd4 || minimum_digits !== 3'd5)
+                number_scale !== 3'd6 || decimal_places !== 3'd4 || minimum_digits !== 3'd5 ||
+                suffix !== 4'd3)
                 $fatal(1,"K4 make-up display mismatch effect=%0d",effect);
+            object_index = 6'd14; #1;
+            if (!object_valid || string_id !== 8'd151) $fatal(1,"K4 gain title top");
+            object_index = 6'd16; #1;
+            if (!object_valid || string_id !== 8'd152) $fatal(1,"K4 gain title bottom");
         end
         state[544] = 1'b0;
         object_index = 6'd15; #1;

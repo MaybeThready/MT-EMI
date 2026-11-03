@@ -8,7 +8,7 @@ module lcd_spectrum_builder_tb;
     parameter QUICK=0;
     parameter SAMPLE_NUM=98245614;
     parameter SAMPLE_DEN=2048;
-    parameter VIEW_HZ=4000;
+    parameter VIEW_HZ=20000;
     localparam LAST_BIN=(64'd1024*SAMPLE_DEN*VIEW_HZ)/SAMPLE_NUM;
     GSR GSR (.GSRI(1'b1));
     reg clk_sys=1'b0, rst_n=1'b0, build_enable=1'b1, start_valid=1'b0;
@@ -103,6 +103,8 @@ module lcd_spectrum_builder_tb;
                 m=0;
                 for (i=first; i<=last; i=i+1)
                     if (expected[vector*513+i][47:32]>m) m=expected[vector*513+i][47:32];
+                if (m>=8192) m=32768;
+                else m=m*4;
                 expected_words[2*j]=327-((m*239+16384)/32768);
                 expected_words[2*j+1]=327;
                 previous=last;

@@ -143,9 +143,9 @@ module lcd_page_program
             2'd1:
             begin
                 advanced_value_0={8'd0,s[303:288]};
-                advanced_scale_0=3'd0;
-                advanced_decimal_0=3'd0;
-                advanced_suffix_0=4'd6;
+                advanced_scale_0=s[544] ? 3'd7 : 3'd0;
+                advanced_decimal_0=s[544] ? 3'd2 : 3'd0;
+                advanced_suffix_0=s[544] ? 4'd2 : 4'd6;
             end
             2'd2:
             begin
@@ -159,9 +159,9 @@ module lcd_page_program
                 advanced_scale_0=3'd4;
                 advanced_suffix_0=4'd5;
                 advanced_value_1={8'd0,s[383:368]};
-                advanced_scale_1=3'd0;
-                advanced_decimal_1=3'd0;
-                advanced_suffix_1=4'd6;
+                advanced_scale_1=s[544] ? 3'd7 : 3'd0;
+                advanced_decimal_1=s[544] ? 3'd2 : 3'd0;
+                advanced_suffix_1=s[544] ? 4'd2 : 4'd6;
             end
             default:
             begin
@@ -291,26 +291,60 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd5,5'd20,4'd11};
                         string_id_r = 8'd20;
+                        if (view && s[544])
+                        begin
+                            number_enable_r = 1'b1;
+                            number_value_r = 24'd0;
+                            font_style_r = 2'd0;
+                        end
                     end
                     6'd13:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd39,5'd20,4'd11};
                         string_id_r = view ? 8'd21 : 8'd22;
+                        if (view && s[544])
+                        begin
+                            number_enable_r = 1'b1;
+                            number_value_r = 24'd10;
+                            font_style_r = 2'd0;
+                            suffix_r = 4'd10;
+                        end
                     end
                     6'd14:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {(view ? 7'd70 : 7'd67),5'd20,4'd11};
                         string_id_r = view ? 8'd23 : 8'd24;
+                        if (view && s[544])
+                        begin
+                            number_enable_r = 1'b1;
+                            number_value_r = 24'd20;
+                            font_style_r = 2'd0;
+                            suffix_r = 4'd11;
+                        end
                     end
                     6'd15:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd21,5'd20,4'd11};
                         string_id_r = view ? 8'd25 : 8'd0;
+                        if (view && s[544])
+                        begin
+                            number_enable_r = 1'b1;
+                            number_value_r = 24'd5;
+                            font_style_r = 2'd0;
+                            suffix_r = 4'd10;
+                        end
                     end
                     6'd16:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd57,5'd20,4'd11};
                         string_id_r = view ? 8'd26 : 8'd0;
+                        if (view && s[544])
+                        begin
+                            number_enable_r = 1'b1;
+                            number_value_r = 24'd15;
+                            font_style_r = 2'd0;
+                            suffix_r = 4'd10;
+                        end
                     end
                     6'd17:
                     begin
@@ -1082,7 +1116,8 @@ module lcd_page_program
                         minimum_digits_r = 3'd5;
                         number_scale_r=advanced_scale_0;
                         decimal_places_r=advanced_decimal_0;
-                        minimum_digits_r=(advanced_decimal_0 == 0) ? 3'd1 : 3'd5;
+                        minimum_digits_r=(advanced_decimal_0 == 0) ? 3'd1 :
+                            (advanced_decimal_0 == 2) ? 3'd3 : 3'd5;
                         suffix_r=advanced_suffix_0;
                     end
                     6'd7:
@@ -1104,7 +1139,8 @@ module lcd_page_program
                         minimum_digits_r = 3'd5;
                         number_scale_r=advanced_scale_1;
                         decimal_places_r=advanced_decimal_1;
-                        minimum_digits_r=(advanced_decimal_1 == 0) ? 3'd1 : 3'd5;
+                        minimum_digits_r=(advanced_decimal_1 == 0) ? 3'd1 :
+                            (advanced_decimal_1 == 2) ? 3'd3 : 3'd5;
                         suffix_r=advanced_suffix_1;
                     end
                     6'd9:
@@ -1114,10 +1150,10 @@ module lcd_page_program
                     end
                     6'd14:
                     begin
-                        // K4: gain compensation after the selected effect's dry/wet mix.
+                        // K4: reuse only the gain name tiles, omitting the K1 prefix.
                         if (s[544]) begin
-                            {object_col_r,object_row_r,object_color_r} = {7'd5,5'd17,4'd11};
-                            string_id_r = 8'd133;
+                            {object_col_r,object_row_r,object_color_r} = {7'd0,5'd17,4'd11};
+                            string_id_r = 8'd151;
                         end else object_valid_r = 1'b0;
                     end
                     6'd15:
@@ -1130,6 +1166,14 @@ module lcd_page_program
                             font_style_r = 2'd2;
                             decimal_places_r = 3'd4;
                             minimum_digits_r = 3'd5;
+                            suffix_r = 4'd3;
+                        end else object_valid_r = 1'b0;
+                    end
+                    6'd16:
+                    begin
+                        if (s[544]) begin
+                            {object_col_r,object_row_r,object_color_r} = {7'd0,5'd17,4'd11};
+                            string_id_r = 8'd152;
                         end else object_valid_r = 1'b0;
                     end
                     6'd10:
