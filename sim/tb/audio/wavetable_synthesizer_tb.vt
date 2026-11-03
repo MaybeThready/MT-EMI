@@ -26,7 +26,7 @@ module wavetable_synthesizer_tb();
         .scan_tick_down()
     );
 
-    reg [11:0] phase [OSC_NUM*5-1:0];
+    reg [11:0] phase [OSC_NUM*3-1:0];
     reg [15:0] volume [OSC_NUM-1:0];
     reg [3:0] wavetable_0, wavetable_1;
     reg [15:0] wavetable_interp;
@@ -137,8 +137,8 @@ module wavetable_synthesizer_tb();
             detune = scenario_id == 5 ? 16'hffff : 16'd0;
             for (j = 0; j < OSC_NUM; j = j + 1)
             begin
-                for (osc = 0; osc < 5; osc = osc + 1)
-                    phase[j*5+osc] = base_phase;
+                for (osc = 0; osc < 3; osc = osc + 1)
+                    phase[j*3+osc] = base_phase;
                 volume[j] = 16'h0000;
             end
             case (scenario_id)
@@ -157,16 +157,14 @@ module wavetable_synthesizer_tb();
                 begin
                     volume[0] = 16'hffff;
                     volume[1] = 16'h8000;
-                    for (osc = 0; osc < 5; osc = osc + 1)
-                        phase[5+osc] = base_phase + 12'd1024;  // 错相、不同音量、波形混合
+                    for (osc = 0; osc < 3; osc = osc + 1)
+                        phase[3+osc] = base_phase + 12'd1024;  // 错相、不同音量、波形混合
                 end
                 5, 7:
                 begin
                     volume[0] = 16'hffff;
-                    phase[1] = base_phase - index;
-                    phase[2] = base_phase + index;
-                    phase[3] = base_phase - 2*index;
-                    phase[4] = base_phase + 2*index;
+                    phase[1] = base_phase - 2*index;
+                    phase[2] = base_phase + 2*index;
                 end
                 6: volume[0] = 16'h0000;
             endcase
@@ -187,27 +185,27 @@ module wavetable_synthesizer_tb();
             for (j = 0; j < OSC_NUM; j = j + 1)
             begin
                 base_point = calc_sample(wavetable_0, wavetable_1,
-                                         wavetable_interp, phase[j*5]);
+                                         wavetable_interp, phase[j*3]);
                 side_sum = 0;
-                for (osc = 1; osc < 5; osc = osc + 1)
+                for (osc = 1; osc < 3; osc = osc + 1)
                 begin
                     point = calc_sample(wavetable_0, wavetable_1,
-                                        wavetable_interp, phase[j*5+osc]);
+                                        wavetable_interp, phase[j*3+osc]);
                     side_sum = side_sum + point;
                 end
-                blend_product = side_sum - 4*base_point;
+                blend_product = side_sum - 2*base_point;
                 if (detune == 16'hffff)
                 begin
                     if (blend_product < 0)
-                        point = base_point - ((-blend_product + 64'sd4) >>> 3);
+                        point = base_point - ((-blend_product + 64'sd2) >>> 2);
                     else
-                        point = base_point + ((blend_product + 64'sd4) >>> 3);
+                        point = base_point + ((blend_product + 64'sd2) >>> 2);
                 end
                 else
                 begin
                     blend_product = blend_product * $signed({1'b0, detune});
                     point = base_point + ((blend_product +
-                             (blend_product < 0 ? 64'sd262143 : 64'sd262144)) >>> 19);
+                             (blend_product < 0 ? 64'sd131071 : 64'sd131072)) >>> 18);
                 end
                 product = point * $signed({1'b0, volume[j]});
                 expected_sum = expected_sum +
@@ -244,8 +242,8 @@ module wavetable_synthesizer_tb();
             @(negedge clk_sys);
             for (j = 0; j < OSC_NUM; j = j + 1)
             begin
-                for (osc = 0; osc < 5; osc = osc + 1)
-                    phase[j*5+osc] = ~phase[j*5+osc];
+                for (osc = 0; osc < 3; osc = osc + 1)
+                    phase[j*3+osc] = ~phase[j*3+osc];
                 volume[j] = 16'h0000;
             end
             wavetable_0 = 4'd3;
@@ -355,7 +353,7 @@ module wavetable_synthesizer_tb();
         run_period(2);  // 双音同相
         run_period(3);  // 32 路同相，观察正负满幅与输出位宽
         run_period(4);  // 双音错相、不同音量、正弦与三角波混合
-        run_period(5);  // 五路失谐的完整周期
+        run_period(5);  // 三路失谐的完整周期
         run_period(7);  // 侧振荡器相位仍不同，失谐归零必须严格还原基础音
         scenario_id = 6;
         sample_index = 0;

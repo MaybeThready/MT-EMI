@@ -65,7 +65,7 @@ module channel_rack
         .stc(stc)
     );
 
-    wire [11:0] phase [MAX_POLYPHONY*5-1:0];
+    wire [11:0] phase [MAX_POLYPHONY*3-1:0];
     wire [15:0] envelope_volume [MAX_POLYPHONY-1:0];
     wire [MAX_POLYPHONY-1:0] envelope_note_busy;
     reg [MAX_POLYPHONY-1:0] note_busy_r;

@@ -1,6 +1,6 @@
 /**
- * 五振荡器相位组。失谐间距固定：内侧约 +/-6 音分，外侧约 +/-12 音分。
- * 32 个声部、每声部五路相位依次更新，共用读取选择器与相位加法器。
+ * 三振荡器相位组。每声部为主音及约 +/-12 音分的两路失谐音。
+ * 各声部三路相位依次更新，共用读取选择器与相位加法器。
  * detune 仅在后级 wavetable_synthesizer 中控制混合比例。
  */
 `include "../defines.vh"
@@ -15,7 +15,7 @@ module detuned_phase_group
     input smp_tick_up,
     input [VOICE_NUM-1:0] note_on,
     input [31:0] freq [VOICE_NUM-1:0],  // UQ16.16 Hz
-    output [11:0] out_phase [VOICE_NUM*5-1:0],  // UQ0.12
+    output [11:0] out_phase [VOICE_NUM*3-1:0],  // UQ0.12；主音、低失谐、高失谐
     input out_ready,
     input in_valid,
     output out_valid,
@@ -41,19 +41,16 @@ module detuned_phase_group
     reg [2:0] osc_index;
     reg [31:0] base_increment_r, offset_r;
     reg [31:0] step_r, selected_phase_r;
-    reg [31:0] phase_r [VOICE_NUM*5-1:0];
+    reg [31:0] phase_r [VOICE_NUM*3-1:0];
 
     wire [63:0] base_product = freq_r[voice_index] * PHASE_INCR_K;
     wire [51:0] offset_product = base_increment_r * FIXED_RATIO_Q20;
-    wire [IDX_W+2:0] current_index = voice_index * 5 + osc_index;
-    wire [31:0] step_offset = (osc_index == 3'd1 || osc_index == 3'd2) ?
-                              (offset_r >> 1) : offset_r;
-    wire step_negative = (osc_index == 3'd1 || osc_index == 3'd3);
+    wire [IDX_W+1:0] current_index = voice_index * 3 + osc_index;
     wire [31:0] phase_next = selected_phase_r + step_r;
 
     genvar lane;
     generate
-        for (lane = 0; lane < VOICE_NUM*5; lane = lane + 1)
+        for (lane = 0; lane < VOICE_NUM*3; lane = lane + 1)
         begin : phase_outputs
             unsigned_fp_norm #(
                 .QII(0), .QIF(32), .QOI(0), .QOF(12)
@@ -73,7 +70,7 @@ module detuned_phase_group
             SELECT_STEP: stn = READ_PHASE;
             READ_PHASE: stn = UPDATE_PHASE;
             UPDATE_PHASE: stn = NEXT_OSC;
-            NEXT_OSC: stn = osc_index == 3'd4 ? NEXT_VOICE : SELECT_STEP;
+            NEXT_OSC: stn = osc_index == 3'd2 ? NEXT_VOICE : SELECT_STEP;
             NEXT_VOICE: stn = voice_index == VOICE_NUM-1 ? WF_SEND : CALC_BASE;
             WF_SEND: stn = out_ready ? WF_TICK : WF_SEND;
             default: stn = WF_TICK;
@@ -94,7 +91,7 @@ module detuned_phase_group
             selected_phase_r <= '0;
             for (i = 0; i < VOICE_NUM; i = i + 1)
                 freq_r[i] <= '0;
-            for (i = 0; i < VOICE_NUM*5; i = i + 1)
+            for (i = 0; i < VOICE_NUM*3; i = i + 1)
                 phase_r[i] <= '0;
         end
         else
@@ -117,13 +114,13 @@ module detuned_phase_group
                     offset_r <= (offset_product + 52'd524288) >> 20;
                 SELECT_STEP:
                     step_r <= osc_index == 3'd0 ? base_increment_r :
-                              step_negative ? base_increment_r - step_offset :
-                                              base_increment_r + step_offset;
+                              osc_index == 3'd1 ? base_increment_r - offset_r :
+                                                  base_increment_r + offset_r;
                 READ_PHASE:
                     selected_phase_r <= phase_r[current_index];
                 UPDATE_PHASE:
                 begin
-                    for (i = 0; i < VOICE_NUM*5; i = i + 1)
+                    for (i = 0; i < VOICE_NUM*3; i = i + 1)
                     begin
                         if (current_index == i)
                             phase_r[i] <= note_on_r[voice_index] ? 32'd0 : phase_next;
@@ -131,7 +128,7 @@ module detuned_phase_group
                 end
                 NEXT_OSC:
                 begin
-                    if (osc_index != 3'd4)
+                    if (osc_index != 3'd2)
                         osc_index <= osc_index + 1'b1;
                 end
                 NEXT_VOICE:
