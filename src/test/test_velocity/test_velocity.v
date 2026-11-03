@@ -213,6 +213,8 @@ module test_velocity_core
         .out_valid(ui_out_valid), .out_ready(rack_in_ready),
         .master_volume(), .balance_volume(), .reverb_mix(), .delay_mix(),
         .distortion_mix(), .chorus_mix(),
+        .reverb_make_up(), .delay_make_up(),
+        .distortion_make_up(), .chorus_make_up(),
         .reverb_feedback(), .reverb_damping(), .delay_time(), .delay_feedback(),
         .distortion_gain(), .distortion_tone(), .chorus_rate(), .chorus_depth(),
         .configuration_error(configuration_error), .sample_overrun(sample_overrun),

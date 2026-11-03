@@ -58,6 +58,11 @@ module user_interface_s2_tb;
     wire [15:0] distortion_mix;
     wire [15:0] chorus_mix;
     wire [15:0] reverb_make_up, delay_make_up, distortion_make_up, chorus_make_up;
+    wire [544:0] display_state;
+    wire display_valid;
+    reg [544:0] last_display = 545'd0;
+    always @(posedge clk_sys)
+        if (display_valid) last_display <= display_state;
     wire configuration_error;
     wire sample_overrun;
     integer i;
@@ -147,7 +152,7 @@ module user_interface_s2_tb;
         .distortion_make_up(distortion_make_up), .chorus_make_up(chorus_make_up),
         .configuration_error(configuration_error),
         .sample_overrun(sample_overrun),
-        .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
+        .display_out_state(display_state), .display_out_valid(display_valid), .display_out_ready(1'b1)
     );
 
     // 近似实际 PLL 周期；smp/scan 分别为 2048/8192 个系统周期。
@@ -484,6 +489,12 @@ module user_interface_s2_tb;
             endcase
             check_parameters;
             if(menu_advanced_parameters!==expected_advanced) $fatal(1,"Display parameter snapshot mismatch");
+            repeat (10) @(negedge clk_sys);
+            if (!last_display[544] || last_display[543:528] !== expected_make_up[16*slot_index +: 16] ||
+                last_display[435:434] !== slot_index[1:0] ||
+                last_display[32+16*(8+slot_index) +: 16] !== 16'd5)
+                $fatal(1,"LCD K3/K4 snapshot mismatch effect=%0d mix=%h make_up=%h",
+                    slot_index,last_display[32+16*(8+slot_index) +: 16],last_display[543:528]);
         end
         return_to_play;
         // Original mode1 is restored: K5 changes mix, not attack.

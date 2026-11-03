@@ -1,5 +1,5 @@
 /**
- * 2026-11-02 S2和弦接口/逻辑变动：按钮先确定同批play_mode，再按32位批号与琴键帧配对；批号错误锁存configuration_error。音频外部接口不变，528位快照[509:511]新含义；本轮不接LCD。
+ * 2026-11-02 S2和弦接口/逻辑变动：按钮先确定同批play_mode，再按32位批号与琴键帧配对；批号错误锁存configuration_error。音频外部接口不变，545位快照[509:511]新含义；本轮不接LCD。
  */
 /**
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
@@ -115,18 +115,19 @@ module user_interface
     // [506:501]busy count; [507]busy-known; [508]bend-known;
     // [509]play_mode, [510]mode submenu active, [511]mode candidate;
     // [527:512]calibrated bend request (0000/8000/FFFF).
+    // [543:528]selected effect make-up UQ1.15; [544]extension valid.
     // Transfer only on display_out_valid && display_out_ready. While waiting,
-    // hold the full528-bit state and valid. Display ready never gates existing
+    // hold the full545-bit state and valid. Display ready never gates existing
     // input, audio, note_busy or storage ready. Old unsent models may coalesce;
     // activity/reset events are OR-preserved. No keyboard-lighting payload.
-    output [527:0] display_out_state,
+    output [544:0] display_out_state,
     output display_out_valid,
     input display_out_ready
 );
     localparam STATE_WAIT_COMBINED_FRAME = 1'b0;
     localparam STATE_DELIVER_FRAME_TO_ALL_SOURCES = 1'b1;
     wire display_pipeline_commit;
-    wire [495:0] display_pipeline_payload;
+    wire [512:0] display_pipeline_payload;
     wire current_state;
     reg next_state;
     reg [31:0] next_batch_id_r;
@@ -663,7 +664,7 @@ module user_interface
         end
     end
 
-    reg [495:0] display_payload;
+    reg [512:0] display_payload;
     reg display_initialized_r;
     reg [3:0] display_busy_group_r [0:3];
     reg display_busy_pending_r, display_busy_known_r, display_bend_known_r;

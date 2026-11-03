@@ -19,14 +19,14 @@ module user_interface_chord_tb;
     reg in_valid=0,pcm_ready=1,display_ready=0;
     wire in_ready,pcm_valid,display_valid,config_error,overrun;
     wire signed [15:0] pcm;
-    wire [527:0] display_state;
+    wire [544:0] display_state;
     integer commits=0,pcm_count=0,nonzero_count=0,tick_age=0,max_pcm_age=0;
     integer on_count,off_count,target,i,t,n,new_index,expected_bend,bend_tolerance;
     reg [31:0] last_on=0,last_off=0;
     reg [31:0] last_freq [31:0];
     reg [15:0] last_velocity [31:0];
     reg allow_overrun=0,checking=1,test_passed=0;
-    reg [527:0] stalled_display;
+    reg [544:0] stalled_display;
     reg display_stalled=0;
     reg signed [15:0] stalled_pcm;
     reg pcm_stalled=0;
@@ -224,7 +224,7 @@ module chord_audio_fixture #(
     input [7:0] knob_states, input [7:0] knob_dirs, input [7:0] knob_pressed,
     input [15:0] bend_position, input in_valid, output in_ready,
     output signed [15:0] audio_out, output out_valid, input out_ready,
-    output [527:0] display_out_state, output display_out_valid, input display_out_ready,
+    output [544:0] display_out_state, output display_out_valid, input display_out_ready,
     output configuration_error, output sample_overrun
 );
     localparam KNOB_NUM=8, BEND_NUM=1, CHANNEL_NUM=1;
@@ -342,6 +342,7 @@ module chord_audio_fixture #(
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .configuration_error(configuration_error),
         .sample_overrun(sample_overrun),
         .storage_out_valid(storage_out_valid),
@@ -414,10 +415,10 @@ module chord_audio_fixture #(
     );
     mixer #(.MAX_POLYPHONY(MAX_POLYPHONY)) mixer_u (
         .clk_sys(clk_sys),.rst_n(rst_n),.smp_tick_up(smp_tick_up),.audio_in(rack_audio),
-        .reverb_mix(mix_reverb_mix),.reverb_feedback(mix_reverb_feedback),.reverb_damping(mix_reverb_damping),
-        .delay_mix(mix_delay_mix),.delay_time(mix_delay_time),.delay_feedback(mix_delay_feedback),
-        .distortion_mix(mix_distortion_mix),.distortion_gain(mix_distortion_gain),.distortion_tone(mix_distortion_tone),
-        .chorus_mix(mix_chorus_mix),.chorus_rate(mix_chorus_rate),.chorus_depth(mix_chorus_depth),
+        .reverb_mix(mix_reverb_mix),.reverb_make_up(16'h8000),.reverb_feedback(mix_reverb_feedback),.reverb_damping(mix_reverb_damping),
+        .delay_mix(mix_delay_mix),.delay_make_up(16'h8000),.delay_time(mix_delay_time),.delay_feedback(mix_delay_feedback),
+        .distortion_mix(mix_distortion_mix),.distortion_make_up(16'h8000),.distortion_gain(mix_distortion_gain),.distortion_tone(mix_distortion_tone),
+        .chorus_mix(mix_chorus_mix),.chorus_make_up(16'h8000),.chorus_rate(mix_chorus_rate),.chorus_depth(mix_chorus_depth),
         .balance_volume(mix_balance),.master_volume(mix_master),
         .in_valid(rack_valid && parameters_busy_r),.in_ready(mixer_ready),
         .audio_out(audio_out),.out_valid(out_valid),.out_ready(out_ready)

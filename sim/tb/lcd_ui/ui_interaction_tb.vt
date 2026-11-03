@@ -8,9 +8,9 @@ module ui_interaction_tb;
     reg clk_sys=0;
     always #5 clk_sys=~clk_sys;
     reg rst_n=0,display_in_valid=0,out_ready=0,render_done=0;
-    reg [527:0] display_in_state=0;
+    reg [544:0] display_in_state=0;
     wire display_in_ready,out_valid,protocol_error,configuration_error;
-    wire [527:0] scene_state;
+    wire [544:0] scene_state;
     wire [21:0] highlight_mask,default_mask;
     reg test_passed=0;
     wire invalid_clock, invalid_zero, invalid_large;
@@ -20,7 +20,7 @@ module ui_interaction_tb;
         .scene_wave_valid(), .scene_wave_seq(), .scene_output_peak(), .scene_pcm_valid(),
         .scene_dropped_windows(), .column_rd_en(1'b0), .column_rd_addr(11'd0),
         .column_rd_data(), .dropped_windows(),
-        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(528'd0),
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(545'd0),
         .display_in_valid(1'b0), .display_in_ready(invalid_clock_ready),
         .scene_state(), .highlight_mask(), .default_mask(), .out_valid(),
         .out_ready(1'b0), .render_done(1'b0), .protocol_error(),
@@ -32,7 +32,7 @@ module ui_interaction_tb;
         .scene_wave_valid(), .scene_wave_seq(), .scene_output_peak(), .scene_pcm_valid(),
         .scene_dropped_windows(), .column_rd_en(1'b0), .column_rd_addr(11'd0),
         .column_rd_data(), .dropped_windows(),
-        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(528'd0),
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(545'd0),
         .display_in_valid(1'b0), .display_in_ready(invalid_zero_ready),
         .scene_state(), .highlight_mask(), .default_mask(), .out_valid(),
         .out_ready(1'b0), .render_done(1'b0), .protocol_error(),
@@ -44,7 +44,7 @@ module ui_interaction_tb;
         .scene_wave_valid(), .scene_wave_seq(), .scene_output_peak(), .scene_pcm_valid(),
         .scene_dropped_windows(), .column_rd_en(1'b0), .column_rd_addr(11'd0),
         .column_rd_data(), .dropped_windows(),
-        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(528'd0),
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state(545'd0),
         .display_in_valid(1'b0), .display_in_ready(invalid_large_ready),
         .scene_state(), .highlight_mask(), .default_mask(), .out_valid(),
         .out_ready(1'b0), .render_done(1'b0), .protocol_error(),

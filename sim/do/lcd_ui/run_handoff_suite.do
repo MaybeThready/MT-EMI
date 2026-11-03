@@ -19,7 +19,7 @@ do do/common/compile_lcd_spectrum.do
 vlog -sv -work $SIM_LIB ../src/lcd_ui/ui_interaction.v
 vlog -sv -work $SIM_LIB tb/ui/ui_display_snapshot_tb.vt tb/lcd_ui/ui_interaction_tb.vt tb/ui/knob_display_tb.vt
 foreach test {ui_display_snapshot ui_interaction knob_display} {
-    vsim -L gw5a -t 1ps -onfinish stop -wlf $LCD_RESULTS/${test}.wlf $SIM_LIB.${test}_tb
+    vsim -L gw5a -t 1ps -onfinish stop -voptargs=+acc -wlf $LCD_RESULTS/${test}.wlf $SIM_LIB.${test}_tb
     run -all
     if {[examine -radix unsigned sim:/${test}_tb/test_passed] != 1} {quit -code 1 -force}
     quit -sim

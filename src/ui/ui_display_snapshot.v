@@ -1,10 +1,10 @@
 /**
- * Independent UI display publisher, V2: 32-bit sequence + 496-bit model.
+ * Independent UI display publisher: 32-bit sequence + 513-bit model.
  * clk_sys/rst_n: common system clock / rst_sys_n. No Q conversion here.
  * model_commit is a one-cycle internal notification, never waits for ready.
- * model_payload = state[527:32]; activity/reset bits are events to OR when
+ * model_payload = state[544:32]; activity/reset bits are events to OR when
  * coalescing unsent models. All other fields retain the latest complete state.
- * out_valid && out_ready transfers one 528-bit snapshot. While stalled both
+ * out_valid && out_ready transfers one 545-bit snapshot. While stalled both
  * valid and the entire snapshot remain stable. Display cannot stall UI/audio.
  * The owner supplies the initial default model after reset (no zero model).
  */
@@ -15,13 +15,13 @@ module ui_display_snapshot
     input clk_sys,
     input rst_n,
     input model_commit,
-    input [495:0] model_payload,
-    output [527:0] out_state,
+    input [512:0] model_payload,
+    output [544:0] out_state,
     output out_valid,
     input out_ready
 );
-    reg [527:0] pending_r, pending_next;
-    reg [495:0] latest_r, latest_next;
+    reg [544:0] pending_r, pending_next;
+    reg [512:0] latest_r, latest_next;
     reg [31:0] latest_seq_r, latest_seq_next, next_seq_r, next_seq_next;
     reg pending_valid_r, pending_valid_next, latest_valid_r, latest_valid_next;
     assign out_state = pending_r;
@@ -69,8 +69,8 @@ module ui_display_snapshot
     begin
         if (!rst_n)
         begin
-            pending_r <= 528'd0;
-            latest_r <= 496'd0;
+            pending_r <= 545'd0;
+            latest_r <= 513'd0;
             latest_seq_r <= 32'd0;
             next_seq_r <= INITIAL_SEQ;
             pending_valid_r <= 1'b0;

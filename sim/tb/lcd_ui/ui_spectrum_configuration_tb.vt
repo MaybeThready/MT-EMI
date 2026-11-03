@@ -20,7 +20,7 @@ module ui_spectrum_configuration_tb;
         .SPECTRUM_MAX_HZ(BAD_CASE==3 ? 0 : (BAD_CASE==4 ? 24000 : (BAD_CASE==10 ? -1 : 4000)))
     ) ui_interaction_u (
         .clk_sys(clk_sys), .rst_n(rst_n),
-        .display_in_state(528'd0), .display_in_valid(1'b1), .display_in_ready(display_in_ready),
+        .display_in_state(545'd0), .display_in_valid(1'b1), .display_in_ready(display_in_ready),
         .audio_in(-16'sd32768), .audio_in_valid(1'b1), .audio_in_ready(audio_in_ready),
         .scene_state(), .highlight_mask(), .default_mask(),
         .out_valid(out_valid), .out_ready(1'b1), .render_done(1'b0),

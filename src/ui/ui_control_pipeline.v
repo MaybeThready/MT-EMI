@@ -87,15 +87,15 @@ module ui_control_pipeline
     output menu_slot_known,
     output menu_slot_present,
     // NEW: internal UI display model. Public LCD traffic still goes only via
-    // user_interface. Commit is a one-cycle pulse without ready; payload is
-    // V2 extension state[527:32],496 bits; payload[477:479] is chord/menu state.
+    // user_interface. Commit is a one-cycle pulse without ready.
+    // Payload[511:496] is selected make-up; bit512 marks it valid.
     // Top fills errors/busy/bend and owns sequence. LCD consumer update is deferred.
     output display_model_commit,
     output keyboard_context_valid,
     input keyboard_context_ready,
     output [BATCH_ID_WIDTH-1:0] keyboard_context_batch_id,
     output keyboard_context_play_mode,
-    output [495:0] display_model_payload
+    output [512:0] display_model_payload
 );
     // 目录由存储驱动在上电扫描后提供；未知不能显示为“空槽”。
     assign menu_slot_known = storage_catalog_valid;
@@ -421,21 +421,21 @@ module ui_control_pipeline
 
     reg display_control_busy_r, display_apply_guard_r;
     reg display_observed_safe_r, display_first_r, display_commit_r;
-    reg [495:0] display_candidate, display_observed_r, display_payload_r;
-    reg [30:0] display_changed_r;
+    reg [512:0] display_candidate, display_observed_r, display_payload_r;
+    reg [32:0] display_changed_r;
     reg [21:0] display_pending_activity_r, display_pending_reset_r;
     wire display_button_start = button_out_valid && button_out_ready;
     wire display_frame_done = frame_done_valid && frame_done_ready;
     wire display_safe = !display_control_busy_r && !display_button_start &&
                         !preset_load_valid && !display_apply_guard_r;
     // Event bits are transient, not part of the ordinary state comparison.
-    wire [495:0] display_reference = {display_payload_r[495:468],44'd0,display_payload_r[423:0]};
+    wire [512:0] display_reference = {display_payload_r[512:468],44'd0,display_payload_r[423:0]};
     integer display_group;
     assign display_model_commit = display_commit_r;
     assign display_model_payload = display_payload_r;
     always @(*)
     begin
-        display_candidate = 496'd0;
+        display_candidate = 513'd0;
         display_candidate[191:0] = current_parameters;
         display_candidate[207:192] = display_master_gain;
         display_candidate[223:208] = current_balance_gain;
@@ -458,6 +458,8 @@ module ui_control_pipeline
         display_candidate[477] = play_mode;
         display_candidate[478] = menu_play_mode_active;
         display_candidate[479] = menu_play_mode_selection;
+        display_candidate[511:496] = current_make_up[16*menu_effect +: 16];
+        display_candidate[512] = 1'b1;
     end
     always @(posedge clk_sys or negedge rst_n)
     begin
@@ -468,9 +470,9 @@ module ui_control_pipeline
             display_observed_safe_r <= 1'b0;
             display_first_r <= 1'b1;
             display_commit_r <= 1'b0;
-            display_observed_r <= 496'd0;
-            display_payload_r <= 496'd0;
-            display_changed_r <= 31'd0;
+            display_observed_r <= 513'd0;
+            display_payload_r <= 513'd0;
+            display_changed_r <= 33'd0;
             display_pending_activity_r <= 22'd0;
             display_pending_reset_r <= 22'd0;
         end
@@ -483,9 +485,10 @@ module ui_control_pipeline
             // Both observation and publication must be outside a transaction.
             display_observed_r <= display_candidate;
             display_observed_safe_r <= display_safe;
-            for (display_group = 0; display_group < 31; display_group = display_group + 1)
+            for (display_group = 0; display_group < 32; display_group = display_group + 1)
                 display_changed_r[display_group] <=
                     (display_candidate[16*display_group +: 16] != display_reference[16*display_group +: 16]);
+            display_changed_r[32] <= display_candidate[512] != display_reference[512];
             display_commit_r <= 1'b0;
             if (display_update)
             begin

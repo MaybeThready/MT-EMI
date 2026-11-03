@@ -1,6 +1,6 @@
 /**
  * 第四版LCD页面绘制调度器，统一clk_sys/rst_n，独立于音频背压。
- * in_valid&&in_ready冻结528位场景、活动/默认掩码、PCM元数据及实际帧计数。
+ * in_valid&&in_ready冻结545位场景、活动/默认掩码、PCM元数据及实际帧计数。
  * 列缓存同步读一拍，2*j/2*j+1为上下端点；576列映射x40..615/y88..327。
  * 波形保留min/max；频谱每16列归并为36柱，峰值保持10个实际面板帧后2像素/帧回落。
  * 只保留36份8位相对高度及4位保持计数，峰值坐标复用原32位列字高9位。
@@ -12,7 +12,7 @@ module drawers
     input wire clk_sys, input wire rst_n,
     input wire in_valid, output wire in_ready,
     input wire [15:0] frame_count,
-    input wire [527:0] scene_state,
+    input wire [544:0] scene_state,
     input wire [21:0] highlight_mask, input wire [21:0] default_mask,
     input wire scene_wave_valid, input wire scene_spectrum_valid, input wire scene_pcm_valid,
     input wire [15:0] scene_output_peak,
@@ -36,7 +36,7 @@ module drawers
     // next-state decoder into a same-cycle word-valid/CE output wire.
     reg [34:0] state /* synthesis syn_preserve = 1 */;
     reg [34:0] next_state;
-    reg [527:0] snapshot_r;
+    reg [544:0] snapshot_r;
     reg [21:0] activity_r,defaults_r;
     reg wave_r,spectrum_r,pcm_r,overflow_r,clipped_r,error_r;
     reg [15:0] peak_r;
@@ -265,7 +265,7 @@ module drawers
     begin
         if(!rst_n)
         begin
-            snapshot_r<=528'd0;
+            snapshot_r<=545'd0;
             activity_r<=22'd0;
             defaults_r<=22'd0;
             wave_r<=1'b0;
@@ -402,6 +402,7 @@ module drawers
                         case(scale_r)
                             3'd2:scale_c_r<=(scale_raw<<4)+32'd32768;
                             3'd3:scale_c_r<=(scale_raw<<4)+32'd2048;
+                            3'd6:scale_c_r<=(scale_raw<<4)+32'd16384;
                             default:scale_c_r<=(scale_raw<<4)+32'd8192;
                         endcase
                     end
@@ -412,7 +413,7 @@ module drawers
             if(state[SCALE_D])
             begin
                 case(scale_r)
-                    3'd1,3'd5:number_r<={7'd0,scale_total_r[31:15]};
+                    3'd1,3'd5,3'd6:number_r<={7'd0,scale_total_r[31:15]};
                     3'd2:number_r<={8'd0,scale_total_r[31:16]};
                     3'd3:number_r<={4'd0,scale_total_r[31:12]};
                     default:number_r<={6'd0,scale_total_r[31:14]};

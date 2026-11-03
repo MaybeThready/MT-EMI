@@ -40,7 +40,7 @@ proc lcd_v4_fast_lcd {} {
 }
 proc lcd_v4_test {name args} {
     global SIM_LIB LCD_V4_RESULTS
-    eval vsim -L gw5a -t 1ps -onfinish stop -wlf [list [file join $LCD_V4_RESULTS ${name}.wlf]] [list $SIM_LIB.$name] [list +RESULTS=$LCD_V4_RESULTS] $args
+    eval vsim -L gw5a -t 1ps -onfinish stop -voptargs=+acc -wlf [list [file join $LCD_V4_RESULTS ${name}.wlf]] [list $SIM_LIB.$name] [list +RESULTS=$LCD_V4_RESULTS] $args
     run -all
     if {[examine -radix unsigned sim:/$name/test_passed]!=1} {error "FAILED: $name"}
     quit -sim

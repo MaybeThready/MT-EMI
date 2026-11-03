@@ -5,7 +5,7 @@
  */
 module lcd_page_program
 (
-    input [527:0] s,
+    input [544:0] s,
     input [21:0] activity,
     input [21:0] defaults,
     input pcm_valid, input graph_valid, input fft_overflow, input spectrum_clipped,
@@ -1111,6 +1111,26 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd6,5'd23,s[436] ? 4'd14 : 4'd12};
                         string_id_r = s[436] ? 8'd139 : 8'd140;
+                    end
+                    6'd14:
+                    begin
+                        // K4: gain compensation after the selected effect's dry/wet mix.
+                        if (s[544]) begin
+                            {object_col_r,object_row_r,object_color_r} = {7'd5,5'd17,4'd11};
+                            string_id_r = 8'd133;
+                        end else object_valid_r = 1'b0;
+                    end
+                    6'd15:
+                    begin
+                        if (s[544]) begin
+                            {object_col_r,object_row_r,object_color_r} = {7'd5,5'd20,4'd15};
+                            number_enable_r = 1'b1;
+                            number_value_r = {8'd0,s[543:528]};
+                            number_scale_r = 3'd6;
+                            font_style_r = 2'd2;
+                            decimal_places_r = 3'd4;
+                            minimum_digits_r = 3'd5;
+                        end else object_valid_r = 1'b0;
                     end
                     6'd10:
                     begin
