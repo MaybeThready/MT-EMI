@@ -35,7 +35,7 @@ module ui_display_handoff_tb;
     wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
     wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
     wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
-    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [15:0] detune [CHANNEL_NUM-1:0];
     wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
     wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
     wire [15:0] sustain_level [CHANNEL_NUM-1:0];
@@ -68,7 +68,7 @@ module ui_display_handoff_tb;
     wire [331:0] parameters;
     assign parameters = {chorus_depth,chorus_rate,distortion_tone,distortion_gain,delay_feedback,delay_time,reverb_damping,reverb_feedback,balance_volume, chorus_mix, distortion_mix, delay_mix, reverb_mix,
         master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
-        attack_ticks[0], init_phase[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+        attack_ticks[0], detune[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
 
     wire storage_out_valid, storage_out_write, storage_in_ready;
     reg storage_out_ready = 1'b0;
@@ -104,7 +104,7 @@ module ui_display_handoff_tb;
     wire [3:0] clone_wavetable_0 [CHANNEL_NUM-1:0];
     wire [3:0] clone_wavetable_1 [CHANNEL_NUM-1:0];
     wire [15:0] clone_wavetable_interp [CHANNEL_NUM-1:0];
-    wire [15:0] clone_init_phase [CHANNEL_NUM-1:0];
+    wire [15:0] clone_detune [CHANNEL_NUM-1:0];
     wire [19:0] clone_attack_ticks [CHANNEL_NUM-1:0];
     wire [19:0] clone_decay_ticks [CHANNEL_NUM-1:0];
     wire [15:0] clone_sustain_level [CHANNEL_NUM-1:0];
@@ -191,7 +191,7 @@ module ui_display_handoff_tb;
         .wavetable_0(wavetable_0),
         .wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase),
+        .detune(detune),
         .attack_ticks(attack_ticks),
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
@@ -258,7 +258,7 @@ module ui_display_handoff_tb;
         .wavetable_0(clone_wavetable_0),
         .wavetable_1(clone_wavetable_1),
         .wavetable_interp(clone_wavetable_interp),
-        .init_phase(clone_init_phase),
+        .detune(clone_detune),
         .attack_ticks(clone_attack_ticks),
         .decay_ticks(clone_decay_ticks),
         .sustain_level(clone_sustain_level),
@@ -520,7 +520,7 @@ module ui_display_handoff_tb;
             for(check_lane=0;check_lane<CHANNEL_NUM;check_lane=check_lane+1)
                 if(wavetable_interp[check_lane] !== clone_wavetable_interp[check_lane]) $fatal(1,"display ready affected wavetable_interp");
             for(check_lane=0;check_lane<CHANNEL_NUM;check_lane=check_lane+1)
-                if(init_phase[check_lane] !== clone_init_phase[check_lane]) $fatal(1,"display ready affected init_phase");
+                if(detune[check_lane] !== clone_detune[check_lane]) $fatal(1,"display ready affected detune");
             for(check_lane=0;check_lane<CHANNEL_NUM;check_lane=check_lane+1)
                 if(attack_ticks[check_lane] !== clone_attack_ticks[check_lane]) $fatal(1,"display ready affected attack_ticks");
             for(check_lane=0;check_lane<CHANNEL_NUM;check_lane=check_lane+1)
@@ -641,7 +641,7 @@ module ui_display_handoff_tb;
         real bend_cents, expected_frequency, frequency_error;
         begin
             interpolation = (expected[2] * 32768 + 50) / 100;
-            phase_value = (expected[3] * 65536 + 180) / 360;
+            phase_value = (expected[3] * 65536 + 50) / 100;
             attack_value = expected[4] * 48;
             decay_value = expected[5] * 48;
             release_value = expected[7] * 48;

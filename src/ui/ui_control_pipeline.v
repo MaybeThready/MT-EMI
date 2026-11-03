@@ -37,7 +37,7 @@ module ui_control_pipeline
     output [3:0] wavetable_0 [0:0],
     output [3:0] wavetable_1 [0:0],
     output [15:0] wavetable_interp [0:0],
-    output [15:0] init_phase [0:0],
+    output [15:0] detune [0:0],
     output [19:0] attack_ticks [0:0],
     output [19:0] decay_ticks [0:0],
     output [15:0] sustain_level [0:0],
@@ -158,7 +158,7 @@ module ui_control_pipeline
     wire [3:0] bank_wavetable_0 [0:0];
     wire [3:0] bank_wavetable_1 [0:0];
     wire [6:0] bank_interp_percent [0:0];
-    wire [8:0] bank_phase_degrees [0:0];
+    wire [6:0] bank_detune_percent [0:0];
     wire [10:0] bank_attack_ms [0:0];
     wire [10:0] bank_decay_ms [0:0];
     wire [6:0] bank_sustain_percent [0:0];
@@ -338,7 +338,7 @@ module ui_control_pipeline
         .wavetable_0(bank_wavetable_0),
         .wavetable_1(bank_wavetable_1),
         .interp_percent(bank_interp_percent),
-        .phase_degrees(bank_phase_degrees),
+        .detune_percent(bank_detune_percent),
         .attack_ms(bank_attack_ms),
         .decay_ms(bank_decay_ms),
         .sustain_percent(bank_sustain_percent),
@@ -371,7 +371,7 @@ module ui_control_pipeline
         .wavetable_0(bank_wavetable_0),
         .wavetable_1(bank_wavetable_1),
         .interp_percent(bank_interp_percent),
-        .phase_degrees(bank_phase_degrees),
+        .detune_percent(bank_detune_percent),
         .attack_ms(bank_attack_ms),
         .decay_ms(bank_decay_ms),
         .sustain_percent(bank_sustain_percent),
@@ -386,7 +386,7 @@ module ui_control_pipeline
         .encoded_wavetable_0(wavetable_0),
         .encoded_wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase),
+        .detune(detune),
         .attack_ticks(attack_ticks),
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),

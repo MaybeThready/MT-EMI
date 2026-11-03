@@ -3,7 +3,7 @@
  * 高级音效页 K1/K2 调专属参数，K3 调演奏页共用的干湿比，K4 调该效果器的增益补偿。
  * v5 版本修改：音色先暂存并准备分组装载标记，下一拍握手时整组生效。
  * knob_delta: 每路 -1/0/+1 步；mode/fine_adjust: 本次使用的模式及微调开关。
- * 两路增益直接保存16位UQ1.15，其余参数按百分比、角度、毫秒保存；按下旋钮恢复默认，优先于同次转动。
+ * 两路增益直接保存16位UQ1.15，其余参数按百分比、毫秒保存；按下旋钮恢复默认，优先于同次转动。
  * frame_done_valid: 本次旋钮已处理完成，即使没有修改参数也返回确认。
  * parameter_valid: 有一整组参数可读取；等待时保持，后续修改留到下一组输出。
  * WAVE_SELECT_STEPS: 换一张波形需累计的步数，合法范围 1～32767。
@@ -65,7 +65,7 @@ module knob_parameter_controller
     output [3:0] wavetable_0 [0:0],
     output [3:0] wavetable_1 [0:0],
     output [6:0] interp_percent [0:0],
-    output [8:0] phase_degrees [0:0],
+    output [6:0] detune_percent [0:0],
     output [10:0] attack_ms [0:0],
     output [10:0] decay_ms [0:0],
     output [6:0] sustain_percent [0:0],
@@ -187,7 +187,7 @@ module knob_parameter_controller
     reg [3:0] wavetable_0_previous;
     reg [3:0] wavetable_1_previous;
     reg [6:0] interp_percent_previous;
-    reg [8:0] phase_degrees_previous;
+    reg [6:0] detune_percent_previous;
     reg [10:0] attack_ms_previous;
     reg [10:0] decay_ms_previous;
     reg [6:0] sustain_percent_previous;
@@ -243,9 +243,9 @@ module knob_parameter_controller
     wire [31:0] interp_percent_adjusted;
     assign interp_percent_adjusted = adjust_value(interp_percent_r, knob_delta_captured[1],
         fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
-    wire [31:0] phase_degrees_adjusted;
-    assign phase_degrees_adjusted = adjust_value(phase_degrees_r, knob_delta_captured[1],
-        fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd359);
+    wire [31:0] detune_percent_adjusted;
+    assign detune_percent_adjusted = adjust_value(detune_percent_r, knob_delta_captured[1],
+        fine_adjust_captured ? 32'd1 : 32'd5, 32'd0, 32'd100);
     wire [31:0] attack_ms_adjusted;
     assign attack_ms_adjusted = adjust_value(attack_ms_r, knob_delta_captured[4],
         fine_adjust_captured ? 32'd1 : 32'd10, 32'd1, 32'd2000);
@@ -283,10 +283,10 @@ module knob_parameter_controller
     reg [6:0] interp_percent_next;
     reg [6:0] interp_percent_snapshot_r;
     assign interp_percent[0] = interp_percent_snapshot_r;
-    reg [8:0] phase_degrees_r;
-    reg [8:0] phase_degrees_next;
-    reg [8:0] phase_degrees_snapshot_r;
-    assign phase_degrees[0] = phase_degrees_snapshot_r;
+    reg [6:0] detune_percent_r;
+    reg [6:0] detune_percent_next;
+    reg [6:0] detune_percent_snapshot_r;
+    assign detune_percent[0] = detune_percent_snapshot_r;
     reg [10:0] attack_ms_r;
     reg [10:0] attack_ms_next;
     reg [10:0] attack_ms_snapshot_r;
@@ -333,7 +333,7 @@ module knob_parameter_controller
         {9'd0, sustain_percent_r},
         {5'd0, decay_ms_r},
         {5'd0, attack_ms_r},
-        {7'd0, phase_degrees_r},
+        {9'd0, detune_percent_r},
         {9'd0, interp_percent_r},
         {12'd0, wavetable_1_r},
         {12'd0, wavetable_0_r}
@@ -360,7 +360,7 @@ module knob_parameter_controller
         (wavetable_0_previous != wavetable_0_r) ||
         (wavetable_1_previous != wavetable_1_r) ||
         (interp_percent_previous != interp_percent_r) ||
-        (phase_degrees_previous != phase_degrees_r) ||
+        (detune_percent_previous != detune_percent_r) ||
         (attack_ms_previous != attack_ms_r) ||
         (decay_ms_previous != decay_ms_r) ||
         (sustain_percent_previous != sustain_percent_r) ||
@@ -444,7 +444,7 @@ module knob_parameter_controller
         wavetable_0_next = wavetable_0_r;
         wavetable_1_next = wavetable_1_r;
         interp_percent_next = interp_percent_r;
-        phase_degrees_next = phase_degrees_r;
+        detune_percent_next = detune_percent_r;
         attack_ms_next = attack_ms_r;
         decay_ms_next = decay_ms_r;
         sustain_percent_next = sustain_percent_r;
@@ -538,8 +538,8 @@ module knob_parameter_controller
             end
             if (mode_captured == 2'd1)
             begin
-                if (knob_pressed_event_captured[1]) phase_degrees_next = 9'd0;
-                else phase_degrees_next = phase_degrees_adjusted[8:0];
+                if (knob_pressed_event_captured[1]) detune_percent_next = 7'd0;
+                else detune_percent_next = detune_percent_adjusted[6:0];
             end
             if (mode_captured == 2'd0)
             begin
@@ -640,7 +640,7 @@ module knob_parameter_controller
             wavetable_0_snapshot_r <= 4'd0;
             wavetable_1_snapshot_r <= 4'd1;
             interp_percent_snapshot_r <= 7'd0;
-            phase_degrees_snapshot_r <= 9'd0;
+            detune_percent_snapshot_r <= 7'd0;
             attack_ms_snapshot_r <= 11'd5;
             decay_ms_snapshot_r <= 11'd150;
             sustain_percent_snapshot_r <= 7'd70;
@@ -659,7 +659,7 @@ module knob_parameter_controller
             wavetable_0_snapshot_r <= wavetable_0_r;
             wavetable_1_snapshot_r <= wavetable_1_r;
             interp_percent_snapshot_r <= interp_percent_r;
-            phase_degrees_snapshot_r <= phase_degrees_r;
+            detune_percent_snapshot_r <= detune_percent_r;
             attack_ms_snapshot_r <= attack_ms_r;
             decay_ms_snapshot_r <= decay_ms_r;
             sustain_percent_snapshot_r <= sustain_percent_r;
@@ -684,7 +684,7 @@ module knob_parameter_controller
             wavetable_0_r <= 4'd0;
             wavetable_1_r <= 4'd1;
             interp_percent_r <= 7'd0;
-            phase_degrees_r <= 9'd0;
+            detune_percent_r <= 7'd0;
             attack_ms_r <= 11'd5;
             decay_ms_r <= 11'd150;
             sustain_percent_r <= 7'd70;
@@ -709,7 +709,7 @@ module knob_parameter_controller
                 wavetable_0_r <= wavetable_0_next;
                 wavetable_1_r <= wavetable_1_next;
                 interp_percent_r <= interp_percent_next;
-                phase_degrees_r <= phase_degrees_next;
+                detune_percent_r <= detune_percent_next;
                 attack_ms_r <= attack_ms_next;
                 decay_ms_r <= decay_ms_next;
                 sustain_percent_r <= sustain_percent_next;
@@ -729,7 +729,8 @@ module knob_parameter_controller
                 wavetable_0_r <= preset_parameters_sampled_r[3:0];
                 wavetable_1_r <= preset_parameters_sampled_r[19:16];
                 interp_percent_r <= preset_parameters_sampled_r[38:32];
-                phase_degrees_r <= preset_parameters_sampled_r[56:48];
+                detune_percent_r <= preset_parameters_sampled_r[63:48] > 16'd100 ?
+                                    7'd100 : preset_parameters_sampled_r[54:48];
                 wave_progress_r <= '0;
                 snapshot_dirty_r <= 1'b1;
             end
@@ -769,7 +770,7 @@ module knob_parameter_controller
             wavetable_0_previous <= 4'd0;
             wavetable_1_previous <= 4'd1;
             interp_percent_previous <= 7'd0;
-            phase_degrees_previous <= 9'd0;
+            detune_percent_previous <= 7'd0;
             attack_ms_previous <= 11'd5;
             decay_ms_previous <= 11'd150;
             sustain_percent_previous <= 7'd70;
@@ -797,7 +798,7 @@ module knob_parameter_controller
             wavetable_0_previous <= wavetable_0_r;
             wavetable_1_previous <= wavetable_1_r;
             interp_percent_previous <= interp_percent_r;
-            phase_degrees_previous <= phase_degrees_r;
+            detune_percent_previous <= detune_percent_r;
             attack_ms_previous <= attack_ms_r;
             decay_ms_previous <= decay_ms_r;
             sustain_percent_previous <= sustain_percent_r;

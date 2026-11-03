@@ -1,0 +1,61 @@
+`timescale 1ns/1ps
+
+/** 演奏页模式 1：K2 显示失谐百分比，模式 0 仍显示波表插值百分比。 */
+module lcd_detune_page_tb;
+    reg [544:0] state = 545'd0;
+    reg [5:0] object_index = 6'd27;
+    wire object_valid, number_enable;
+    wire [6:0] object_col;
+    wire [4:0] object_row;
+    wire [3:0] object_color;
+    wire [7:0] string_id;
+    wire [23:0] number_value;
+    wire [2:0] number_scale, decimal_places, minimum_digits;
+    wire [1:0] font_style, sign_mode;
+    wire [3:0] suffix;
+    wire negative;
+    wire [31:0] scene_config;
+
+    lcd_page_program dut (
+        .s(state), .activity(22'd0), .defaults(22'd0),
+        .pcm_valid(1'b0), .graph_valid(1'b0),
+        .fft_overflow(1'b0), .spectrum_clipped(1'b0),
+        .output_peak(16'd0), .object_index(object_index),
+        .object_valid(object_valid), .object_col(object_col), .object_row(object_row),
+        .object_color(object_color), .string_id(string_id),
+        .number_enable(number_enable), .number_value(number_value),
+        .number_scale(number_scale), .font_style(font_style),
+        .decimal_places(decimal_places), .suffix(suffix),
+        .negative(negative), .sign_mode(sign_mode),
+        .minimum_digits(minimum_digits), .scene_config(scene_config)
+    );
+
+    initial begin
+        state[422:420] = 3'd0;
+        state[80 +: 16] = 16'd0;
+        state[64 +: 16] = 16'd25;
+        state[417:416] = 2'd1;
+        #1;
+        if (!object_valid || string_id !== 8'd44)
+            $fatal(1, "mode 1 K2 label must select Detune");
+        object_index = 6'd28;
+        #1;
+        if (!number_enable || number_value !== 24'd0 || suffix !== 4'd1)
+            $fatal(1, "mode 1 default must display 0%%");
+        state[80 +: 16] = 16'd75;
+        #1;
+        if (number_value !== 24'd75 || suffix !== 4'd1)
+            $fatal(1, "mode 1 K2 must display 75%%");
+        state[417:416] = 2'd0;
+        object_index = 6'd27;
+        #1;
+        if (string_id !== 8'd45)
+            $fatal(1, "mode 0 K2 label must select Interp");
+        object_index = 6'd28;
+        #1;
+        if (number_value !== 24'd25 || suffix !== 4'd1)
+            $fatal(1, "mode 0 K2 must display 25%%");
+        $display("LCD_DETUNE_PAGE_PASS");
+        $stop;
+    end
+endmodule

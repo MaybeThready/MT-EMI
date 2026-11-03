@@ -29,7 +29,7 @@ module knob_display_tb;
         .wavetable_0(),
         .wavetable_1(),
         .interp_percent(),
-        .phase_degrees(),
+        .detune_percent(),
         .attack_ms(),
         .decay_ms(),
         .sustain_percent(),

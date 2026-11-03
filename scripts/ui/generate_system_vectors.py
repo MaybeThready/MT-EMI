@@ -21,7 +21,7 @@ ROOT = REPO / 'ai_workspace/ui_generated'
 for subdir in ('src/ui', 'sim/tb/ui', 'sim/assets', 'sim/assets/system', 'results'):
     (ROOT / subdir).mkdir(parents=True, exist_ok=True)
 OUT = ROOT / 'sim/assets/system'
-DEFAULT = [0, 1, 0, 0, 5, 150, 70, 200, 30, 0, 0, 0, 0]
+DEFAULT = [0, 1, 0, 0, 5, 150, 70, 200, 32768, 0, 0, 0, 0]
 WIDTHS = [4, 4, 16, 16, 20, 20, 16, 20, 16, 16, 16, 16, 16]
 FREQUENCY = [math.floor(440 * 2 ** ((k - 9) / 12) * 65536 + 0.5) for k in range(24)]
 
@@ -50,6 +50,9 @@ class Reference:
 
     def observe_busy(self, busy):
         for v in range(32):
+            if self.allocated[v] and not self.held[v] and not ((busy >> v) & 1):
+                self.allocated[v] = False
+                self.coverage['reclaimed_voices'] += 1
             if self.allocated[v] and self.delivered[v]:
                 if not (busy >> v) & 1:
                     if self.high[v]:
@@ -66,7 +69,7 @@ class Reference:
                 self.low[v] = not ((busy >> v) & 1)
                 self.high[v] = self.completed[v] = False
 
-    def input_frame(self, keys, buttons, states, directions, pressed, pressure, busy):
+    def input_keyboard(self, keys, pressure, busy):
         presses, releases = keys & ~self.keys, self.keys & ~keys
         self.keys = keys
         self.pressure = pressure.copy()
@@ -102,6 +105,7 @@ class Reference:
         if count in (1, 5, 8, 24):
             self.coverage[f'chord_{count}_frames'] += 1
 
+    def input_controls(self, buttons, states, directions, pressed):
         button_edges = 0 if self.last_button is None else buttons & ~self.last_button
         knob_edges = 0 if self.last_knob is None else pressed & ~self.last_knob
         self.last_button, self.last_knob = buttons, pressed
@@ -134,19 +138,20 @@ class Reference:
                 self.values[self.mode] += 1 if self.progress > 0 else -1
                 self.progress = 0
                 self.coverage['wave_changes'] += 1
-        mapping = [(8, 2, 0, 100, 5)]
+        mapping = [(8, 2, 0, 65535, 1638)]
         if self.mode == 0:
             mapping += [(2, 1, 0, 100, 5), (4, 4, 1, 2000, 10), (5, 5, 1, 2000, 10), (6, 6, 0, 100, 5), (7, 7, 0, 5000, 50)]
         else:
-            mapping += [(3, 1, 0, 359, 5)] + [(9 + i, 4 + i, 0, 100, 5) for i in range(4)]
+            mapping += [(3, 1, 0, 100, 5)] + [(9 + i, 4 + i, 0, 100, 5) for i in range(4)]
         for field, knob, lower, upper, coarse in mapping:
             if knob_edges & (1 << knob):
                 self.values[field] = DEFAULT[field]
                 self.coverage['parameter_resets'] += 1
                 if field == 3:
-                    self.coverage['phase_resets'] += 1
+                    self.coverage['detune_resets'] += 1
             else:
-                self.values[field] = min(upper, max(lower, self.values[field] + delta[knob] * (1 if fine else coarse)))
+                step = (328 if fine else coarse) if field == 8 else (1 if fine else coarse)
+                self.values[field] = min(upper, max(lower, self.values[field] + delta[knob] * step))
         if self.values[7] == 0:
             self.coverage['release_zero_frames'] += 1
         if self.values[2] == 100:
@@ -155,8 +160,8 @@ class Reference:
     def sample(self):
         p = self.values
         percent = lambda value: min(65535, (value * 65536 + 50) // 100)
-        fields = [p[0], p[1], (p[2] * 32768 + 50) // 100, (p[3] * 65536 + 180) // 360,
-                  p[4] * 48, p[5] * 48, percent(p[6]), p[7] * 48] + [percent(v) for v in p[8:]]
+        fields = [p[0], p[1], (p[2] * 32768 + 50) // 100, percent(p[3]),
+                  p[4] * 48, p[5] * 48, percent(p[6]), p[7] * 48, p[8]] + [percent(v) for v in p[9:]]
         packed = 0
         for value, width in zip(fields, WIDTHS):
             assert 0 <= value < (1 << width)
@@ -217,11 +222,11 @@ def scenarios(seed):
     frame('adsr_fine_same_frame_b4', b=8, states=0xf0)
     frame('adsr_fine_held_b4', b=8, states=0xf0, dirs=0)
     frame('adsr_back_to_coarse', states=0xf0)
-    frame('mode_and_phase_same_frame', b=2, states=2)
-    frame('phase_fine', b=8, states=2)
-    frame('phase_reset_beats_rotation', states=2, pressed=2)
-    frame('phase_held_not_repeat', states=2, pressed=2)
-    frame('phase_release', pressed=0)
+    frame('mode_and_detune_same_frame', b=2, states=2)
+    frame('detune_fine', b=8, states=2)
+    frame('detune_reset_beats_rotation', states=2, pressed=2)
+    frame('detune_held_not_repeat', states=2, pressed=2)
+    frame('detune_release', pressed=0)
     for _ in range(16):
         frame('right_wave_steps', states=1)
     for _ in range(5):
@@ -275,6 +280,7 @@ def generate(seed):
     busy = 0
     generation = [0] * 32
     feedback = []
+    queued_keyboard = None
     overrun = False
     lines, descriptions = [], []
     for index, row in enumerate(scenarios(seed)):
@@ -284,16 +290,18 @@ def generate(seed):
             if pending is not None:
                 coverage['reset_cancelled'] += 1
             model, pending, busy = Reference(coverage), None, 0
+            queued_keyboard = None
             feedback.clear()
             generation = [0] * 32
             overrun = False
         for when, voice, gen, value in feedback:
             if when == index and generation[voice] == gen:
                 busy = (busy | (1 << voice)) if value else (busy & ~(1 << voice))
-        model.observe_busy(busy)
+        late_audio_accept = pending is not None and ready >= 2047
         if pending is not None and ready < 2048:
             _, on, off = pending
             model.accept_audio(on, busy)
+            model.observe_busy(busy)
             for v in range(32):
                 if (on >> v) & 1:
                     generation[v] += 1
@@ -302,13 +310,24 @@ def generate(seed):
                     feedback.append((index + 128, v, generation[v], 0))
             pending = None
             coverage['accepted_samples'] += 1
+        if queued_keyboard is not None and pending is None:
+            keys_queued, pressure_queued = queued_keyboard
+            model.input_keyboard(keys_queued, pressure_queued, busy)
+            queued_keyboard = None
         frame = row.get('frame')
         if frame:
             assert pending is None, '本场景的新输入必须在旧结果接收后发送'
-            model.input_frame(*frame, busy)
+            keys, buttons, states, directions, pressed, pressure = frame
+            model.input_controls(buttons, states, directions, pressed)
+            # 音频约在本段第 105 拍交付，声部回传还要逐路检查 32 拍。
+            # 提前排队的键盘帧可赶上本段末尾的 tick；过了接收窗口则等下一段回传。
+            if row.get('phase', 2048) <= max(105, ready) + 40:
+                model.input_keyboard(keys, pressure, busy)
+            else:
+                queued_keyboard = (keys, pressure.copy())
             coverage['input_frames'] += 1
         tick = row.get('tick', True)
-        new_sample = int(tick and pending is None)
+        new_sample = int(tick and pending is None and not late_audio_accept)
         payload = 0
         if new_sample:
             pending = model.sample()
@@ -324,7 +343,7 @@ def generate(seed):
         descriptions.append({'slot': index, 'label': row['label'], 'input': bool(frame), 'new_sample': bool(new_sample)})
     assert pending is None
     for key in ('chord_5_frames', 'chord_8_frames', 'chord_24_frames', 'tail_steals', 'reclaimed_voices',
-                'slew_samples', 'phase_resets', 'wave_changes', 'fine_frames', 'release_zero_frames',
+                'slew_samples', 'detune_resets', 'wave_changes', 'fine_frames', 'release_zero_frames',
                 'interpolation_one_frames', 'reset_cancelled', 'skipped_ticks'):
         assert coverage[key] > 0, f'遗漏场景 {key}'
     assert coverage['max_allocated'] == 32

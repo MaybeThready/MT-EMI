@@ -30,7 +30,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     reg [3:0] wavetable_0 [0:0];
     reg [3:0] wavetable_1 [0:0];
     reg [6:0] interp_percent [0:0];
-    reg [8:0] phase_degrees [0:0];
+    reg [6:0] detune_percent [0:0];
     reg [10:0] attack_ms [0:0];
     reg [10:0] decay_ms [0:0];
     reg [6:0] sustain_percent [0:0];
@@ -43,7 +43,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
     wire [3:0] out_wavetable_0 [0:0];
     wire [3:0] out_wavetable_1 [0:0];
     wire [15:0] out_wavetable_interp [0:0];
-    wire [15:0] out_init_phase [0:0];
+    wire [15:0] out_detune [0:0];
     wire [19:0] out_attack_ticks [0:0];
     wire [19:0] out_decay_ticks [0:0];
     wire [15:0] out_sustain_level [0:0];
@@ -76,7 +76,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         .wavetable_0(wavetable_0),
         .wavetable_1(wavetable_1),
         .interp_percent(interp_percent),
-        .phase_degrees(phase_degrees),
+        .detune_percent(detune_percent),
         .attack_ms(attack_ms),
         .decay_ms(decay_ms),
         .sustain_percent(sustain_percent),
@@ -89,7 +89,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
         .encoded_wavetable_0(out_wavetable_0),
         .encoded_wavetable_1(out_wavetable_1),
         .wavetable_interp(out_wavetable_interp),
-        .init_phase(out_init_phase),
+        .detune(out_detune),
         .attack_ticks(out_attack_ticks),
         .decay_ticks(out_decay_ticks),
         .sustain_level(out_sustain_level),
@@ -119,7 +119,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             if (out_wavetable_0[0] !== value[13][3:0]) $fatal(1,"Encoder wavetable_0 vector %0d expected %0d got %0d",index,value[13],out_wavetable_0[0]);
             if (out_wavetable_1[0] !== value[14][3:0]) $fatal(1,"Encoder wavetable_1 vector %0d expected %0d got %0d",index,value[14],out_wavetable_1[0]);
             if (out_wavetable_interp[0] !== value[15][15:0]) $fatal(1,"Encoder wavetable_interp vector %0d expected %0d got %0d",index,value[15],out_wavetable_interp[0]);
-            if (out_init_phase[0] !== value[16][15:0]) $fatal(1,"Encoder init_phase vector %0d expected %0d got %0d",index,value[16],out_init_phase[0]);
+            if (out_detune[0] !== value[16][15:0]) $fatal(1,"Encoder detune vector %0d expected %0d got %0d",index,value[16],out_detune[0]);
             if (out_attack_ticks[0] !== value[17][19:0]) $fatal(1,"Encoder attack_ticks vector %0d expected %0d got %0d",index,value[17],out_attack_ticks[0]);
             if (out_decay_ticks[0] !== value[18][19:0]) $fatal(1,"Encoder decay_ticks vector %0d expected %0d got %0d",index,value[18],out_decay_ticks[0]);
             if (out_sustain_level[0] !== value[19][15:0]) $fatal(1,"Encoder sustain_level vector %0d expected %0d got %0d",index,value[19],out_sustain_level[0]);
@@ -149,7 +149,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             wavetable_0[0]=value[0];
             wavetable_1[0]=value[1];
             interp_percent[0]=value[2];
-            phase_degrees[0]=value[3];
+            detune_percent[0]=value[3];
             attack_ms[0]=value[4];
             decay_ms[0]=value[5];
             sustain_percent[0]=value[6];
@@ -169,7 +169,7 @@ module ui_parameter_encoder_tb #(parameter SMP_TICK_FREQ=48000);
             wavetable_0[0]='0;
             wavetable_1[0]='0;
             interp_percent[0]='0;
-            phase_degrees[0]='0;
+            detune_percent[0]='0;
             attack_ms[0]='0;
             decay_ms[0]='0;
             sustain_percent[0]='0;

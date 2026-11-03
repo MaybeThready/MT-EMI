@@ -50,7 +50,7 @@ module knob_parameter_s2_tb;
         .preset_load_balance_gain(16'd12124), .preset_current_balance_gain(),
         .preset_load_advanced(load_advanced),
         .configuration_error(), .wave_progress(), .wavetable_0(), .wavetable_1(),
-        .interp_percent(), .phase_degrees(), .attack_ms(), .decay_ms(),
+        .interp_percent(), .detune_percent(), .attack_ms(), .decay_ms(),
         .sustain_percent(), .release_ms(), .reverb_mix_percent(), .delay_mix_percent(),
         .distortion_mix_percent(), .chorus_mix_percent(),
         .display_master_gain(), .display_update(), .display_activity_mask(), .display_reset_mask()

@@ -121,7 +121,7 @@ module test_velocity_core
     wire [31:0] note_freq [MAX_POLYPHONY-1:0];
     wire [15:0] note_velocity [MAX_POLYPHONY-1:0];
     wire [3:0] wavetable_0 [0:0], wavetable_1 [0:0];
-    wire [15:0] wavetable_interp [0:0], init_phase [0:0], sustain_level [0:0];
+    wire [15:0] wavetable_interp [0:0], detune [0:0], sustain_level [0:0];
     wire [19:0] attack_ticks [0:0], decay_ticks [0:0], release_ticks [0:0];
     wire [15:0] bend_value [0:0];
     wire ui_out_valid, rack_in_ready, note_busy_valid, note_busy_ready;
@@ -207,7 +207,7 @@ module test_velocity_core
         .note_busy(note_busy), .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .note_on(note_on), .note_off(note_off), .note_freq(note_freq), .note_velocity(note_velocity),
         .wavetable_0(wavetable_0), .wavetable_1(wavetable_1), .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase), .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
+        .detune(detune), .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
         .sustain_level(sustain_level), .release_ticks(release_ticks),
         .in_valid(keyboard_valid), .in_ready(ui_in_ready),
         .out_valid(ui_out_valid), .out_ready(rack_in_ready),
@@ -233,7 +233,7 @@ module test_velocity_core
         .note_on(note_on), .note_off(note_off), .note_busy(note_busy),
         .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .note_freq(note_freq), .note_velocity(note_velocity),
-        .init_phase(init_phase[0]), .attack_ticks(attack_ticks[0]), .decay_ticks(decay_ticks[0]),
+        .detune(detune[0]), .attack_ticks(attack_ticks[0]), .decay_ticks(decay_ticks[0]),
         .sustain_level(sustain_level[0]), .release_ticks(release_ticks[0]),
         .wavetable_0(wavetable_0[0]), .wavetable_1(wavetable_1[0]),
         .wavetable_interp(wavetable_interp[0]),

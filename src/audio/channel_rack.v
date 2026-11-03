@@ -28,7 +28,7 @@ module channel_rack
     input [31:0] note_freq [MAX_POLYPHONY-1:0],
     input [15:0] note_velocity [MAX_POLYPHONY-1:0],
 
-    input [15:0] init_phase,
+    input [15:0] detune,  // UQ0.16；0 为无失谐，最大约 ±12 音分
     input [19:0] attack_ticks,
     input [19:0] decay_ticks,
     input [15:0] sustain_level,
@@ -65,7 +65,7 @@ module channel_rack
         .stc(stc)
     );
 
-    wire [11:0] phase [MAX_POLYPHONY-1:0];
+    wire [11:0] phase [MAX_POLYPHONY*5-1:0];
     wire [15:0] envelope_volume [MAX_POLYPHONY-1:0];
     wire [MAX_POLYPHONY-1:0] envelope_note_busy;
     reg [MAX_POLYPHONY-1:0] note_busy_r;
@@ -75,6 +75,7 @@ module channel_rack
     reg [15:0] volume_mult_a_r, volume_mult_b_r;
     reg [3:0] wavetable_0_r, wavetable_1_r;
     reg [15:0] wavetable_interp_r;
+    reg [15:0] detune_r;
     reg [IDX_W-1:0] lane_index;
 
     wire phase_in_ready, envelope_in_ready;
@@ -87,14 +88,14 @@ module channel_rack
     wire group_out_ready = (stc == SEND_SYNTH);
     wire synth_out_ready = (stc == WF_SEND) && out_ready;
 
-    phase_accumulator_group #(
-        .ACCUMULATOR_NUM(MAX_POLYPHONY)
+    detuned_phase_group #(
+        .VOICE_NUM(MAX_POLYPHONY)
     ) phase_group_u (
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .smp_tick_up(smp_tick_up),
         .note_on(note_on),
-        .init_phase(init_phase),
+        .detune(detune),
         .freq(note_freq),
         .out_phase(phase),
         .out_ready(group_out_ready),
@@ -150,6 +151,7 @@ module channel_rack
         .smp_tick_up(smp_tick_up),
         .phase(phase),
         .volume(volume_r),
+        .detune(detune_r),
         .wavetable_0(wavetable_0_r),
         .wavetable_1(wavetable_1_r),
         .wavetable_interp(wavetable_interp_r),
@@ -186,6 +188,7 @@ module channel_rack
             wavetable_0_r <= '0;
             wavetable_1_r <= '0;
             wavetable_interp_r <= '0;
+            detune_r <= '0;
             lane_index <= '0;
             volume_mult_a_r <= '0;
             volume_mult_b_r <= '0;
@@ -214,6 +217,7 @@ module channel_rack
                         wavetable_0_r <= wavetable_0;
                         wavetable_1_r <= wavetable_1;
                         wavetable_interp_r <= wavetable_interp;
+                        detune_r <= detune;
                         lane_index <= '0;
                         for (i = 0; i < MAX_POLYPHONY; i = i + 1)
                             velocity_r[i] <= note_velocity[i];

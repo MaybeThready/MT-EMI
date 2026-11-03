@@ -47,7 +47,7 @@ module test_velocity_routing_tb;
         .note_busy(note_busy), .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
         .in_valid(in_valid), .in_ready(in_ready), .out_valid(out_valid), .out_ready(1'b1),
         .note_on(note_on), .note_off(note_off), .note_freq(note_freq), .note_velocity(note_velocity),
-        .wavetable_0(), .wavetable_1(), .wavetable_interp(), .init_phase(),
+        .wavetable_0(), .wavetable_1(), .wavetable_interp(), .detune(),
         .attack_ticks(), .decay_ticks(), .sustain_level(), .release_ticks(),
         .master_volume(), .balance_volume(), .reverb_mix(), .delay_mix(), .distortion_mix(), .chorus_mix(),
         .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),

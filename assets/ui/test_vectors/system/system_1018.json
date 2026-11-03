@@ -3,20 +3,20 @@
   "coverage": {
     "note_on_events": 448,
     "note_off_events": 420,
-    "created_samples": 1227,
-    "accepted_samples": 1226,
-    "max_held_keys": 24,
-    "max_allocated": 32,
+    "created_samples": 1226,
+    "accepted_samples": 1225,
     "coarse_frames": 122,
     "input_frames": 146,
+    "max_held_keys": 24,
+    "max_allocated": 32,
     "chord_1_frames": 3,
-    "slew_samples": 1947,
-    "frozen_tail_samples": 10095,
+    "slew_samples": 1940,
+    "frozen_tail_samples": 9500,
     "chord_5_frames": 67,
     "fine_frames": 22,
     "mode_changes": 15,
     "parameter_resets": 31,
-    "phase_resets": 4,
+    "detune_resets": 4,
     "wave_changes": 7,
     "reclaimed_voices": 33,
     "interpolation_one_frames": 18,
@@ -25,7 +25,7 @@
     "chord_8_frames": 6,
     "chord_24_frames": 3,
     "tail_steals": 378,
-    "skipped_ticks": 4,
+    "skipped_ticks": 5,
     "reset_cancelled": 1
   },
   "slots": [
@@ -3217,7 +3217,7 @@
     },
     {
       "slot": 531,
-      "label": "mode_and_phase_same_frame",
+      "label": "mode_and_detune_same_frame",
       "input": true,
       "new_sample": true
     },
@@ -3241,7 +3241,7 @@
     },
     {
       "slot": 535,
-      "label": "phase_fine",
+      "label": "detune_fine",
       "input": true,
       "new_sample": true
     },
@@ -3265,7 +3265,7 @@
     },
     {
       "slot": 539,
-      "label": "phase_reset_beats_rotation",
+      "label": "detune_reset_beats_rotation",
       "input": true,
       "new_sample": true
     },
@@ -3289,7 +3289,7 @@
     },
     {
       "slot": 543,
-      "label": "phase_held_not_repeat",
+      "label": "detune_held_not_repeat",
       "input": true,
       "new_sample": true
     },
@@ -3313,7 +3313,7 @@
     },
     {
       "slot": 547,
-      "label": "phase_release",
+      "label": "detune_release",
       "input": true,
       "new_sample": true
     },
@@ -7269,7 +7269,7 @@
       "slot": 1206,
       "label": "consume_on_tick",
       "input": false,
-      "new_sample": true
+      "new_sample": false
     },
     {
       "slot": 1207,

@@ -27,7 +27,7 @@ module user_interface_tb;
     wire [3:0] wavetable_0 [CHANNEL_NUM-1:0];
     wire [3:0] wavetable_1 [CHANNEL_NUM-1:0];
     wire [15:0] wavetable_interp [CHANNEL_NUM-1:0];
-    wire [15:0] init_phase [CHANNEL_NUM-1:0];
+    wire [15:0] detune [CHANNEL_NUM-1:0];
     wire [19:0] attack_ticks [CHANNEL_NUM-1:0];
     wire [19:0] decay_ticks [CHANNEL_NUM-1:0];
     wire [15:0] sustain_level [CHANNEL_NUM-1:0];
@@ -55,7 +55,7 @@ module user_interface_tb;
     wire [195:0] parameters;
     assign parameters = {chorus_mix, distortion_mix, delay_mix, reverb_mix,
         master_volume, release_ticks[0], sustain_level[0], decay_ticks[0],
-        attack_ticks[0], init_phase[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
+        attack_ticks[0], detune[0], wavetable_interp[0], wavetable_1[0], wavetable_0[0]};
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
         // 存储未接入的旧测试：新增输入明确接零，输出留空。
         .storage_out_valid(),
@@ -93,7 +93,7 @@ module user_interface_tb;
         .wavetable_0(wavetable_0),
         .wavetable_1(wavetable_1),
         .wavetable_interp(wavetable_interp),
-        .init_phase(init_phase),
+        .detune(detune),
         .attack_ticks(attack_ticks),
         .decay_ticks(decay_ticks),
         .sustain_level(sustain_level),
@@ -216,7 +216,7 @@ module user_interface_tb;
         rst_n = 1'b1;
         settle_and_sample(16'd19661,16'd0);
         if (wavetable_0[0] !== 4'd0 || wavetable_1[0] !== 4'd1 ||
-            wavetable_interp[0] !== 16'd0 || init_phase[0] !== 16'd0 ||
+            wavetable_interp[0] !== 16'd0 || detune[0] !== 16'd0 ||
             attack_ticks[0] !== 20'd240 || decay_ticks[0] !== 20'd7200 ||
             sustain_level[0] !== 16'd45875 || release_ticks[0] !== 20'd9600)
             $fatal(1, "Default S1 audio fields");

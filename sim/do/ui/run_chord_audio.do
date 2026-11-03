@@ -9,7 +9,7 @@ transcript on
 do do/common/setup_gowin.do
 do do/common/compile_chord_audio.do
 vlog -sv -work $SIM_LIB tb/ui/user_interface_chord_tb.vt
-vsim -L gw5a -t 1ps -onfinish stop -wlf $SIM_LIB/results/chord_audio.wlf $SIM_LIB.user_interface_chord_tb
+vsim -L gw5a -t 1ps -onfinish stop -voptargs=+acc -wlf $SIM_LIB/results/chord_audio.wlf $SIM_LIB.user_interface_chord_tb
 log sim:/user_interface_chord_tb/clk_sys sim:/user_interface_chord_tb/tick
 log sim:/user_interface_chord_tb/keys sim:/user_interface_chord_tb/buttons
 log sim:/user_interface_chord_tb/in_valid sim:/user_interface_chord_tb/in_ready
