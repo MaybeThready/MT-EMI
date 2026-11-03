@@ -1,16 +1,25 @@
-// 按用户提供的 Tang Mega 138K Pro 全引脚 CST 选取，不分配扩展排针。
+// 正式top：键盘保留J23奇数脚，旋钮使用J23.2/4/6，外接UI按键高电平有效。
+// 压力ADCV(J3.1/N12、J3.3/P11)与弯音ADCT(J4.3/R12、J4.1/R11)
+// 均为ADCLRC硬核专用模拟脚，不添加普通数字IO约束。
 // P16 是板载 50 MHz 输入，非专用 GCLK；以实际布局布线报告核对路由。
 IO_LOC "clk_core" P16;
 IO_PORT "clk_core" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-// SW5/U4: pressed HIGH via R35 to +1V5, released LOW via R37 to GND.
-// Source: official core 4072 schematic page 7; top converts to internal rst_n.
-IO_LOC "reset_button" U4;
-IO_PORT "reset_button" IO_TYPE=LVCMOS15 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=1.5;
-// 只用板载 led[1] 与 led[4]；避开配置和调试专用脚。
+// 板载S0/K16为低有效复位，保持已验证的测试接线。
+IO_LOC "rst_n" K16;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+// 六只板载 LED，低电平点亮。
 IO_LOC "status_led[0]" J14;
-IO_LOC "status_led[1]" N21;
+IO_LOC "status_led[1]" R26;
 IO_PORT "status_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "status_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[2]" L20;
+IO_PORT "status_led[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[3]" M25;
+IO_PORT "status_led[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[4]" N21;
+IO_PORT "status_led[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "status_led[5]" N23;
+IO_PORT "status_led[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 
 
 
@@ -29,15 +38,15 @@ IO_PORT "flash_mosi" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "flash_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
 IO_PORT "flash_wp_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 IO_PORT "flash_hold_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
-// Pro Dock 4071f Rev1.5 page 15: existing board buttons, no external wiring.
-IO_LOC "ui_button_n[0]" K16;
-IO_LOC "ui_button_n[1]" F15;
-IO_LOC "ui_button_n[2]" G15;
-IO_LOC "ui_button_n[3]" G16;
-IO_PORT "ui_button_n[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
-IO_PORT "ui_button_n[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+// 外接B1～B4，高电平按下；J23.8/9/10/14。
+IO_LOC "ui_button[0]" U17;
+IO_LOC "ui_button[1]" P23;
+IO_LOC "ui_button[2]" P24;
+IO_LOC "ui_button[3]" R23;
+IO_PORT "ui_button[0]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=3.3;
+IO_PORT "ui_button[1]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=3.3;
+IO_PORT "ui_button[2]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=3.3;
+IO_PORT "ui_button[3]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN DRIVE=OFF BANK_VCCIO=3.3;
 
 // LCD J20, Pro Dock 4071f Rev1.5; RGB666 maps to panel RGB[7:2].
 IO_LOC "lcd_clk" H21;
@@ -87,13 +96,6 @@ IO_PORT "lcd_b[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_LOC "lcd_b[5]" F20;
 IO_PORT "lcd_b[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 
-// Dock 4071f Rev1.5 page 15: saved test values, active-low LED2 / LED3.
-IO_LOC "saved_value_led[0]" L20;
-IO_LOC "saved_value_led[1]" M25;
-IO_PORT "saved_value_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
-IO_PORT "saved_value_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
-
-
 IO_LOC "sd_mode_n" A17;
 IO_PORT "sd_mode_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
 IO_LOC "i2s_dout" B19;
@@ -110,3 +112,25 @@ IO_LOC "data_a" W21;
 IO_PORT "data_a" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;
 IO_LOC "data_b" P21;
 IO_PORT "data_b" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;
+// 两片4067共用地址，独立低有效使能。模拟COM由外部电路接ADCV。
+IO_LOC "mux_addr[0]" T23;
+IO_PORT "mux_addr[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "mux_addr[1]" R25;
+IO_PORT "mux_addr[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "mux_addr[2]" W23;
+IO_PORT "mux_addr[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "mux_addr[3]" U24;
+IO_PORT "mux_addr[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "mux_en_a_n" AC26;
+IO_PORT "mux_en_a_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "mux_en_b_n" AB25;
+IO_PORT "mux_en_b_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+// Dock J23.2=V16, J23.4=V17, J23.6=Y21；旋钮板 J1.7/Q7、J1.3/PL、J1.5/CLK。
+IO_LOC "knob_serial_data" V16;
+IO_PORT "knob_serial_data" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "knob_load_n" V17;
+IO_PORT "knob_load_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "knob_shift_clk" Y21;
+IO_PORT "knob_shift_clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+GROUP pll_init_bottom = {"sys_clocker_u/gowin_pll_u/u_pll_init/waitcnt_*" "sys_clocker_u/gowin_pll_u/u_pll_init/locksig_*" "sys_clocker_u/gowin_pll_u/u_pll_init/enable_r_*" "sys_clocker_u/gowin_pll_u/u_pll_init/RomDreg_*" "sys_clocker_u/gowin_pll_u/u_pll_init/RomAddr_*" "sys_clocker_u/gowin_pll_u/u_pll_init/state_*" "sys_clocker_u/gowin_pll_u/u_pll_init/laststep_*" "sys_clocker_u/gowin_pll_u/u_pll_init/Waitlock_*"};
+GRP_LOC pll_init_bottom R[85:95]C[150:165];

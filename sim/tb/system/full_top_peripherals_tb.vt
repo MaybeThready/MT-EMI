@@ -1,0 +1,142 @@
+`timescale 1ns/1ps
+/** 正式top外设联合仿真：键盘力度、弯音、反序旋钮、四键及音频握手。 */
+module full_top_peripherals_tb;
+    GSR GSR(.GSRI(1'b1));
+    reg clk_core=0, rst_n=0;
+    always #5.089285 clk_core=~clk_core;
+    reg [23:0] keys=0;
+    reg [15:0] board_a=0, board_b=0;
+    reg [7:0] knob_a=8'hff, knob_b=8'hff, knob_pressed=0;
+    reg [23:0] knob_shift_r=24'hffffff;
+    wire knob_serial_data=knob_shift_r[23];
+    reg [3:0] ui_button=0;
+    reg [13:0] pressure_code [0:23];
+    reg [13:0] bend_code=14'd1024;
+    wire load_n,key_clk,knob_load_n,knob_shift_clk;
+    wire [3:0] mux_addr;
+    wire mux_en_a_n,mux_en_b_n;
+    wire i2s_bclk,i2s_lrck,i2s_dout,sd_mode_n;
+    wire [5:0] status_led;
+    wire flash_cs_n,flash_clk,flash_mosi,flash_wp_n,flash_hold_n;
+    tri1 flash_miso;
+    wire lcd_clk,lcd_en,lcd_bl,lcd_hs_n,lcd_vs_n;
+    wire [5:0] lcd_r,lcd_g,lcd_b;
+    integer active_channel,pressure_requests=0,bend_requests=0;
+    integer i,n,ui_audio_count=0;
+    reg saw_reversed_step=0,test_passed=0;
+    reg [31:0] center_freq;
+
+    top #(
+        .KEY_DEBOUNCE_TICKS(0),.BUTTON_DEBOUNCE_CYCLES(8),
+        .KNOB_DEBOUNCE_TICKS(0),.ADC_STARTUP_TICKS(128),
+        .MUX_SETTLE_TICKS(16),.SHARED_SETTLE_TICKS(16),
+        .BEND_SETTLE_TICKS(16),.BEND_DEBOUNCE_TICKS(0),.BEND_FILTER_SHIFT(0),
+        .FLASH_HALF_PERIOD_CYCLES(4),.FLASH_POWER_UP_CYCLES(10)
+    ) dut (
+        .clk_core(clk_core),.rst_n(rst_n),.ui_button(ui_button),
+        .data_a(board_a[15]),.data_b(board_b[15]),.load_n(load_n),.key_clk(key_clk),
+        .mux_addr(mux_addr),.mux_en_a_n(mux_en_a_n),.mux_en_b_n(mux_en_b_n),
+        .knob_serial_data(knob_serial_data),.knob_load_n(knob_load_n),.knob_shift_clk(knob_shift_clk),
+        .i2s_bclk(i2s_bclk),.i2s_lrck(i2s_lrck),.i2s_dout(i2s_dout),.sd_mode_n(sd_mode_n),
+        .status_led(status_led),.flash_cs_n(flash_cs_n),.flash_clk(flash_clk),
+        .flash_mosi(flash_mosi),.flash_miso(flash_miso),.flash_wp_n(flash_wp_n),
+        .flash_hold_n(flash_hold_n),.lcd_clk(lcd_clk),.lcd_en(lcd_en),
+        .lcd_r(lcd_r),.lcd_g(lcd_g),.lcd_b(lcd_b),.lcd_bl(lcd_bl),
+        .lcd_hs_n(lcd_hs_n),.lcd_vs_n(lcd_vs_n)
+    );
+    spi_nor_model flash_u(.clk_sys(dut.clk_sys),.cs_n(flash_cs_n),.sck(flash_clk),.mosi(flash_mosi),.miso(flash_miso));
+    defparam dut.lcd_display_u.lcd_driver_u.H_ACTIVE=65;
+    defparam dut.lcd_display_u.lcd_driver_u.V_ACTIVE=33;
+    defparam dut.lcd_display_u.lcd_driver_u.H_BACK=3;
+    defparam dut.lcd_display_u.lcd_driver_u.H_FRONT=5;
+    defparam dut.lcd_display_u.lcd_driver_u.V_BACK=2;
+    defparam dut.lcd_display_u.lcd_driver_u.V_FRONT=3;
+
+    always @(negedge load_n) begin board_a={4'd0,keys[11:0]};board_b={4'd0,keys[23:12]};end
+    always @(posedge key_clk) begin board_a={board_a[14:0],1'b0};board_b={board_b[14:0],1'b0};end
+    always @(negedge knob_load_n) knob_shift_r={knob_a,knob_b,~knob_pressed};
+    always @(posedge knob_shift_clk) knob_shift_r={knob_shift_r[22:0],1'b1};
+    always @(negedge dut.clk_sys)
+    begin
+        if(!mux_en_a_n && !mux_en_b_n) $fatal(1,"both pressure MUXes enabled");
+        active_channel=!mux_en_a_n ? mux_addr : (!mux_en_b_n ? 16+mux_addr : -1);
+        dut.shared_adc_manager_u.keyboard_adc_u.adc_u.channel_id=active_channel;
+        dut.shared_adc_manager_u.keyboard_adc_u.adc_u.voltage_code=
+            (active_channel>=0 && active_channel<24) ? pressure_code[active_channel] : 14'd0;
+        dut.shared_adc_manager_u.keyboard_adc_u.adc_u.bend_voltage_code=bend_code;
+        if(rst_n && (dut.adc_error || dut.keyboard_adc_error || dut.bend_error ||
+                     dut.keyboard_event_overflow || dut.knob_overflow || dut.knob_scan_error ||
+                     dut.configuration_error || dut.sample_overrun))
+            $fatal(1,"full top peripheral fault");
+    end
+    always @(posedge dut.shared_adc_manager_u.keyboard_adc_u.adc_u.ADCREQI)
+        if(rst_n)
+            case(dut.shared_adc_manager_u.keyboard_adc_u.adc_u.VSENCTL)
+                3'd0: pressure_requests=pressure_requests+1;
+                3'd1: bend_requests=bend_requests+1;
+                default: $fatal(1,"invalid ADC channel");
+            endcase
+    always @(posedge dut.clk_sys)
+        if(dut.rst_sys_n)
+        begin
+            if(dut.ui_out_valid && dut.ui_audio_ready && |dut.note_on)
+                ui_audio_count=ui_audio_count+1;
+            if(dut.combined_valid && dut.ui_in_ready && dut.knob_steps_frame[0])
+            begin
+                if(dut.knob_steps_frame[7:1]!=0 || !dut.knob_dirs_frame[0])
+                    $fatal(1,"physical K8 did not map to UI K1 with direction");
+                saw_reversed_step=1;
+            end
+        end
+    task wait_scan;
+        input integer count;
+        integer j;
+        begin for(j=0;j<count;j=j+1) @(negedge dut.scan_tick_up);end
+    endtask
+    task physical_k8_ab;
+        input [1:0] ab;
+        begin knob_a[7]=ab[1];knob_b[7]=ab[0];wait_scan(3);end
+    endtask
+    initial
+    begin
+        for(i=0;i<24;i=i+1) pressure_code[i]=14'd0;
+        pressure_code[0]=14'd1690;
+        repeat(16) @(negedge clk_core);rst_n=1;
+        wait(dut.rst_sys_n);
+        keys[0]=1;
+        for(n=0;n<2_000_000 && (pressure_requests<24 || bend_requests<1 ||
+            dut.key_velocity[0]<=16'hC000 || ui_audio_count<1);n=n+1)
+            @(negedge dut.clk_sys);
+        if(n==2_000_000) $fatal(1,"pressure/bend/keyboard did not start: %0d/%0d velocity=%h audio=%0d",
+            pressure_requests,bend_requests,dut.key_velocity[0],ui_audio_count);
+        center_freq=dut.note_freq[0];
+        if(center_freq==0) $fatal(1,"center note missing");
+
+        bend_code=14'd0;
+        for(n=0;n<2_000_000 && (dut.bend_value[0]!=16'h0000 ||
+            dut.note_freq[0]>=center_freq);n=n+1)
+            @(negedge dut.clk_sys);
+        if(n==2_000_000) $fatal(1,"bend did not lower note: bend=%h freq=%0d/%0d",
+            dut.bend_value[0],dut.note_freq[0],center_freq);
+
+        physical_k8_ab(2'b10);
+        physical_k8_ab(2'b00);
+        physical_k8_ab(2'b01);
+        physical_k8_ab(2'b11);
+        wait_scan(4);
+        if(!saw_reversed_step) $fatal(1,"physical K8 rotation missing at UI K1");
+        knob_pressed[7]=1;
+        wait_scan(4);
+        if(!dut.knob_pressed_frame[0] || dut.knob_pressed_frame[7])
+            $fatal(1,"physical K8 press not reversed");
+        knob_pressed[7]=0;
+        ui_button[0]=1;
+        for(n=0;n<200_000 && dut.menu_page!=3'd1;n=n+1) @(negedge dut.clk_sys);
+        if(n==200_000) $fatal(1,"external B1 did not open menu");
+        ui_button[0]=0;
+        test_passed=1;
+        $display("FULL_TOP_PERIPHERALS_PASS pressure=%0d bend=%0d audio_on=%0d knob_reverse=1 menu=1",pressure_requests,bend_requests,ui_audio_count);
+        $stop;
+    end
+    initial begin #100000000; $fatal(1,"full top peripheral watchdog");end
+endmodule

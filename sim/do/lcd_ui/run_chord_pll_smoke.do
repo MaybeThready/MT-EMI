@@ -12,8 +12,8 @@ transcript on
 set CHORD_REAL_PLL 1
 do do/common/compile_chord_system.do
 set CHORD_SYSTEM_FULL 0
-vsim -L gw5a -t 1ps -onfinish stop -gUSE_REAL_PLL=1 -gFULL_WINDOWS=$CHORD_SYSTEM_FULL -wlf $SIM_LIB/results/chord_system.wlf $SIM_LIB.chord_system_tb
-log sim:/chord_system_tb/keys sim:/chord_system_tb/ui_button_n sim:/chord_system_tb/last_display sim:/chord_system_tb/last_render
+vsim -L $SIM_LIB -L gw5a -t 1ps -onfinish stop -voptargs=+acc -gUSE_REAL_PLL=1 -gFULL_WINDOWS=$CHORD_SYSTEM_FULL -wlf $SIM_LIB/results/chord_system.wlf $SIM_LIB.chord_system_tb
+log sim:/chord_system_tb/keys sim:/chord_system_tb/ui_button sim:/chord_system_tb/last_display sim:/chord_system_tb/last_render
 log sim:/chord_system_tb/dut/note_on sim:/chord_system_tb/dut/note_off sim:/chord_system_tb/dut/played_pcm
 run -all
 if {[examine -radix unsigned sim:/chord_system_tb/test_passed]!=1} {quit -code 1 -force}

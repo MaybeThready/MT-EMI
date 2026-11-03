@@ -1,30 +1,48 @@
 /**
- * 正式整机连接顶层：键盘→UI→声部机架→Mixer→I2S。
- * 真实UI显示快照与I2S实际播放PCM接入LCD交互、第三版绘图及FFT，不产生演示图案或人工演奏数据。
- * LCD场景在安全扫描帧边界提交；SW5/U4为高有效复位，业务复位在PLL锁定后同步释放。
- * 物理旋钮/弯音输入按当前整机范围保留为空闲事件和中心值。
+ * 正式整机顶层：24键及力度、弯音轮、八旋钮、四按键、32声部音频、
+ * 效果器、I2S、LCD和音色Flash。所有业务时序均使用clk_sys。
+ * K16低有效复位；四个外接UI按键高电平有效；旋钮物理K1..K8反接为UI K8..K1。
+ * 压力ADCV和弯音ADCT通过一个shared_adc_manager分时使用ADCLRC。
  */
 module top
 #(
-    parameter BUTTON_DEBOUNCE_CYCLES = 2000000,
-    parameter KEY_DEBOUNCE_TICKS = 200000,
-    parameter WAVE_SELECT_STEPS = 4, // Existing integration value, configurable.
+    parameter KEY_DEBOUNCE_TICKS = 98304,
+    parameter BUTTON_DEBOUNCE_CYCLES = 98304,
+    parameter KNOB_DEBOUNCE_TICKS = 98304,
+    parameter WAVE_SELECT_STEPS = 4,
+    parameter KNOB_TRANSITIONS_PER_STEP = 4,
+    // 位号仍按物理旋钮编号；到UI的三组数据统一在驱动后反序。
+    parameter [7:0] KNOB_DIRECTION_INVERT = 8'h00,
+    parameter [335:0] PRESSURE_ZERO_CODES = {24{14'd0}},
+    parameter [335:0] PRESSURE_FULL_CODES = {24{14'd1690}},
+    parameter PRESSURE_DEADBAND_CODE = 8,
+    parameter ADC_STARTUP_TICKS = 98304,
+    parameter MUX_SETTLE_TICKS = 4916,
+    parameter SHARED_SETTLE_TICKS = 4916,
+    parameter BEND_SETTLE_TICKS = 4916,
+    parameter BEND_DEBOUNCE_TICKS = 98304,
+    parameter BEND_FILTER_SHIFT = 2,
     parameter FLASH_HALF_PERIOD_CYCLES = 50,
     parameter FLASH_POWER_UP_CYCLES = 1000000
 )( 
     input clk_core,
-    input reset_button,
-    input [3:0] ui_button_n,
+    input rst_n,
+    input [3:0] ui_button,
     input data_a,
     input data_b,
     output load_n,
     output key_clk,
+    output [3:0] mux_addr,
+    output mux_en_a_n,
+    output mux_en_b_n,
+    input knob_serial_data,
+    output knob_load_n,
+    output knob_shift_clk,
     output i2s_bclk,
     output i2s_lrck,
     output i2s_dout,
     output sd_mode_n,
-    output [1:0] status_led,
-    output [1:0] saved_value_led,
+    output [5:0] status_led,
     output flash_cs_n, output flash_clk, output flash_mosi, input flash_miso,
     output flash_wp_n, output flash_hold_n,
     output lcd_clk, output lcd_en, output [5:0] lcd_r, output [5:0] lcd_g,
@@ -51,19 +69,21 @@ module top
     wire [7:0] ui_chorus_depth, mix_chorus_depth;
     wire [15:0] ui_balance_volume, mix_balance_volume;
     wire [15:0] ui_master_volume, mix_master_volume;
-    wire rst_n = ~reset_button;
-    reg [279:0] mix_parameters_r;
-    reg mix_parameters_busy_r;
-    wire ui_audio_ready;
+    wire [279:0] ui_parameters, mix_parameters;
+    wire ui_audio_ready, rack_in_valid, mixer_in_valid;
     wire [544:0] ui_display_state;
     wire ui_display_valid, ui_display_ready;
     wire lcd_protocol_error, lcd_configuration_error;
     wire signed [15:0] played_pcm;
     wire played_pcm_valid, played_pcm_ready;
-    wire [3:0] button_sync;
-    reg [3:0] button_states_r;
-    localparam BUTTON_COUNTER_WIDTH = (BUTTON_DEBOUNCE_CYCLES > 1) ? $clog2(BUTTON_DEBOUNCE_CYCLES) : 1;
-    genvar button_index;
+    wire [3:0] button_states;
+    wire button_valid, button_ready;
+    wire [7:0] knob_states, knob_dirs, knob_pressed;
+    wire [7:0] knob_physical_states, knob_physical_dirs, knob_physical_pressed;
+    wire knob_valid, knob_ready, knob_overflow, knob_scan_error;
+    wire adc_error, keyboard_adc_error, keyboard_event_overflow, bend_error;
+    wire [2:0] menu_page;
+    wire [1:0] menu_selection;
     wire storage_out_valid, storage_out_ready, storage_out_write;
     wire [3:0] storage_out_slot;
     wire [511:0] storage_out_data;
@@ -71,7 +91,8 @@ module top
     wire [2:0] storage_in_status;
     wire [511:0] storage_in_data;
     wire [15:0] storage_slot_present;
-    assign {mix_reverb_mix, mix_reverb_make_up, mix_reverb_feedback, mix_reverb_damping, mix_delay_mix, mix_delay_make_up, mix_delay_time, mix_delay_feedback, mix_distortion_mix, mix_distortion_make_up, mix_distortion_gain, mix_distortion_tone, mix_chorus_mix, mix_chorus_make_up, mix_chorus_rate, mix_chorus_depth, mix_balance_volume, mix_master_volume} = mix_parameters_r;
+    assign ui_parameters = {ui_reverb_mix, ui_reverb_make_up, ui_reverb_feedback, ui_reverb_damping, ui_delay_mix, ui_delay_make_up, ui_delay_time, ui_delay_feedback, ui_distortion_mix, ui_distortion_make_up, ui_distortion_gain, ui_distortion_tone, ui_chorus_mix, ui_chorus_make_up, ui_chorus_rate, ui_chorus_depth, ui_balance_volume, ui_master_volume};
+    assign {mix_reverb_mix, mix_reverb_make_up, mix_reverb_feedback, mix_reverb_damping, mix_delay_mix, mix_delay_make_up, mix_delay_time, mix_delay_feedback, mix_distortion_mix, mix_distortion_make_up, mix_distortion_gain, mix_distortion_tone, mix_chorus_mix, mix_chorus_make_up, mix_chorus_rate, mix_chorus_depth, mix_balance_volume, mix_master_volume} = mix_parameters;
     wire clk_sys, rst_sys_n;
     wire i2s_tick_up, i2s_tick_down, smp_tick_up, scan_tick_up;
     sys_clocker sys_clocker_u (
@@ -87,15 +108,110 @@ module top
 
     wire [KEY_NUM-1:0] key_states;
     wire [15:0] key_velocity [KEY_NUM-1:0];
-    wire keyboard_valid, ui_in_ready;
+    wire keyboard_valid, keyboard_ready, ui_in_ready;
+    wire pressure_req_valid, pressure_req_ready, pressure_result_valid;
+    wire pressure_result_ready, pressure_sample_error;
+    wire [13:0] pressure_result_code;
+    wire bend_req_valid, bend_req_ready, bend_result_valid;
+    wire bend_result_ready, bend_sample_error, bend_valid, bend_ready;
+    wire [13:0] bend_result_code;
+    wire [15:0] bend_driver_value [0:0];
     keyboard_driver #(
-        .KEY_NUM(KEY_NUM), .DEBOUNCE_TICKS(KEY_DEBOUNCE_TICKS)
+        .KEY_NUM(KEY_NUM), .DEBOUNCE_TICKS(KEY_DEBOUNCE_TICKS),
+        .PRESSURE_ENABLE(1), .ADC_EXTERNAL(1),
+        .PRESSURE_ZERO_CODES(PRESSURE_ZERO_CODES),
+        .PRESSURE_FULL_CODES(PRESSURE_FULL_CODES),
+        .PRESSURE_DEADBAND_CODE(PRESSURE_DEADBAND_CODE),
+        .MUX_SETTLE_TICKS(MUX_SETTLE_TICKS),
+        .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS)
     ) keyboard_driver_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
         .data_a(data_a), .data_b(data_b),
-        .out_ready(ui_in_ready), .load_n(load_n), .key_clk(key_clk),
+        .out_ready(keyboard_ready), .load_n(load_n), .key_clk(key_clk),
         .key_states(key_states), .key_velocity(key_velocity),
-        .out_valid(keyboard_valid)
+        .out_valid(keyboard_valid),
+        .mux_addr(mux_addr), .mux_en_a_n(mux_en_a_n), .mux_en_b_n(mux_en_b_n),
+        .adc_error(keyboard_adc_error), .event_overflow(keyboard_event_overflow),
+        .pressure_adc_req_valid(pressure_req_valid), .pressure_adc_req_ready(pressure_req_ready),
+        .pressure_adc_result_valid(pressure_result_valid), .pressure_adc_result_ready(pressure_result_ready),
+        .pressure_adc_result_code(pressure_result_code), .pressure_adc_sample_error(pressure_sample_error),
+        .pressure_adc_fault(adc_error)
+    );
+
+    pitch_bend_driver #(
+        .ADC_EXTERNAL(1), .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS),
+        .DEBOUNCE_TICKS(BEND_DEBOUNCE_TICKS), .FILTER_SHIFT(BEND_FILTER_SHIFT),
+        .INPUT_SETTLE_TICKS(BEND_SETTLE_TICKS)
+    ) pitch_bend_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
+        .out_ready(bend_ready), .bend_value(bend_driver_value), .out_valid(bend_valid),
+        .adc_error(bend_error),
+        .adc_req_valid(bend_req_valid), .adc_req_ready(bend_req_ready),
+        .adc_result_valid(bend_result_valid), .adc_result_ready(bend_result_ready),
+        .adc_result_code(bend_result_code), .adc_sample_error(bend_sample_error),
+        .adc_fault(adc_error)
+    );
+
+    shared_adc_manager #(
+        .SETTLE_TICKS(SHARED_SETTLE_TICKS), .ADC_STARTUP_TICKS(ADC_STARTUP_TICKS)
+    ) shared_adc_manager_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n),
+        .pressure_req_valid(pressure_req_valid), .pressure_req_ready(pressure_req_ready),
+        .pressure_result_valid(pressure_result_valid), .pressure_result_ready(pressure_result_ready),
+        .pressure_result_code(pressure_result_code), .pressure_sample_error(pressure_sample_error),
+        .bend_req_valid(bend_req_valid), .bend_req_ready(bend_req_ready),
+        .bend_result_valid(bend_result_valid), .bend_result_ready(bend_result_ready),
+        .bend_result_code(bend_result_code), .bend_sample_error(bend_sample_error),
+        .adc_error(adc_error)
+    );
+
+    knob_driver #(
+        .KNOB_NUM(8), .TRANSITIONS_PER_STEP(KNOB_TRANSITIONS_PER_STEP),
+        .DIRECTION_INVERT(KNOB_DIRECTION_INVERT),
+        .DEBOUNCE_TICKS(KNOB_DEBOUNCE_TICKS)
+    ) knob_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
+        .serial_data(knob_serial_data), .out_ready(knob_ready),
+        .load_n(knob_load_n), .shift_clk(knob_shift_clk),
+        .knob_states(knob_physical_states), .knob_dirs(knob_physical_dirs),
+        .knob_pressed(knob_physical_pressed), .out_valid(knob_valid),
+        .overflow(knob_overflow), .scan_error(knob_scan_error)
+    );
+    genvar knob_index;
+    generate
+        for (knob_index = 0; knob_index < 8; knob_index = knob_index + 1)
+        begin : reverse_knob_order
+            assign knob_states[knob_index] = knob_physical_states[7-knob_index];
+            assign knob_dirs[knob_index] = knob_physical_dirs[7-knob_index];
+            assign knob_pressed[knob_index] = knob_physical_pressed[7-knob_index];
+        end
+    endgenerate
+
+    // 外接 B1～B4 按下为高，直接送入按键驱动。
+    button_driver #(.DEBOUNCE_CYCLES(BUTTON_DEBOUNCE_CYCLES)) button_driver_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
+        .button_pins(ui_button), .out_ready(button_ready),
+        .button_states(button_states), .out_valid(button_valid)
+    );
+
+    wire [KEY_NUM-1:0] key_frame;
+    wire [15:0] velocity_frame [KEY_NUM-1:0];
+    wire [3:0] button_frame;
+    wire [7:0] knob_steps_frame, knob_dirs_frame, knob_pressed_frame;
+    wire [15:0] bend_value [0:0];
+    wire combined_valid;
+    ui_peripheral_bridge #(.KEY_NUM(KEY_NUM)) ui_peripheral_bridge_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n),
+        .keyboard_states(key_states), .keyboard_velocity(key_velocity),
+        .keyboard_valid(keyboard_valid), .keyboard_ready(keyboard_ready),
+        .button_states(button_states), .button_valid(button_valid), .button_ready(button_ready),
+        .knob_states(knob_states), .knob_dirs(knob_dirs), .knob_pressed(knob_pressed),
+        .knob_valid(knob_valid), .knob_ready(knob_ready),
+        .bend_value(bend_driver_value[0]), .bend_valid(bend_valid), .bend_ready(bend_ready),
+        .key_frame(key_frame), .velocity_frame(velocity_frame), .button_frame(button_frame),
+        .knob_states_frame(knob_steps_frame), .knob_dirs_frame(knob_dirs_frame),
+        .knob_pressed_frame(knob_pressed_frame), .bend_frame(bend_value[0]),
+        .in_valid(combined_valid), .in_ready(ui_in_ready)
     );
 
     wire [MAX_POLYPHONY-1:0] note_on, note_off, note_busy;
@@ -112,17 +228,15 @@ module top
     wire ui_out_valid, rack_in_ready;
     wire note_busy_valid, note_busy_ready;
     wire configuration_error, sample_overrun;
-    wire [15:0] bend_value [0:0];
-    assign bend_value[0] = 16'h8000;
 
     user_interface #(
         .KEY_NUM(KEY_NUM), .MAX_POLYPHONY(MAX_POLYPHONY),
         .CHANNEL_NUM(1), .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) user_interface_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
-        .key_states(key_states), .key_velocity(key_velocity),
-        .knob_states(8'd0), .knob_dirs(8'd0), .knob_pressed(8'd0),
-        .bend_value(bend_value), .button_states(button_states_r),
+        .key_states(key_frame), .key_velocity(velocity_frame),
+        .knob_states(knob_steps_frame), .knob_dirs(knob_dirs_frame), .knob_pressed(knob_pressed_frame),
+        .bend_value(bend_value), .button_states(button_frame),
         .note_busy(note_busy), .note_busy_valid(note_busy_valid),
         .note_busy_ready(note_busy_ready), .note_on(note_on), .note_off(note_off),
         .note_freq(note_freq), .note_velocity(note_velocity),
@@ -131,7 +245,7 @@ module top
         .attack_ticks(attack_ticks), .decay_ticks(decay_ticks),
         .sustain_level(sustain_level), .release_ticks(release_ticks),
         .smp_tick_up(smp_tick_up),
-        .in_valid(keyboard_valid), .in_ready(ui_in_ready),
+        .in_valid(combined_valid), .in_ready(ui_in_ready),
         .out_valid(ui_out_valid), .out_ready(ui_audio_ready),
         .master_volume(ui_master_volume), .reverb_mix(ui_reverb_mix), .delay_mix(ui_delay_mix),
         .distortion_mix(ui_distortion_mix), .chorus_mix(ui_chorus_mix),
@@ -146,7 +260,7 @@ module top
         .storage_in_valid(storage_in_valid), .storage_in_ready(storage_in_ready),
         .storage_in_status(storage_in_status), .storage_in_data(storage_in_data),
         .storage_catalog_valid(storage_catalog_valid), .storage_slot_present(storage_slot_present),
-        .menu_page(), .menu_selection(), .menu_slot(),
+        .menu_page(menu_page), .menu_selection(menu_selection), .menu_slot(),
         .menu_save(), .menu_result_status(),
         .menu_slot_known(), .menu_slot_present()
     );
@@ -166,7 +280,7 @@ module top
         .wavetable_0(wavetable_0[0]), .wavetable_1(wavetable_1[0]),
         .wavetable_interp(wavetable_interp[0]),
         .audio_out(rack_audio), .out_ready(rack_out_ready),
-        .in_valid(ui_out_valid && !mix_parameters_busy_r), .out_valid(rack_out_valid), .in_ready(rack_in_ready)
+        .in_valid(rack_in_valid), .out_valid(rack_out_valid), .in_ready(rack_in_ready)
     );
 
     wire signed [15:0] mixer_audio;
@@ -187,14 +301,22 @@ module top
         .chorus_depth(mix_chorus_depth),
         .balance_volume(mix_balance_volume), .master_volume(mix_master_volume),
         .audio_out(mixer_audio),
-        .in_valid(rack_out_valid && mix_parameters_busy_r), .in_ready(mixer_in_ready),
+        .in_valid(mixer_in_valid), .in_ready(mixer_in_ready),
         .out_valid(mixer_out_valid), .out_ready(i2s_ready)
+    );
+
+    audio_parameter_bridge #(.PARAM_WIDTH(280)) audio_parameter_bridge_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n),
+        .ui_parameters(ui_parameters), .mixer_parameters(mix_parameters),
+        .ui_out_valid(ui_out_valid), .ui_out_ready(ui_audio_ready),
+        .rack_in_valid(rack_in_valid), .rack_in_ready(rack_in_ready),
+        .rack_out_valid(rack_out_valid), .rack_out_ready(rack_out_ready),
+        .mixer_in_valid(mixer_in_valid), .mixer_in_ready(mixer_in_ready)
     );
 
     reg output_started_r, sample_seen_r, underrun_r;
     reg [15:0] frame_count_r;
     wire sample_fire = mixer_out_valid && i2s_ready;
-    assign rack_out_ready = mixer_in_ready && mix_parameters_busy_r;
     always @(posedge clk_sys or negedge rst_sys_n)
     begin
         if (!rst_sys_n)
@@ -213,7 +335,7 @@ module top
                 frame_count_r <= frame_count_r + 1'b1;
                 if (output_started_r && !sample_seen_r && !sample_fire)
                     underrun_r <= 1'b1;
-                sample_seen_r <= sample_seen_r && sample_fire;
+                sample_seen_r <= sample_fire;
             end
             else if (sample_fire)
                 sample_seen_r <= 1'b1;
@@ -229,55 +351,14 @@ module top
         .i2s_bclk(i2s_bclk), .i2s_lrck(i2s_lrck),
         .i2s_dout(i2s_dout), .sd_mode_n(sd_mode_n)
     );
-    assign status_led = {underrun_r | configuration_error | sample_overrun | lcd_protocol_error | lcd_configuration_error,
-                         frame_count_r[14]};
+    // 板载 LED 低电平点亮：节拍、系统故障、菜单页、旋钮扫描故障。
+    assign status_led[0] = ~frame_count_r[14];
+    assign status_led[1] = ~(underrun_r | configuration_error | sample_overrun |
+                             lcd_protocol_error | lcd_configuration_error |
+                             adc_error | keyboard_adc_error | bend_error | keyboard_event_overflow);
+    assign status_led[5] = ~(knob_overflow | knob_scan_error);
 
-    // One in-flight rack transaction: bind mixer controls to the same UI
-    // command, retaining them until rack->mixer accepts that sample.
-    assign ui_audio_ready = rack_in_ready && !mix_parameters_busy_r;
-    always @(posedge clk_sys or negedge rst_sys_n)
-    begin
-        if (!rst_sys_n)
-        begin
-            mix_parameters_r <= 280'd0;
-            mix_parameters_busy_r <= 1'b0;
-        end
-        else
-        begin
-            if (rack_out_valid && rack_out_ready) mix_parameters_busy_r <= 1'b0;
-            if (ui_out_valid && ui_audio_ready)
-            begin
-                mix_parameters_r <= {ui_reverb_mix, ui_reverb_make_up, ui_reverb_feedback, ui_reverb_damping, ui_delay_mix, ui_delay_make_up, ui_delay_time, ui_delay_feedback, ui_distortion_mix, ui_distortion_make_up, ui_distortion_gain, ui_distortion_tone, ui_chorus_mix, ui_chorus_make_up, ui_chorus_rate, ui_chorus_depth, ui_balance_volume, ui_master_volume};
-                mix_parameters_busy_r <= 1'b1;
-            end
-        end
-    end
-
-    signal_sync #(.W(4), .INITIAL_VALUE(4'b1111)) button_sync_u (
-        .clk(clk_sys), .rst_n(rst_sys_n), .signal_in(ui_button_n), .signal_out(button_sync)
-    );
-    generate
-        for (button_index = 0; button_index < 4; button_index = button_index + 1)
-        begin : button_filters
-            reg [BUTTON_COUNTER_WIDTH-1:0] counter_r;
-            always @(posedge clk_sys or negedge rst_sys_n)
-            begin
-                if (!rst_sys_n)
-                begin
-                    counter_r <= {BUTTON_COUNTER_WIDTH{1'b0}};
-                    button_states_r[button_index] <= 1'b0;
-                end
-                else if ((!button_sync[button_index]) == button_states_r[button_index])
-                    counter_r <= {BUTTON_COUNTER_WIDTH{1'b0}};
-                else if (counter_r == BUTTON_DEBOUNCE_CYCLES - 1)
-                begin
-                    counter_r <= {BUTTON_COUNTER_WIDTH{1'b0}};
-                    button_states_r[button_index] <= !button_sync[button_index];
-                end
-                else counter_r <= counter_r + 1'b1;
-            end
-        end
-    endgenerate
+    assign status_led[4:2] = ~menu_page;
     preset_storage_driver #(
         .HALF_PERIOD_CYCLES(FLASH_HALF_PERIOD_CYCLES), .POWER_UP_CYCLES(FLASH_POWER_UP_CYCLES)
     ) preset_storage_driver_u (
@@ -290,7 +371,6 @@ module top
         .flash_cs_n(flash_cs_n), .flash_clk(flash_clk), .flash_mosi(flash_mosi),
         .flash_miso(flash_miso), .flash_wp_n(flash_wp_n), .flash_hold_n(flash_hold_n)
     );
-    assign saved_value_led = ~{storage_catalog_valid, storage_out_valid};
 
     // V3 LCD boundary: UI snapshot + actual-played I2S PCM; no demo source.
     lcd_display lcd_display_u (

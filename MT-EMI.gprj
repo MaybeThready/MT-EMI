@@ -61,8 +61,10 @@
         <File path="src/rom_wavetables/rom_wavetables.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
+        <File path="src/system/audio_parameter_bridge.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
+        <File path="src/system/ui_peripheral_bridge.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_dynamic_music/test_dynamic_music.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_i2s/test_i2s.v" type="file.verilog" enable="1"/>
         <File path="src/test/test_keyboard_interaction/test_keyboard_interaction.v" type="file.verilog" enable="1"/>
@@ -102,7 +104,7 @@
         <File path="src/test/test_mixer/test_mixer.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_pitch_bend/test_pitch_bend.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_static_music/test_static_music.cst" type="file.cst" enable="0"/>
-        <File path="src/test/test_ui/test_ui.cst" type="file.cst" enable="1"/>
+        <File path="src/test/test_ui/test_ui.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_velocity/test_velocity.cst" type="file.cst" enable="0"/>
         <File path="src/test/test_velocity_auto/test_velocity_auto.cst" type="file.cst" enable="0"/>
         <File path="src/MT-EMI.sdc" type="file.sdc" enable="1"/>
@@ -113,7 +115,7 @@
         <File path="src/test/test_mixer/test_mixer.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_pitch_bend/test_pitch_bend.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_static_music/test_static_music.sdc" type="file.sdc" enable="0"/>
-        <File path="src/test/test_ui/test_ui.sdc" type="file.sdc" enable="1"/>
+        <File path="src/test/test_ui/test_ui.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_velocity/test_velocity.sdc" type="file.sdc" enable="0"/>
         <File path="src/test/test_velocity_auto/test_velocity_auto.sdc" type="file.sdc" enable="0"/>
     </FileList>
