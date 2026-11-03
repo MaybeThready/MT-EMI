@@ -8,6 +8,7 @@ foreach name {lcd_driver lcd_scene lcd_palette keyboard_driver keyboard_adc keyb
     vlog -sv -work $SIM_LIB ../src/drivers/${name}.v
 }
 vlog -sv -work $SIM_LIB ../src/system/ui_peripheral_bridge.v ../src/system/audio_parameter_bridge.v
+vlog -sv -work $SIM_LIB ../src/system/autoplay_event_rom.v ../src/system/autoplay_frequency_lut.v ../src/system/autoplay_player.v
 if {$CHORD_REAL_PLL} {
     vlog -sv -work $SIM_LIB ../src/system/sys_clocker.v ../src/pll_init.v ../src/gowin_pll/gowin_pll.v ../src/gowin_pll/gowin_pll_mod.v
 } else {

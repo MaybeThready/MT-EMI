@@ -12,7 +12,7 @@ module lcd_scene
 #(
     parameter H_ACTIVE = 800,
     parameter V_ACTIVE = 480,
-    parameter TILE_COUNT = 1977
+    parameter TILE_COUNT = 2003
 )(
     input wire clk,
     input wire rst_n,
@@ -73,7 +73,9 @@ module lcd_scene
 
     wire [2:0] current_page=front_bank_r ? config_r[1][2:0] : config_r[0][2:0];
     wire current_submenu=front_bank_r ? config_r[1][24] : config_r[0][24];
-    wire [8:0] incoming_target=9'd156+{1'b0,incoming_config[5:4],6'd0};
+    wire [2:0] incoming_selection={incoming_config[31],incoming_config[5:4]};
+    wire [8:0] incoming_target=(incoming_config[2:0]==3'd1 && !incoming_config[24]) ?
+        9'd124+{incoming_selection,6'd0} : 9'd156+{1'b0,incoming_config[5:4],6'd0};
     wire [8:0] slot_y=9'd124+{1'b0,config_s1[8:6],5'd0};
     reg [3:0] background;
     reg [9:0] card_x;

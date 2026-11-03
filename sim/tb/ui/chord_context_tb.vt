@@ -68,7 +68,7 @@ module chord_context_tb;
     wire menu_effect_reset;
     wire [127:0] menu_advanced_parameters;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire [3:0] menu_slot;
     wire menu_save;
     wire [3:0] menu_result_status;
@@ -90,6 +90,7 @@ module chord_context_tb;
     reg bd,kd,test_passed=0;
     reg [3:0] chosen_buttons;
     ui_control_pipeline #(.BATCH_ID_WIDTH(4),.WAVE_SELECT_STEPS(4)) dut(
+        .autoplay_done(1'b0),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .scan_tick_up(scan_tick_up),

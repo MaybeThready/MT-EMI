@@ -81,12 +81,13 @@ module user_interface_s2_tb;
     reg [2:0] storage_in_status = 3'd0;
     reg [511:0] storage_in_data = 512'd0;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire [3:0] menu_slot, menu_result_status;
     wire menu_save, menu_slot_known, menu_slot_present;
     reg storage_catalog_valid = 1'b1;
     reg [15:0] storage_slot_present = 16'd0;
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         .menu_effect(menu_effect), .menu_effect_reset(menu_effect_reset), .menu_advanced_parameters(menu_advanced_parameters),
         .reverb_feedback(reverb_feedback),
         .reverb_damping(reverb_damping),

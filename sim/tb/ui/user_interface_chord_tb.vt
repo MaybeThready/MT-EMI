@@ -282,7 +282,7 @@ module chord_audio_fixture #(
     wire menu_effect_reset;
     wire [127:0] menu_advanced_parameters;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire [3:0] menu_slot;
     wire menu_save;
     wire [3:0] menu_result_status;
@@ -308,6 +308,7 @@ module chord_audio_fixture #(
         end
     end
     user_interface #(.KEY_NUM(KEY_NUM),.MAX_POLYPHONY(MAX_POLYPHONY),.WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)) user_interface_u (
+        .autoplay_done(1'b0),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .scan_tick_up(scan_tick_up),

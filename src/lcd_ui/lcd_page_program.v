@@ -1,7 +1,7 @@
 /**
  * 第四版冻结页面对象译码，clk_sys域组合逻辑；坐标为8×16文字格。
  * 保留正式和弦快照[509:511]和分拍数值缩放接口。
- * config[25]频谱视图，[30:26]峰值表段数0..16，[31]保留0；其余字段沿用。
+ * config[25]频谱视图，[30:26]峰值表段数0..16；[31]在主菜单中为选择项的第三位。
  */
 module lcd_page_program
 (
@@ -57,6 +57,7 @@ module lcd_page_program
     assign minimum_digits=minimum_digits_r;
     wire [2:0] page=s[422:420];
     wire play_submenu=(page==3'd1) && s[510];
+    wire auto_submenu=play_submenu && s[509];
     wire mode1=(s[417:416]==2'd1);
     wire fine=s[418], view=s[500], save=s[429];
     wire [3:0] slot=s[428:425];
@@ -81,7 +82,7 @@ module lcd_page_program
     reg min_hit;
     integer k,parameter_index;
     wire [4:0] peak_segments=!pcm_valid ? 5'd0 : output_peak[15] ? 5'd16 : {1'b0,output_peak[14:11]};
-    assign scene_config={1'b0,peak_segments,view,play_submenu,save,message_color,active_cards,s[436],slot,
+    assign scene_config={(page==3'd1 && !play_submenu) ? s[509] : 1'b0,peak_segments,view,play_submenu,save,message_color,active_cards,s[436],slot,
     (play_submenu ? {1'b0,s[511]} : ((page==3'd6) ? effect : s[424:423])),mode1,page};
     function [15:0] base;
         input integer index;
@@ -291,7 +292,7 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd5,5'd20,4'd11};
                         string_id_r = 8'd20;
-                        if (view && s[544])
+                        if (view)
                         begin
                             number_enable_r = 1'b1;
                             number_value_r = 24'd0;
@@ -302,10 +303,10 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd39,5'd20,4'd11};
                         string_id_r = view ? 8'd21 : 8'd22;
-                        if (view && s[544])
+                        if (view)
                         begin
                             number_enable_r = 1'b1;
-                            number_value_r = 24'd10;
+                            number_value_r = 24'd1;
                             font_style_r = 2'd0;
                             suffix_r = 4'd10;
                         end
@@ -314,10 +315,10 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {(view ? 7'd70 : 7'd67),5'd20,4'd11};
                         string_id_r = view ? 8'd23 : 8'd24;
-                        if (view && s[544])
+                        if (view)
                         begin
                             number_enable_r = 1'b1;
-                            number_value_r = 24'd20;
+                            number_value_r = 24'd2;
                             font_style_r = 2'd0;
                             suffix_r = 4'd11;
                         end
@@ -326,11 +327,13 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd21,5'd20,4'd11};
                         string_id_r = view ? 8'd25 : 8'd0;
-                        if (view && s[544])
+                        if (view)
                         begin
                             number_enable_r = 1'b1;
                             number_value_r = 24'd5;
                             font_style_r = 2'd0;
+                            decimal_places_r = 3'd1;
+                            minimum_digits_r = 3'd2;
                             suffix_r = 4'd10;
                         end
                     end
@@ -338,11 +341,13 @@ module lcd_page_program
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd57,5'd20,4'd11};
                         string_id_r = view ? 8'd26 : 8'd0;
-                        if (view && s[544])
+                        if (view)
                         begin
                             number_enable_r = 1'b1;
                             number_value_r = 24'd15;
                             font_style_r = 2'd0;
+                            decimal_places_r = 3'd1;
+                            minimum_digits_r = 3'd2;
                             suffix_r = 4'd10;
                         end
                     end
@@ -604,60 +609,70 @@ module lcd_page_program
                     end
                     6'd3:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd10,4'd11};
+                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd8,4'd11};
                         string_id_r = 8'd60;
                     end
                     6'd4:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd10,4'd15};
+                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd8,4'd15};
                         string_id_r = 8'd61;
                     end
                     6'd5:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd14,4'd11};
+                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd12,4'd11};
                         string_id_r = 8'd62;
                     end
                     6'd6:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd14,4'd15};
+                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd12,4'd15};
                         string_id_r = 8'd63;
                     end
                     6'd7:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd18,4'd11};
+                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd16,4'd11};
                         string_id_r = 8'd64;
                     end
                     6'd8:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd18,4'd15};
+                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd16,4'd15};
                         string_id_r = 8'd65;
                     end
                     6'd9:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd22,4'd11};
+                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd20,4'd11};
                         string_id_r = 8'd66;
                     end
                     6'd10:
                     begin
-                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd22,4'd15};
+                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd20,4'd15};
                         string_id_r = 8'd67;
                     end
                     6'd11:
                     begin
+                        {object_col_r,object_row_r,object_color_r} = {7'd6,5'd24,4'd11};
+                        string_id_r = 8'd159;
+                    end
+                    6'd12:
+                    begin
+                        {object_col_r,object_row_r,object_color_r} = {7'd12,5'd24,4'd15};
+                        string_id_r = 8'd153;
+                    end
+                    6'd13:
+                    begin
                         {object_col_r,object_row_r,object_color_r} = {7'd3,5'd28,4'd11};
                         string_id_r = 8'd68;
                     end
-                    6'd12:
+                    6'd14:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd27,5'd28,4'd11};
                         string_id_r = 8'd69;
                     end
-                    6'd13:
+                    6'd15:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd51,5'd28,4'd11};
                         string_id_r = 8'd70;
                     end
-                    6'd14:
+                    6'd16:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd75,5'd28,4'd11};
                         string_id_r = 8'd71;
@@ -1214,7 +1229,7 @@ module lcd_page_program
                     6'd2:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd5,5'd4,4'd15};
-                        string_id_r = 8'd146;
+                        string_id_r = auto_submenu ? 8'd153 : 8'd146;
                     end
                     6'd3:
                     begin
@@ -1224,7 +1239,7 @@ module lcd_page_program
                     6'd4:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd12,5'd10,4'd15};
-                        string_id_r = 8'd147;
+                        string_id_r = auto_submenu ? 8'd154 : 8'd147;
                     end
                     6'd5:
                     begin
@@ -1234,7 +1249,7 @@ module lcd_page_program
                     6'd6:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd12,5'd14,4'd15};
-                        string_id_r = 8'd148;
+                        string_id_r = auto_submenu ? 8'd155 : 8'd148;
                     end
                     6'd7:
                     begin
@@ -1244,12 +1259,12 @@ module lcd_page_program
                     6'd8:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd27,5'd28,4'd11};
-                        string_id_r = 8'd149;
+                        string_id_r = auto_submenu ? 8'd158 : 8'd149;
                     end
                     6'd9:
                     begin
                         {object_col_r,object_row_r,object_color_r} = {7'd51,5'd28,4'd11};
-                        string_id_r = 8'd150;
+                        string_id_r = auto_submenu ? (s[500] ? 8'd156 : 8'd157) : 8'd150;
                     end
                     6'd10:
                     begin

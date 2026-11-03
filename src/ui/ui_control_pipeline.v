@@ -78,7 +78,11 @@ module ui_control_pipeline
     output menu_effect_reset,
     output [127:0] menu_advanced_parameters,  // 当前编辑值，显示用；音频仍走out握手
     output [2:0] menu_page,
-    output [1:0] menu_selection,
+    output [2:0] menu_selection,
+    output menu_autoplay_active,
+    output autoplay_song,
+    output autoplay_running,
+    input autoplay_done,
     output [3:0] menu_slot,
     output menu_save,
     output [3:0] menu_result_status,
@@ -273,6 +277,8 @@ module ui_control_pipeline
         .effect_select(context_effect_select), .effect_reset(context_effect_reset),
         .menu_effect_reset(menu_effect_reset),
         .menu_page(menu_page), .menu_selection(menu_selection), .menu_slot(menu_slot),
+        .menu_autoplay_active(menu_autoplay_active), .autoplay_song(autoplay_song),
+        .autoplay_running(autoplay_running), .autoplay_done(autoplay_done),
         .menu_save(menu_save), .menu_result_status(menu_result_status),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
@@ -446,7 +452,7 @@ module ui_control_pipeline
         display_candidate[386] = context_fine_adjust;
         display_candidate[387] = context_edit_target;
         display_candidate[390:388] = menu_page;
-        display_candidate[392:391] = menu_selection;
+        display_candidate[392:391] = menu_selection[1:0];
         display_candidate[396:393] = menu_slot;
         display_candidate[397] = menu_save;
         display_candidate[401:398] = menu_result_status;
@@ -454,10 +460,11 @@ module ui_control_pipeline
         display_candidate[404] = menu_effect_reset;
         display_candidate[405] = storage_catalog_valid;
         display_candidate[421:406] = storage_catalog_valid ? storage_slot_present : 16'd0;
-        display_candidate[468] = display_view;
-        display_candidate[477] = play_mode;
-        display_candidate[478] = menu_play_mode_active;
-        display_candidate[479] = menu_play_mode_selection;
+        // On menu page, reuse the play-only snapshot fields for AutoPlay.
+        display_candidate[468] = (menu_page == 3'd1 && menu_autoplay_active) ? autoplay_running : display_view;
+        display_candidate[477] = (menu_page == 3'd1) ? (menu_autoplay_active || menu_selection[2]) : play_mode;
+        display_candidate[478] = menu_play_mode_active || menu_autoplay_active;
+        display_candidate[479] = menu_autoplay_active ? autoplay_song : menu_play_mode_selection;
         display_candidate[511:496] = current_make_up[16*menu_effect +: 16];
         display_candidate[512] = 1'b1;
     end

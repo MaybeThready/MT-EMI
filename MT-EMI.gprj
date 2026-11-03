@@ -62,6 +62,9 @@
         <File path="src/signal_detection/signal_edge_detector.v" type="file.verilog" enable="1"/>
         <File path="src/signal_detection/signal_sync.v" type="file.verilog" enable="1"/>
         <File path="src/system/audio_parameter_bridge.v" type="file.verilog" enable="1"/>
+        <File path="src/system/autoplay_event_rom.v" type="file.verilog" enable="1"/>
+        <File path="src/system/autoplay_frequency_lut.v" type="file.verilog" enable="1"/>
+        <File path="src/system/autoplay_player.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_clocker.v" type="file.verilog" enable="1"/>
         <File path="src/system/sys_ticker.v" type="file.verilog" enable="1"/>
         <File path="src/system/ui_peripheral_bridge.v" type="file.verilog" enable="1"/>

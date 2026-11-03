@@ -78,7 +78,7 @@ module ui_display_handoff_tb;
     reg [2:0] storage_in_status = 3'd0;
     reg [511:0] storage_in_data = 512'd0;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire [3:0] menu_slot, menu_result_status;
     wire menu_save, menu_slot_known, menu_slot_present;
     reg storage_catalog_valid = 1'b1;
@@ -136,7 +136,7 @@ module ui_display_handoff_tb;
     wire clone_menu_effect_reset;
     wire [127:0] clone_menu_advanced_parameters;
     wire [2:0] clone_menu_page;
-    wire [1:0] clone_menu_selection;
+    wire [2:0] clone_menu_selection;
     wire [3:0] clone_menu_slot;
     wire clone_menu_save;
     wire [3:0] clone_menu_result_status;
@@ -145,6 +145,7 @@ module ui_display_handoff_tb;
     wire [544:0] clone_display_out_state;
     wire clone_display_out_valid;
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         .menu_effect(menu_effect), .menu_effect_reset(menu_effect_reset), .menu_advanced_parameters(menu_advanced_parameters),
         .reverb_feedback(reverb_feedback),
         .reverb_damping(reverb_damping),
@@ -212,6 +213,7 @@ module ui_display_handoff_tb;
         .sample_overrun(sample_overrun)
     );
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_clone_u (
+        .autoplay_done(1'b0),
         .menu_effect(clone_menu_effect), .menu_effect_reset(clone_menu_effect_reset), .menu_advanced_parameters(clone_menu_advanced_parameters),
         .reverb_feedback(clone_reverb_feedback),
         .reverb_damping(clone_reverb_damping),

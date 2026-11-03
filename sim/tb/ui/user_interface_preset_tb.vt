@@ -67,12 +67,13 @@ module user_interface_preset_tb;
     reg [2:0] storage_in_status = 3'd0;
     reg [511:0] storage_in_data = 512'd0;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire [3:0] menu_slot, menu_result_status;
     wire menu_save, menu_slot_known, menu_slot_present;
     reg storage_catalog_valid = 1'b1;
     reg [15:0] storage_slot_present = 16'd0;
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         .storage_out_valid(storage_out_valid),
         .storage_out_write(storage_out_write),
         .storage_in_ready(storage_in_ready),
@@ -460,7 +461,8 @@ module user_interface_preset_tb;
         press_button(4'h6);
         if (menu_selection !== 2'd0) $fatal(1, "主菜单下界 B2 优先级错误");
         repeat (4) press_button(4'h4);
-        if (menu_selection !== 2'd3) $fatal(1, "主菜单上界错误");
+        if (menu_selection !== 3'd4) $fatal(1, "主菜单上界错误");
+        press_button(4'h2);
         press_button(4'h1);
         if (menu_page !== 3'd6) $fatal(1, "高级菜单应明确标记未实现");
         press_button(4'h8);

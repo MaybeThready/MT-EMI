@@ -9,11 +9,11 @@
  * context_valid/context_ready: 交付本次按钮处理后的模式和编辑设置。
  * B1 进入菜单优先于 B2 切换模式；菜单中 B4 返回，返回时不同时切换模式。
  * menu_page: 0 演奏、1 主菜单、2 槽位、3 确认、4 执行中、5 结果、6 效果目录、7 高级编辑。
- * menu_selection: 主菜单 0～3；menu_slot: 0～15；menu_save=1 保存、=0 读取。
+ * menu_selection: 主菜单 0～4，末项为 AutoPlay；menu_slot: 0～15；menu_save=1 保存、=0 读取。
  * 保存确认页始终提示“将覆盖所选槽位”；空槽信息由未来存储目录提供。
  * B4 取消优先；B2/B3 上一项/下一项，到端点保持。执行中忽略按钮动作。
  * NOTE: 模式2为高级编辑，K1/K2调参数；B2/B3选调整/恢复项，B1确认恢复，B4返回。
- * 主菜单编码0演奏/1读取/2保存/3高级，页面6效果目录/7编辑；退出恢复原模式0/1。
+ * 主菜单编码0演奏/1读取/2保存/3高级/4自动播放，页面6效果目录/7编辑；退出恢复原模式0/1。
  * 清音仍未实现。
  */
 module ui_control_state
@@ -29,6 +29,10 @@ module ui_control_state
     output play_mode,
     output menu_play_mode_active,
     output menu_play_mode_selection,
+    output menu_autoplay_active,
+    output autoplay_song,
+    output autoplay_running,
+    input autoplay_done,
     output fine_adjust,
     output display_view,  // NEW: 0=WAVE,1=SPECTRUM; only PLAY B3 toggles, reset0.
     output edit_enable,
@@ -47,7 +51,7 @@ module ui_control_state
     output effect_reset,  // 本批恢复所选效果两参数及干湿比，仅消费一次
     output menu_effect_reset,  // 编辑页当前选中恢复默认项
     output [2:0] menu_page,
-    output [1:0] menu_selection,
+    output [2:0] menu_selection,
     output [3:0] menu_slot,
     output menu_save,
     output [3:0] menu_result_status
@@ -59,6 +63,10 @@ module ui_control_state
     reg [1:0] mode_r;
     reg display_view_r;
     reg play_mode_r, menu_play_mode_active_r, menu_play_mode_selection_r;
+    reg menu_autoplay_active_r, autoplay_song_r, autoplay_running_r;
+    assign menu_autoplay_active = menu_autoplay_active_r;
+    assign autoplay_song = autoplay_song_r;
+    assign autoplay_running = autoplay_running_r;
     assign play_mode = play_mode_r;
     assign menu_play_mode_active = menu_play_mode_active_r;
     assign menu_play_mode_selection = menu_play_mode_selection_r;
@@ -79,7 +87,7 @@ module ui_control_state
     assign menu_effect_reset = menu_effect_reset_r;
     wire [2:0] menu_page_r;
     reg [2:0] menu_page_next;
-    reg [1:0] menu_selection_r;
+    reg [2:0] menu_selection_r;
     reg [3:0] menu_slot_r;
     reg menu_save_r;
     reg [3:0] menu_result_status_r;
@@ -141,13 +149,17 @@ module ui_control_state
                     if (button_pressed_event[0]) menu_page_next = PAGE_MAIN_MENU;
                 PAGE_MAIN_MENU:
                 begin
-                    if (menu_play_mode_active_r)
+                    if (menu_autoplay_active_r)
+                    begin
+                        // Song selection and playback stay on the same menu page.
+                    end
+                    else if (menu_play_mode_active_r)
                     begin
                         if (!button_pressed_event[3] && button_pressed_event[0]) menu_page_next = PAGE_PLAY;
                     end
                     else if (button_pressed_event[3]) menu_page_next = PAGE_PLAY;
-                    else if (button_pressed_event[0] && menu_selection_r != 2'd0)
-                        menu_page_next = (menu_selection_r == 2'd3) ? PAGE_EFFECT_LIST : PAGE_SELECT_SLOT;
+                    else if (button_pressed_event[0] && menu_selection_r != 3'd0 && menu_selection_r != 3'd4)
+                        menu_page_next = (menu_selection_r == 3'd3) ? PAGE_EFFECT_LIST : PAGE_SELECT_SLOT;
                 end
                 PAGE_SELECT_SLOT:
                     if (button_pressed_event[3]) menu_page_next = PAGE_MAIN_MENU;
@@ -178,13 +190,16 @@ module ui_control_state
             play_mode_r <= 1'b0;
             menu_play_mode_active_r <= 1'b0;
             menu_play_mode_selection_r <= 1'b0;
+            menu_autoplay_active_r <= 1'b0;
+            autoplay_song_r <= 1'b0;
+            autoplay_running_r <= 1'b0;
             display_view_r <= 1'b0;
             effect_select_r <= 2'd0;
             effect_reset_r <= 1'b0;
             menu_effect_reset_r <= 1'b0;
             fine_adjust_r <= 1'b0;
             clear_wave_progress_r <= 1'b0;
-            menu_selection_r <= 2'd0;
+            menu_selection_r <= 3'd0;
             menu_slot_r <= 4'd0;
             menu_save_r <= 1'b1;
             menu_result_status_r <= 4'd0;
@@ -192,6 +207,7 @@ module ui_control_state
         end
         else
         begin
+            if (autoplay_done) autoplay_running_r <= 1'b0;
             if (preset_command_valid && preset_command_ready) command_valid_r <= 1'b0;
             if (preset_result_valid && preset_result_ready)
             begin
@@ -207,7 +223,7 @@ module ui_control_state
                     begin
                         if (button_pressed_event[0])
                         begin
-                            menu_selection_r <= 2'd0;
+                            menu_selection_r <= 3'd0;
                             clear_wave_progress_r <= 1'b1;
                         end
                         else
@@ -224,7 +240,22 @@ module ui_control_state
                     end
                     PAGE_MAIN_MENU:
                     begin
-                        if (menu_play_mode_active_r)
+                        if (menu_autoplay_active_r)
+                        begin
+                            if (button_pressed_event[3])
+                            begin
+                                menu_autoplay_active_r <= 1'b0;
+                                autoplay_running_r <= 1'b0;
+                                clear_wave_progress_r <= 1'b1;
+                            end
+                            else if (button_pressed_event[0])
+                                autoplay_running_r <= 1'b1;
+                            else if (!autoplay_running_r && button_pressed_event[1])
+                                autoplay_song_r <= 1'b0;
+                            else if (!autoplay_running_r && button_pressed_event[2])
+                                autoplay_song_r <= 1'b1;
+                        end
+                        else if (menu_play_mode_active_r)
                         begin
                             if (button_pressed_event[3]) menu_play_mode_active_r <= 1'b0;
                             else if (button_pressed_event[0])
@@ -241,24 +272,29 @@ module ui_control_state
                             fine_adjust_r <= button_held[3];
                             clear_wave_progress_r <= 1'b1;
                         end
-                        else if (button_pressed_event[0] && menu_selection_r == 2'd0)
+                        else if (button_pressed_event[0] && menu_selection_r == 3'd0)
                         begin
                             menu_play_mode_active_r <= 1'b1;
                             menu_play_mode_selection_r <= play_mode_r;
                         end
                         else if (button_pressed_event[0])
                         begin
-                            if (menu_selection_r != 2'd3)
+                            if (menu_selection_r == 3'd4)
                             begin
-                                menu_save_r <= (menu_selection_r == 2'd2);
+                                menu_autoplay_active_r <= 1'b1;
+                                autoplay_running_r <= 1'b0;
+                            end
+                            else if (menu_selection_r != 3'd3)
+                            begin
+                                menu_save_r <= (menu_selection_r == 3'd2);
                             end
                         end
                         else if (button_pressed_event[1])
                         begin
-                            if (menu_selection_r != 2'd0) menu_selection_r <= menu_selection_r - 2'd1;
+                            if (menu_selection_r != 3'd0) menu_selection_r <= menu_selection_r - 3'd1;
                         end
-                        else if (button_pressed_event[2] && menu_selection_r != 2'd3)
-                            menu_selection_r <= menu_selection_r + 2'd1;
+                        else if (button_pressed_event[2] && menu_selection_r != 3'd4)
+                            menu_selection_r <= menu_selection_r + 3'd1;
                     end
                     PAGE_EFFECT_LIST:
                     begin

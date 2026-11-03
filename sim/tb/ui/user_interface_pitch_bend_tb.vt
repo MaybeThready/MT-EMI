@@ -61,6 +61,7 @@ module user_interface_pitch_bend_tb;
         .i2s_tick_up(), .i2s_tick_down(), .smp_tick_down(), .scan_tick_down()
     );
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
+        .autoplay_done(1'b0),
         .clk_sys(clk_sys), .rst_n(rst_n), .scan_tick_up(scan_tick_up), .smp_tick_up(smp_tick_up),
         .key_states(key_states), .key_velocity(key_velocity), .bend_value(bend_value),
         .button_states(button_states), .knob_states(8'd0), .knob_dirs(8'd0), .knob_pressed(8'd0),

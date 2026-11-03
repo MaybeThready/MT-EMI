@@ -59,12 +59,12 @@ module lcd_unit_format_tb;
                 if (dut.col_r!=7'd82 || dut.col_r+2*dut.ascii_count_r>100)
                     $fatal(1,"peak value crosses LCD text area");
             end
-            7: case (dut.object_index_r)
+            7,8: case (dut.object_index_r)
                 6'd12: check_text("0");
-                6'd13: check_text("10k");
-                6'd14: check_text("20kHz");
-                6'd15: check_text("5k");
-                6'd16: check_text("15k");
+                6'd13: check_text("1k");
+                6'd14: check_text("2kHz");
+                6'd15: check_text("0.5k");
+                6'd16: check_text("1.5k");
             endcase
         endcase
     end
@@ -81,9 +81,9 @@ module lcd_unit_format_tb;
             @(negedge clk_sys);
             case_id=id;
             scene=545'd0;
-            scene[544]=1'b1;
+            scene[544]=(id!=8);
             scene[422:420]=page;
-            scene[500]=(id==7);
+            scene[500]=(id==7 || id==8);
             scene[435:434]=effect;
             scene[543:528]=gain;
             if (effect==2'd1) scene[303:288]=samples;
@@ -109,7 +109,8 @@ module lcd_unit_format_tb;
         submit(5,3'd7,2'd3,16'd255,16'h8000,16'd0);
         submit(6,3'd0,2'd0,16'd0,16'h8000,16'h8000);
         submit(7,3'd0,2'd0,16'd0,16'h8000,16'd0);
-        if (checked!=13) $fatal(1,"format coverage incomplete: %0d",checked);
+        submit(8,3'd0,2'd0,16'd0,16'h8000,16'd0);
+        if (checked!=18) $fatal(1,"format coverage incomplete: %0d",checked);
         test_passed=1'b1;
         $display("LCD_UNIT_FORMAT_PASS delay chorus gain peak checks=%0d",checked);
         $finish;

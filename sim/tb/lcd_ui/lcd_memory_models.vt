@@ -5,19 +5,25 @@
  */
 module lcd_tile_rom_model(input clk,input rst_n,input rd_en,input [12:0] tile_id,input [3:0] glyph_y,output [7:0] glyph_row);
     reg [7:0] memory[0:32767];
+    reg [7:0] autoplay_memory[0:1135];
     reg [7:0] data_r;
     initial $readmemh("../assets/lcd_ui/v4/tiles.hex",memory);
+    initial $readmemh("../assets/lcd_ui/autoplay_glyphs.hex",autoplay_memory);
     assign glyph_row=data_r;
     always @(posedge clk or negedge rst_n)
     begin
         if(!rst_n) data_r<=8'd0;
-        else if(rd_en) data_r<=(tile_id<2048) ? memory[{tile_id,glyph_y}] : 8'd0;
+        else if(rd_en) data_r<=(tile_id<13'd1977) ? memory[{tile_id,glyph_y}] :
+            (tile_id<13'd2048) ? autoplay_memory[{tile_id-13'd1977,glyph_y}] : 8'd0;
     end
 endmodule
 module lcd_text_rom_model(input clk,input rst_n,input rd_en,input [11:0] entry_addr,output [31:0] entry_data);
     reg [31:0] memory[0:3071];
     reg [31:0] data_r;
-    initial $readmemh("../assets/lcd_ui/v4/text.hex",memory);
+    initial begin
+        $readmemh("../assets/lcd_ui/v4/text.hex",memory);
+        $readmemh("../assets/lcd_ui/autoplay_text.hex",memory,2855,2908);
+    end
     assign entry_data=data_r;
     always @(posedge clk or negedge rst_n)
     begin

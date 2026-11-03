@@ -83,7 +83,7 @@ module top
     wire knob_valid, knob_ready, knob_overflow, knob_scan_error;
     wire adc_error, keyboard_adc_error, keyboard_event_overflow, bend_error;
     wire [2:0] menu_page;
-    wire [1:0] menu_selection;
+    wire [2:0] menu_selection;
     wire storage_out_valid, storage_out_ready, storage_out_write;
     wire [3:0] storage_out_slot;
     wire [511:0] storage_out_data;
@@ -217,6 +217,17 @@ module top
     wire [MAX_POLYPHONY-1:0] note_on, note_off, note_busy;
     wire [31:0] note_freq [MAX_POLYPHONY-1:0];
     wire [15:0] note_velocity [MAX_POLYPHONY-1:0];
+    wire [MAX_POLYPHONY-1:0] rack_note_on, rack_note_off;
+    wire [31:0] rack_note_freq [MAX_POLYPHONY-1:0];
+    wire [15:0] rack_note_velocity [MAX_POLYPHONY-1:0];
+    wire autoplay_running, autoplay_song, autoplay_done, auto_route_active;
+    wire player_out_valid, player_out_ready, player_ui_ready;
+    assign ui_audio_ready = player_ui_ready;
+    wire [15:0] quiet_velocity [KEY_NUM-1:0];
+    genvar quiet_key;
+    generate for (quiet_key=0; quiet_key<KEY_NUM; quiet_key=quiet_key+1) begin : quiet_keys
+        assign quiet_velocity[quiet_key] = auto_route_active ? 16'd0 : velocity_frame[quiet_key];
+    end endgenerate
     wire [3:0] wavetable_0 [0:0];
     wire [3:0] wavetable_1 [0:0];
     wire [15:0] wavetable_interp [0:0];
@@ -234,7 +245,7 @@ module top
         .CHANNEL_NUM(1), .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) user_interface_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .scan_tick_up(scan_tick_up),
-        .key_states(key_frame), .key_velocity(velocity_frame),
+        .key_states(auto_route_active ? {KEY_NUM{1'b0}} : key_frame), .key_velocity(quiet_velocity),
         .knob_states(knob_steps_frame), .knob_dirs(knob_dirs_frame), .knob_pressed(knob_pressed_frame),
         .bend_value(bend_value), .button_states(button_frame),
         .note_busy(note_busy), .note_busy_valid(note_busy_valid),
@@ -246,7 +257,7 @@ module top
         .sustain_level(sustain_level), .release_ticks(release_ticks),
         .smp_tick_up(smp_tick_up),
         .in_valid(combined_valid), .in_ready(ui_in_ready),
-        .out_valid(ui_out_valid), .out_ready(ui_audio_ready),
+        .out_valid(ui_out_valid), .out_ready(player_ui_ready),
         .master_volume(ui_master_volume), .reverb_mix(ui_reverb_mix), .delay_mix(ui_delay_mix),
         .distortion_mix(ui_distortion_mix), .chorus_mix(ui_chorus_mix),
         .reverb_make_up(ui_reverb_make_up), .delay_make_up(ui_delay_make_up),
@@ -261,8 +272,22 @@ module top
         .storage_in_status(storage_in_status), .storage_in_data(storage_in_data),
         .storage_catalog_valid(storage_catalog_valid), .storage_slot_present(storage_slot_present),
         .menu_page(menu_page), .menu_selection(menu_selection), .menu_slot(),
+        .menu_autoplay_active(), .autoplay_song(autoplay_song),
+        .autoplay_running(autoplay_running), .autoplay_done(autoplay_done),
         .menu_save(), .menu_result_status(),
         .menu_slot_known(), .menu_slot_present()
+    );
+
+    autoplay_player #(.MAX_POLYPHONY(MAX_POLYPHONY)) autoplay_player_u (
+        .clk_sys(clk_sys), .rst_n(rst_sys_n),
+        .enable(autoplay_running), .song_select(autoplay_song),
+        .ui_valid(ui_out_valid), .ui_ready(player_ui_ready),
+        .out_valid(player_out_valid), .out_ready(player_out_ready),
+        .ui_note_on(note_on), .ui_note_off(note_off),
+        .ui_note_freq(note_freq), .ui_note_velocity(note_velocity),
+        .note_on(rack_note_on), .note_off(rack_note_off),
+        .note_freq(rack_note_freq), .note_velocity(rack_note_velocity),
+        .auto_route_active(auto_route_active), .song_done(autoplay_done)
     );
 
     wire signed [20:0] rack_audio;
@@ -271,9 +296,9 @@ module top
         .MAX_POLYPHONY(MAX_POLYPHONY)
     ) channel_rack_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .smp_tick_up(smp_tick_up),
-        .note_on(note_on), .note_off(note_off), .note_busy(note_busy),
+        .note_on(rack_note_on), .note_off(rack_note_off), .note_busy(note_busy),
         .note_busy_valid(note_busy_valid), .note_busy_ready(note_busy_ready),
-        .note_freq(note_freq), .note_velocity(note_velocity),
+        .note_freq(rack_note_freq), .note_velocity(rack_note_velocity),
         .detune(detune[0]), .attack_ticks(attack_ticks[0]),
         .decay_ticks(decay_ticks[0]), .sustain_level(sustain_level[0]),
         .release_ticks(release_ticks[0]),
@@ -308,7 +333,7 @@ module top
     audio_parameter_bridge #(.PARAM_WIDTH(280)) audio_parameter_bridge_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n),
         .ui_parameters(ui_parameters), .mixer_parameters(mix_parameters),
-        .ui_out_valid(ui_out_valid), .ui_out_ready(ui_audio_ready),
+        .ui_out_valid(player_out_valid), .ui_out_ready(player_out_ready),
         .rack_in_valid(rack_in_valid), .rack_in_ready(rack_in_ready),
         .rack_out_valid(rack_out_valid), .rack_out_ready(rack_out_ready),
         .mixer_in_valid(mixer_in_valid), .mixer_in_ready(mixer_in_ready)

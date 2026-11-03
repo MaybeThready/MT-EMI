@@ -10,7 +10,7 @@ do do/common/compile_chord.do
 set tests {chord_context_tb user_interface_s2_tb ui_input_frame_joiner_tb note_pitch_bend_tb ui_display_snapshot_tb}
 foreach tb $tests {vlog -sv -work $SIM_LIB tb/ui/${tb}.vt}
 foreach tb $tests {
-    vsim -t 1ps -onfinish stop -wlf $SIM_LIB/results/${tb}.wlf +ASSETS=../assets/ui/test_vectors/control +RESULTS=$SIM_LIB/results $SIM_LIB.$tb
+    vsim -t 1ps -onfinish stop -voptargs=+acc -wlf $SIM_LIB/results/${tb}.wlf +ASSETS=../assets/ui/test_vectors/control +RESULTS=$SIM_LIB/results $SIM_LIB.$tb
     run -all
     if {[examine -radix unsigned sim:/$tb/test_passed]!=1} {quit -code 1 -force}
     quit -sim
