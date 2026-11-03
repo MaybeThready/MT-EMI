@@ -25,15 +25,19 @@ VECTOR_PATH = ROOT / "sim" / "tb" / "mixer" / "mixer_vectors.mem"
 VECTOR_COUNT = 1850
 
 DISTORTION_MIX = 0x9000
+DISTORTION_MAKE_UP = 0xA000
 DISTORTION_GAIN = 0x3000
 DISTORTION_TONE = 0xB000
 CHORUS_MIX = 0x6000
+CHORUS_MAKE_UP = 0xC000
 CHORUS_RATE = 0x3000
 CHORUS_DEPTH = 96
 DELAY_MIX = 0x6000
+DELAY_MAKE_UP = 0x6000
 DELAY_TIME = 12000
 DELAY_FEEDBACK = 0x8000
 REVERB_MIX = 0x7000
+REVERB_MAKE_UP = 0x9000
 REVERB_FEEDBACK = 0xA000
 REVERB_DAMPING = 0x2800
 BALANCE_VOLUME = 0xF000
@@ -56,6 +60,11 @@ def pcm(sample: int, balance: int, master: int) -> int:
     return clamp(master_result >> 3, 16)
 
 
+def make_up(sample: int, coefficient: int) -> int:
+    """Match the mixer multiplier and the SQ9.15 stage-output saturation."""
+    return clamp(round_gain(sample, coefficient), 24)
+
+
 class MixerModel:
     def __init__(self) -> None:
         self.distortion = DistortionModel()
@@ -66,12 +75,16 @@ class MixerModel:
     def process(self, sample: int, balance: int, master: int) -> int:
         sample, _ = self.distortion.process(
             sample, DISTORTION_MIX, DISTORTION_GAIN, DISTORTION_TONE)
+        sample = make_up(sample, DISTORTION_MAKE_UP)
         sample, _ = self.chorus.process(
             sample, CHORUS_MIX, CHORUS_RATE, CHORUS_DEPTH)
+        sample = make_up(sample, CHORUS_MAKE_UP)
         sample, _ = self.delay.process(
             sample, DELAY_MIX, DELAY_TIME, DELAY_FEEDBACK)
+        sample = make_up(sample, DELAY_MAKE_UP)
         sample, _ = self.reverb.process(
             sample, REVERB_MIX, REVERB_FEEDBACK, REVERB_DAMPING)
+        sample = make_up(sample, REVERB_MAKE_UP)
         return pcm(sample, balance, master)
 
 

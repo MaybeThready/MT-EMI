@@ -40,23 +40,27 @@ module test_ui
     localparam KEY_NUM = 24;
 
     wire [15:0] ui_reverb_mix, mix_reverb_mix;
+    wire [15:0] ui_reverb_make_up, mix_reverb_make_up;
     wire [15:0] ui_reverb_feedback, mix_reverb_feedback;
     wire [15:0] ui_reverb_damping, mix_reverb_damping;
     wire [15:0] ui_delay_mix, mix_delay_mix;
+    wire [15:0] ui_delay_make_up, mix_delay_make_up;
     wire [15:0] ui_delay_time, mix_delay_time;
     wire [15:0] ui_delay_feedback, mix_delay_feedback;
     wire [15:0] ui_distortion_mix, mix_distortion_mix;
+    wire [15:0] ui_distortion_make_up, mix_distortion_make_up;
     wire [15:0] ui_distortion_gain, mix_distortion_gain;
     wire [15:0] ui_distortion_tone, mix_distortion_tone;
     wire [15:0] ui_chorus_mix, mix_chorus_mix;
+    wire [15:0] ui_chorus_make_up, mix_chorus_make_up;
     wire [15:0] ui_chorus_rate, mix_chorus_rate;
     wire [7:0] ui_chorus_depth, mix_chorus_depth;
     wire [15:0] ui_balance_volume, mix_balance_volume;
     wire [15:0] ui_master_volume, mix_master_volume;
-    reg [215:0] mix_parameters_r;
+    reg [279:0] mix_parameters_r;
     reg mix_parameters_busy_r;
     wire ui_audio_ready;
-    wire [527:0] ui_display_state;
+    wire [544:0] ui_display_state;
     wire ui_display_valid, ui_display_ready;
     wire lcd_protocol_error, lcd_configuration_error;
     wire signed [15:0] played_pcm;
@@ -74,7 +78,7 @@ module test_ui
     wire [2:0] storage_in_status;
     wire [511:0] storage_in_data;
     wire [15:0] storage_slot_present;
-    assign {mix_reverb_mix, mix_reverb_feedback, mix_reverb_damping, mix_delay_mix, mix_delay_time, mix_delay_feedback, mix_distortion_mix, mix_distortion_gain, mix_distortion_tone, mix_chorus_mix, mix_chorus_rate, mix_chorus_depth, mix_balance_volume, mix_master_volume} = mix_parameters_r;
+    assign {mix_reverb_mix, mix_reverb_make_up, mix_reverb_feedback, mix_reverb_damping, mix_delay_mix, mix_delay_make_up, mix_delay_time, mix_delay_feedback, mix_distortion_mix, mix_distortion_make_up, mix_distortion_gain, mix_distortion_tone, mix_chorus_mix, mix_chorus_make_up, mix_chorus_rate, mix_chorus_depth, mix_balance_volume, mix_master_volume} = mix_parameters_r;
     wire clk_sys, rst_sys_n;
     wire i2s_tick_up, i2s_tick_down, smp_tick_up, scan_tick_up;
     sys_clocker sys_clocker_u (
@@ -231,6 +235,8 @@ module test_ui
         .out_valid(ui_out_valid), .out_ready(ui_audio_ready),
         .master_volume(ui_master_volume), .reverb_mix(ui_reverb_mix), .delay_mix(ui_delay_mix),
         .distortion_mix(ui_distortion_mix), .chorus_mix(ui_chorus_mix),
+        .reverb_make_up(ui_reverb_make_up), .delay_make_up(ui_delay_make_up),
+        .distortion_make_up(ui_distortion_make_up), .chorus_make_up(ui_chorus_make_up),
         .reverb_feedback(ui_reverb_feedback), .reverb_damping(ui_reverb_damping), .delay_time(ui_delay_time), .delay_feedback(ui_delay_feedback), .distortion_gain(ui_distortion_gain), .distortion_tone(ui_distortion_tone), .chorus_rate(ui_chorus_rate), .chorus_depth(ui_chorus_depth), .balance_volume(ui_balance_volume),
         .display_out_state(ui_display_state), .display_out_valid(ui_display_valid), .display_out_ready(ui_display_ready),
         .menu_effect(), .menu_effect_reset(), .menu_advanced_parameters(),
@@ -271,13 +277,13 @@ module test_ui
     ) mixer_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .smp_tick_up(smp_tick_up),
         .audio_in(rack_audio),
-        .reverb_mix(mix_reverb_mix), .reverb_feedback(mix_reverb_feedback),
+        .reverb_mix(mix_reverb_mix), .reverb_make_up(mix_reverb_make_up), .reverb_feedback(mix_reverb_feedback),
         .reverb_damping(mix_reverb_damping),
-        .delay_mix(mix_delay_mix), .delay_time(mix_delay_time),
+        .delay_mix(mix_delay_mix), .delay_make_up(mix_delay_make_up), .delay_time(mix_delay_time),
         .delay_feedback(mix_delay_feedback),
-        .distortion_mix(mix_distortion_mix), .distortion_gain(mix_distortion_gain),
+        .distortion_mix(mix_distortion_mix), .distortion_make_up(mix_distortion_make_up), .distortion_gain(mix_distortion_gain),
         .distortion_tone(mix_distortion_tone),
-        .chorus_mix(mix_chorus_mix), .chorus_rate(mix_chorus_rate),
+        .chorus_mix(mix_chorus_mix), .chorus_make_up(mix_chorus_make_up), .chorus_rate(mix_chorus_rate),
         .chorus_depth(mix_chorus_depth),
         .balance_volume(mix_balance_volume), .master_volume(mix_master_volume),
         .audio_out(mixer_audio),
@@ -336,7 +342,7 @@ module test_ui
     begin
         if (!rst_sys_n)
         begin
-            mix_parameters_r <= 216'd0;
+            mix_parameters_r <= 280'd0;
             mix_parameters_busy_r <= 1'b0;
         end
         else
@@ -344,7 +350,7 @@ module test_ui
             if (rack_out_valid && rack_out_ready) mix_parameters_busy_r <= 1'b0;
             if (ui_out_valid && ui_audio_ready)
             begin
-                mix_parameters_r <= {ui_reverb_mix, ui_reverb_feedback, ui_reverb_damping, ui_delay_mix, ui_delay_time, ui_delay_feedback, ui_distortion_mix, ui_distortion_gain, ui_distortion_tone, ui_chorus_mix, ui_chorus_rate, ui_chorus_depth, ui_balance_volume, ui_master_volume};
+                mix_parameters_r <= {ui_reverb_mix, ui_reverb_make_up, ui_reverb_feedback, ui_reverb_damping, ui_delay_mix, ui_delay_make_up, ui_delay_time, ui_delay_feedback, ui_distortion_mix, ui_distortion_make_up, ui_distortion_gain, ui_distortion_tone, ui_chorus_mix, ui_chorus_make_up, ui_chorus_rate, ui_chorus_depth, ui_balance_volume, ui_master_volume};
                 mix_parameters_busy_r <= 1'b1;
             end
         end

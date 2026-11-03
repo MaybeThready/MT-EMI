@@ -25,7 +25,7 @@ module chord_system_tb;
     reg test_passed=0;
     integer updates=0,commits=0,pcm_count=0,nonzero_pcm=0,backpressured_cycles=0,pcm_while_waiting=0;
     integer last_on=0,last_off=0,paired_events=0,visible_pixels=0,cycle_count=0,last_tick=0;
-    reg [527:0] last_display=0,last_render=0;
+    reg [544:0] last_display=0,last_render=0;
     reg [31:0] front_config;
     integer i,t;
     top #(.BUTTON_DEBOUNCE_CYCLES(8),.KEY_DEBOUNCE_TICKS(0),

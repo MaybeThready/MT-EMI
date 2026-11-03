@@ -2,7 +2,7 @@
 /**
  * 2026-11-02 S2和弦：快照509..511为已定义模式字段，只检查子菜单/page组合合法性。
  * UI->LCD交接：真实UI公共显示口接ui_interaction，另一UI长期显示背压，逐拍比较旧业务输出。
- * 核对528位字段、冻结场景、B3视图、同批模式/微调、busy=32及bend端点；以下原S2断言保留。
+ * 核对545位字段、冻结场景、B3视图、同批模式/微调、busy=32及bend端点；以下原S2断言保留。
  * 公开 UI 音色自检：真实采样节拍下测试菜单、16 槽、覆盖、取消、错误和复位。
  * 独立计算保存记录和音频参数；读取时保持旧输出，验证键盘继续工作。
  * 同按按钮的优先级、槽号边界、模式及总音量保持也在此检查。
@@ -84,14 +84,14 @@ module ui_display_handoff_tb;
     reg storage_catalog_valid = 1'b1;
     reg [15:0] storage_slot_present = 16'd0;
     // Display transport and independent busy stimulus override.
-    wire [527:0] display_state, scene_state;
+    wire [544:0] display_state, scene_state;
     wire display_valid,display_ready,scene_valid;
     wire [21:0] scene_highlight,scene_defaults;
     wire primary_busy_ready,lcd_protocol_error,lcd_configuration_error;
     reg clone_display_ready=0;
     reg busy_override_enable=0;
     wire [31:0] test_busy=busy_override_enable ? 32'hffffffff : note_busy;
-    reg [527:0] latest_display=0, latest_clone_display=0,held_scene=0;
+    reg [544:0] latest_display=0, latest_clone_display=0,held_scene=0;
     integer display_count=0,scene_count=0,render_wait=0;
     reg scene_ready=0,render_done=0,scene_inflight=0;
     reg seen_busy32=0;
@@ -142,7 +142,7 @@ module ui_display_handoff_tb;
     wire [3:0] clone_menu_result_status;
     wire clone_menu_slot_known;
     wire clone_menu_slot_present;
-    wire [527:0] clone_display_out_state;
+    wire [544:0] clone_display_out_state;
     wire clone_display_out_valid;
     user_interface #(.WAVE_SELECT_STEPS(4)) user_interface_u (
         .menu_effect(menu_effect), .menu_effect_reset(menu_effect_reset), .menu_advanced_parameters(menu_advanced_parameters),
@@ -207,6 +207,7 @@ module ui_display_handoff_tb;
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .configuration_error(configuration_error),
         .sample_overrun(sample_overrun)
     );
@@ -273,6 +274,7 @@ module ui_display_handoff_tb;
         .delay_mix(clone_delay_mix),
         .distortion_mix(clone_distortion_mix),
         .chorus_mix(clone_chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .configuration_error(clone_configuration_error),
         .sample_overrun(clone_sample_overrun)
     );

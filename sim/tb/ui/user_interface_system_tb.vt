@@ -99,6 +99,7 @@ module user_interface_system_tb;
         .attack_ticks(attack_ticks), .decay_ticks(decay_ticks), .sustain_level(sustain_level),
         .release_ticks(release_ticks), .master_volume(master_volume), .balance_volume(), .reverb_mix(reverb_mix),
         .delay_mix(delay_mix), .distortion_mix(distortion_mix), .chorus_mix(chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .configuration_error(configuration_error), .sample_overrun(sample_overrun),
         .display_out_state(), .display_out_valid(), .display_out_ready(1'b0)
     );

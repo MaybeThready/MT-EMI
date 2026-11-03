@@ -5,7 +5,7 @@
  * SMP_TICK_FREQ: 采样率，Hz，范围 1000～209715；毫秒换算采用四舍五入。
  * attack_ticks/decay_ticks/release_ticks: 20 位采样周期数，相对 S1 改了单位和位宽。
  * wavetable_interp: UQ1.15，0～8000 表示 0～100%；master/balance用UQ1.15全范围；干湿比和Sustain仍用UQ0.16。
- * advanced_parameters为8个16位音频编码，输入锁存、与其余字段同拍发布；不重复数值换算。
+ * advanced_parameters为8个16位音频编码；四路make_up同样直接锁存并同拍发布。
  * balance_volume为音色增益；master_volume为独立演奏总音量。
  * master_volume 与四个 *_mix: 总音量及混响、延迟、失真、合唱的干湿比。
  * 输入握手后分两拍转换；等待接收时保持整组结果，不混入新的设置。
@@ -28,6 +28,7 @@ module ui_parameter_encoder
     input [12:0] release_ms [0:0],
     input [15:0] master_gain,
     input [127:0] advanced_parameters,  // 已编码的八项参数，随输入整组锁存
+    input [63:0] make_up_gains,  // 四路 UQ1.15，已编码，随输入整组锁存
     input [15:0] balance_gain,  // 音色增益UQ1.15，独立于演奏总音量，同组握手
     input [6:0] reverb_mix_percent,
     input [6:0] delay_mix_percent,
@@ -57,10 +58,19 @@ module ui_parameter_encoder
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
     output [15:0] chorus_mix,
+    output [15:0] reverb_make_up,
+    output [15:0] delay_make_up,
+    output [15:0] distortion_make_up,
+    output [15:0] chorus_make_up,
     output out_valid,
     input out_ready
 ) /* synthesis syn_romstyle = "logic" */;
     reg [127:0] advanced_captured_r, advanced_encoded_r;
+    reg [63:0] make_up_captured_r, make_up_encoded_r;
+    assign reverb_make_up = make_up_encoded_r[0 +: 16];
+    assign delay_make_up = make_up_encoded_r[16 +: 16];
+    assign distortion_make_up = make_up_encoded_r[32 +: 16];
+    assign chorus_make_up = make_up_encoded_r[48 +: 16];
     assign reverb_feedback = advanced_encoded_r[0 +: 16];
     assign reverb_damping = advanced_encoded_r[16 +: 16];
     assign delay_time = advanced_encoded_r[32 +: 16];
@@ -1099,6 +1109,8 @@ module ui_parameter_encoder
             balance_gain_captured <= 16'h8000;
             advanced_captured_r <= 128'h001840008000100090002ee02800b000;
             advanced_encoded_r <= 128'h001840008000100090002ee02800b000;
+            make_up_captured_r <= {4{16'h8000}};
+            make_up_encoded_r <= {4{16'h8000}};
             reverb_mix_percent_captured <= 7'd0;
             delay_mix_percent_captured <= 7'd0;
             distortion_mix_percent_captured <= 7'd0;
@@ -1133,6 +1145,7 @@ module ui_parameter_encoder
                 master_gain_captured <= master_gain;
                 balance_gain_captured <= balance_gain;
                 advanced_captured_r <= advanced_parameters;
+                make_up_captured_r <= make_up_gains;
                 reverb_mix_percent_captured <= reverb_mix_percent;
                 delay_mix_percent_captured <= delay_mix_percent;
                 distortion_mix_percent_captured <= distortion_mix_percent;
@@ -1161,6 +1174,7 @@ module ui_parameter_encoder
                 master_volume_encoded_r <= master_gain_captured;
                 balance_volume_encoded_r <= balance_gain_captured;
                 advanced_encoded_r <= advanced_captured_r;
+                make_up_encoded_r <= make_up_captured_r;
                 reverb_mix_encoded_r <= encode_percent(reverb_mix_percent_captured);
                 delay_mix_encoded_r <= encode_percent(delay_mix_percent_captured);
                 distortion_mix_encoded_r <= encode_percent(distortion_mix_percent_captured);

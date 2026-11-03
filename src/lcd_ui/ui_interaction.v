@@ -2,7 +2,7 @@
  * 2026-11-02 S2和弦：快照[509]已确认模式、[510]子菜单、[511]候选。
  * 接受三个位并随latest/scene冻结；仅子菜单置位而page!=1时报协议错。
  * 候选可保留在其他页面，不参与活动事件OR；显示背压仍不影响PCM。
- * UI显示接收与冻结场景调度模块，快照宽度528位。
+ * UI显示接收与冻结场景调度模块，快照宽度545位。
  * 接收完整UI状态，向drawers发布冻结场景；内部包含连续播放PCM采集和波形/频谱共享列缓存。
  * 文字绘制与LCD绘图字生成由后级drawers负责；clk_sys/rst_n与UI同域，复位接rst_sys_n，无跨时钟域传输。
  * display_in_*对接user_interface.display_out_*；旧场景等待或绘制期间仍可接受新快照。
@@ -26,7 +26,7 @@ module ui_interaction
 )(
     input clk_sys,
     input rst_n,
-    input [527:0] display_in_state,
+    input [544:0] display_in_state,
     input display_in_valid,
     output display_in_ready,
     // NEW: I2S actual played PCM, SQ1.15. audio_in_ready=rst_n, independent
@@ -34,7 +34,7 @@ module ui_interaction
     input signed [15:0] audio_in,
     input audio_in_valid,
     output audio_in_ready,
-    output [527:0] scene_state,
+    output [544:0] scene_state,
     output [21:0] highlight_mask,
     output [21:0] default_mask,
     output out_valid,
@@ -90,7 +90,7 @@ module ui_interaction
             end
         end
     endgenerate
-    reg [527:0] latest_r, scene_r;
+    reg [544:0] latest_r, scene_r;
     reg have_state_r, dirty_r, protocol_error_r;
     reg [21:0] highlight_r, defaults_r, reset_latched_r;
     reg [21:0] pending_activity_r, pending_reset_r;
@@ -230,8 +230,8 @@ module ui_interaction
     begin
         if (!rst_n)
         begin
-            latest_r <= 528'd0;
-            scene_r <= 528'd0;
+            latest_r <= 545'd0;
+            scene_r <= 545'd0;
             have_state_r <= 1'b0;
             dirty_r <= 1'b0;
             ms_count_r <= {MS_WIDTH{1'b0}};

@@ -13,14 +13,14 @@ module ui_audio_stress_tb;
     reg out_ready = 1'b0, render_done = 1'b0, column_rd_en = 1'b0;
     reg [10:0] column_rd_addr = 11'd0;
     wire audio_in_ready, display_in_ready, out_valid, scene_wave_valid;
-    wire [527:0] scene_state;
+    wire [544:0] scene_state;
     wire [31:0] scene_wave_seq, scene_dropped_windows, dropped_windows;
     wire [15:0] scene_output_peak, column_rd_data;
     wire protocol_error, configuration_error;
     reg test_passed = 1'b0;
     integer wave_scenes = 0, scenes = 0;
     integer i, j, k, first, after_last, minimum, maximum, y, base, magnitude, peak;
-    reg [608:0] held_metadata;
+    reg [625:0] held_metadata;
 
     function [15:0] pcm_at;
         input integer index;
@@ -49,7 +49,7 @@ module ui_audio_stress_tb;
     end
 
     ui_interaction ui_interaction_u (
-        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state({496'd0,sample_number_r}),
+        .clk_sys(clk_sys), .rst_n(rst_n), .display_in_state({513'd0,sample_number_r}),
         .display_in_valid(rst_n), .display_in_ready(display_in_ready),
         .audio_in(pcm_at(sample_number_r)), .audio_in_valid(rst_n), .audio_in_ready(audio_in_ready),
         .scene_state(scene_state), .highlight_mask(), .default_mask(),
@@ -60,7 +60,7 @@ module ui_audio_stress_tb;
         .dropped_windows(dropped_windows), .protocol_error(protocol_error), .configuration_error(configuration_error),
         .scene_spectrum_valid(), .scene_spectrum_seq(), .scene_spectrum_clipped(), .scene_fft_overflow()
     );
-    wire [608:0] metadata = {scene_state,scene_wave_valid,scene_wave_seq,scene_output_peak,scene_dropped_windows};
+    wire [625:0] metadata = {scene_state,scene_wave_valid,scene_wave_seq,scene_output_peak,scene_dropped_windows};
 
     initial
     begin

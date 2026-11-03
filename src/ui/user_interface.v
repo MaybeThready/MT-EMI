@@ -1,5 +1,5 @@
 /**
- * 2026-11-02 S2和弦接口/逻辑变动：按钮先确定同批play_mode，再按32位批号与琴键帧配对；批号错误锁存configuration_error。音频外部接口不变，528位快照[509:511]新含义；本轮不接LCD。
+ * 2026-11-02 S2和弦接口/逻辑变动：按钮先确定同批play_mode，再按32位批号与琴键帧配对；批号错误锁存configuration_error。音频外部接口不变，545位快照[509:511]新含义；本轮不接LCD。
  */
 /**
  * 2026-10-31：两路增益统一UQ1.15，默认1.0（8000）；音色只保存balance，不保存master。
@@ -77,6 +77,10 @@ module user_interface
     output [15:0] delay_mix,
     output [15:0] distortion_mix,
     output [15:0] chorus_mix,
+    output [15:0] reverb_make_up,
+    output [15:0] delay_make_up,
+    output [15:0] distortion_make_up,
+    output [15:0] chorus_make_up,
     output configuration_error,
     output sample_overrun,
     // 存储接口以 UI 为参照：out 发请求，in 收结果；槽号 0～15 对应界面 01～16。
@@ -111,18 +115,19 @@ module user_interface
     // [506:501]busy count; [507]busy-known; [508]bend-known;
     // [509]play_mode, [510]mode submenu active, [511]mode candidate;
     // [527:512]calibrated bend request (0000/8000/FFFF).
+    // [543:528]selected effect make-up UQ1.15; [544]extension valid.
     // Transfer only on display_out_valid && display_out_ready. While waiting,
-    // hold the full528-bit state and valid. Display ready never gates existing
+    // hold the full545-bit state and valid. Display ready never gates existing
     // input, audio, note_busy or storage ready. Old unsent models may coalesce;
     // activity/reset events are OR-preserved. No keyboard-lighting payload.
-    output [527:0] display_out_state,
+    output [544:0] display_out_state,
     output display_out_valid,
     input display_out_ready
 );
     localparam STATE_WAIT_COMBINED_FRAME = 1'b0;
     localparam STATE_DELIVER_FRAME_TO_ALL_SOURCES = 1'b1;
     wire display_pipeline_commit;
-    wire [495:0] display_pipeline_payload;
+    wire [512:0] display_pipeline_payload;
     wire current_state;
     reg next_state;
     reg [31:0] next_batch_id_r;
@@ -187,6 +192,7 @@ module user_interface
     reg [15:0] sampled_delay_mix_r;
     reg [15:0] sampled_distortion_mix_r;
     reg [15:0] sampled_chorus_mix_r;
+    reg [63:0] sampled_make_up_r;
     genvar channel_index;
     wire [3:0] pipeline_wavetable_0 [0:0];
     reg [3:0] latest_wavetable_0_r;
@@ -254,6 +260,9 @@ module user_interface
     wire [15:0] pipeline_chorus_mix;
     reg [15:0] latest_chorus_mix_r;
     reg [15:0] output_chorus_mix_r;
+    wire [15:0] pipeline_reverb_make_up, pipeline_delay_make_up;
+    wire [15:0] pipeline_distortion_make_up, pipeline_chorus_make_up;
+    reg [63:0] latest_make_up_r, output_make_up_r;
 
     assign keyboard_context_ready = (current_state == STATE_DELIVER_FRAME_TO_ALL_SOURCES)
         && !keyboard_delivered_r && keyboard_context_matches && keyboard_input_ready;
@@ -318,6 +327,7 @@ module user_interface
     assign delay_mix = output_delay_mix_r;
     assign distortion_mix = output_distortion_mix_r;
     assign chorus_mix = output_chorus_mix_r;
+    assign {chorus_make_up, distortion_make_up, delay_make_up, reverb_make_up} = output_make_up_r;
     fsm #(
         .W(1), .INITIAL_STATE(STATE_WAIT_COMBINED_FRAME)
     ) fsm_u (
@@ -450,7 +460,9 @@ module user_interface
         .reverb_mix(pipeline_reverb_mix),
         .delay_mix(pipeline_delay_mix),
         .distortion_mix(pipeline_distortion_mix),
-        .chorus_mix(pipeline_chorus_mix)
+        .chorus_mix(pipeline_chorus_mix),
+        .reverb_make_up(pipeline_reverb_make_up), .delay_make_up(pipeline_delay_make_up),
+        .distortion_make_up(pipeline_distortion_make_up), .chorus_make_up(pipeline_chorus_make_up)
     );
 
     localparam [3:0] DEFAULT_WAVETABLE_0 = 4'd0;
@@ -497,6 +509,7 @@ module user_interface
             sampled_delay_mix_r <= DEFAULT_DELAY_MIX;
             sampled_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
             sampled_chorus_mix_r <= DEFAULT_CHORUS_MIX;
+            sampled_make_up_r <= {4{16'h8000}};
         end
         else
         begin
@@ -525,6 +538,7 @@ module user_interface
             sampled_delay_mix_r <= latest_delay_mix_r;
             sampled_distortion_mix_r <= latest_distortion_mix_r;
             sampled_chorus_mix_r <= latest_chorus_mix_r;
+            sampled_make_up_r <= latest_make_up_r;
         end
     end
 
@@ -578,6 +592,8 @@ module user_interface
             output_distortion_mix_r <= DEFAULT_DISTORTION_MIX;
             latest_chorus_mix_r <= DEFAULT_CHORUS_MIX;
             output_chorus_mix_r <= DEFAULT_CHORUS_MIX;
+            latest_make_up_r <= {4{16'h8000}};
+            output_make_up_r <= {4{16'h8000}};
         end
         else
         begin
@@ -605,6 +621,8 @@ module user_interface
                 latest_delay_mix_r <= pipeline_delay_mix;
                 latest_distortion_mix_r <= pipeline_distortion_mix;
                 latest_chorus_mix_r <= pipeline_chorus_mix;
+                latest_make_up_r <= {pipeline_chorus_make_up, pipeline_distortion_make_up,
+                    pipeline_delay_make_up, pipeline_reverb_make_up};
             end
             if (audio_accept) out_valid_r <= 1'b0;
             // 参数已装载后才置有效；公开 out_valid 仍等待同批键盘结果就绪。
@@ -639,13 +657,14 @@ module user_interface
                 output_delay_mix_r <= sampled_delay_mix_r;
                 output_distortion_mix_r <= sampled_distortion_mix_r;
                 output_chorus_mix_r <= sampled_chorus_mix_r;
+                output_make_up_r <= sampled_make_up_r;
             end
             if (smp_tick_up && !configuration_error && !keyboard_sample_ready)
                 sample_overrun_r <= 1'b1;
         end
     end
 
-    reg [495:0] display_payload;
+    reg [512:0] display_payload;
     reg display_initialized_r;
     reg [3:0] display_busy_group_r [0:3];
     reg display_busy_pending_r, display_busy_known_r, display_bend_known_r;

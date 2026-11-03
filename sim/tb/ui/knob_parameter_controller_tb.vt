@@ -74,6 +74,7 @@ module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter S
         .WAVE_SELECT_STEPS(WAVE_SELECT_STEPS)
     ) knob_parameter_controller_u (
         .effect_select(2'd0), .effect_reset(1'b0), .preset_load_advanced(128'h001840008000100090002ee02800b000), .preset_current_advanced(), .advanced_parameters(),
+        .preset_load_make_up({4{16'h8000}}), .preset_current_make_up(), .make_up_gains(),
         .preset_load_valid(preset_load_valid),
         .preset_load_ready(preset_load_ready),
         .preset_load_parameters(preset_load_parameters),
@@ -435,6 +436,13 @@ module knob_parameter_controller_tb #(parameter WAVE_SELECT_STEPS=4, parameter S
             mode=value[0];fine_adjust=value[1];edit_enable=value[2];edit_target=value[3];
             clear_wave_progress=value[4];knob_pressed_event=value[5];
             for (cycle=0;cycle<8;cycle=cycle+1) knob_delta[cycle]=(value[6]>>(2*cycle));
+            // 旧参考向量只有13个字段；高级模式新增的K3/K4由S2专项测试覆盖。
+            if (mode == 2'd2)
+            begin
+                knob_delta[2]=0;
+                knob_delta[3]=0;
+                knob_pressed_event[3:2]=2'b00;
+            end
             in_valid=1'b1;
             do @(posedge clk_sys); while (!in_ready);
             @(negedge clk_sys);

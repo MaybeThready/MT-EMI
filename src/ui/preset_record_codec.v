@@ -3,9 +3,9 @@
  * 音色记录封装和校验模块 v2：64 字节记录，CRC-16 每系统周期计算一位。
  * v2 版本修改：结果 valid 不再重复判断复位，状态机仍异步复位到等待请求。
  * decode=0 封装，decode=1 校验；输入／输出均按 valid && ready 交付。
- * NOTE: 基础192位、高级128位、音色增益16位UQ1.15随同一握手交付，不含master_volume。
- * 新记录格式5/字段数21：字4..15基础、16..23高级、24音色增益、25..30保留零。
- * 兼容格式3/13项与4/21项：旧增益百分比换算UQ1.15；格式3缺失的高级参数补默认值；再保存生成格式5。
+ * NOTE: 基础192位、高级128位、音色增益16位和四路补偿64位随同一握手交付，不含master_volume。
+ * 新记录格式6/字段数25：字4..15基础、16..23高级、24音色增益、25..28四路补偿、29..30保留零。
+ * 兼容格式3/13项与4/21项、5/21项：旧格式的四路补偿均恢复为1.0。
  * 格式1/2及未知版本拒绝；CRC、槽号、字段范围和保留位仍严格检查。
  * CRC: 多项式 0x1021，初值 0xffff，从 bit495 到 bit0，无反射／最终异或。
  * CRC移位缓存由本地准备状态装载，接收请求后增加一拍；输入不需额外保持。
@@ -21,12 +21,14 @@ module preset_record_codec
     output [127:0] advanced_parameters_out,
     input [191:0] parameters,
     input [15:0] balance_gain,  // UQ1.15，0000..FFFF，随音色保存；与演奏总音量独立
+    input [63:0] make_up_gains,  // {合唱, 失真, 延迟, 混响}，各 UQ1.15
     input [511:0] record_in,
     input in_valid,
     output in_ready,
     output [511:0] record_out,
     output [191:0] parameters_out,
     output [15:0] balance_gain_out,
+    output [63:0] make_up_gains_out,
     output [2:0] status,
     output out_valid,
     input out_ready
@@ -185,6 +187,7 @@ module preset_record_codec
     assign record_out = record_r;
     assign parameters_out = parameter_words;
     assign balance_gain_out = legacy_gain ? legacy_gain_to_q15(record_r[399:384]) : record_r[399:384];
+    assign make_up_gains_out = (record_r[31:16] == 16'd6) ? record_r[463:400] : {4{16'h8000}};
     assign status = status_r;
     fsm #(.W(3), .INITIAL_STATE(STATE_WAIT_REQUEST)) fsm_u (
         .clk(clk_sys), .rst_n(rst_n), .stn(next_state), .stc(current_state)
@@ -226,7 +229,7 @@ module preset_record_codec
                         decode_r <= decode;
                         slot_r <= slot;
                         record_r <= decode ? record_in :
-                            {112'd0, balance_gain, advanced_parameters, parameters, 16'd21, 12'd0, slot, 16'd5, 16'h5549};
+                            {48'd0, make_up_gains, balance_gain, advanced_parameters, parameters, 16'd25, 12'd0, slot, 16'd6, 16'h5549};
                         crc_r <= 16'hffff;
                         bits_remaining_r <= 9'd496;
                         status_r <= 3'd0;
@@ -244,11 +247,15 @@ module preset_record_codec
                 begin
                     if (!decode_r) record_r[511:496] <= crc_r;
                     if (decode_r && (record_r[511:496] != crc_r)) status_r <= 3'd1;
-                    else if ((record_r[15:0] != 16'h5549) || (!legacy_record && (((record_r[31:16] != 16'd4) && (record_r[31:16] != 16'd5)) || (record_r[63:48] != 16'd21))) ||
+                    else if ((record_r[15:0] != 16'h5549) ||
+                        (!legacy_record && (((record_r[31:16] != 16'd4) && (record_r[31:16] != 16'd5) && (record_r[31:16] != 16'd6)) ||
+                        ((record_r[31:16] == 16'd6) ? (record_r[63:48] != 16'd25) : (record_r[63:48] != 16'd21)))) ||
                         (record_r[47:32] != {12'd0, slot_r}))
                         status_r <= 3'd2;
                     else if (invalid_range) status_r <= 3'd3;
-                    else if ((legacy_record && (record_r[383:256] != 128'd0)) || (record_r[495:400] != 96'd0)) status_r <= 3'd4;
+                    else if ((legacy_record && (record_r[383:256] != 128'd0)) ||
+                        ((record_r[31:16] == 16'd6) ? (record_r[495:464] != 32'd0) : (record_r[495:400] != 96'd0)))
+                        status_r <= 3'd4;
                 end
                 default:
                 begin

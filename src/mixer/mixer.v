@@ -1,6 +1,7 @@
 /**
  * 混音效果器链。每次接收 channel_rack 的一个复音采样，依次执行
- * 失真、合唱、延迟、混响，再进行两级音量控制和 16 位 PCM 限幅。
+ * 失真、合唱、延迟、混响；每级干湿混合后进行增益补偿，
+ * 再进行两级音量控制和 16 位 PCM 限幅。
  * 合唱、延迟、混响分时独占同一颗 audio_mix_buffer SDP RAM。
  * LCD 应从 I2S 已接收的 PCM 采样另行捕获，本模块不等待 LCD。
  */
@@ -9,7 +10,7 @@
  * clk_sys: 系统时钟；rst_n: 低有效异步复位
  * smp_tick_up: 采样帧参考脉冲；实际采样由 in_valid && in_ready 接收
  * audio_in: 复音和，SQ(1+$clog2(MAX_POLYPHONY)).15
- * balance_volume/master_volume: UQ1.15，[0, 2)
+ * 各效果器 make_up、balance_volume/master_volume: UQ1.15，[0, 2)，16'h8000 为 1 倍
  * audio_out: 单声道 16 位 SQ1.15 PCM，out_valid && out_ready 时交给 I2S
  * 效果器链内部及共享 RAM：24 位 SQ9.15；最终固定除以 8 并饱和。
  * 输出背压期间保持 audio_out、out_valid 稳定，不接收新输入。
@@ -23,15 +24,19 @@ module mixer #(
     input signed [15+$clog2(MAX_POLYPHONY):0] audio_in,
 
     input [15:0] reverb_mix,
+    input [15:0] reverb_make_up,
     input [15:0] reverb_feedback,
     input [15:0] reverb_damping,
     input [15:0] delay_mix,
+    input [15:0] delay_make_up,
     input [15:0] delay_time,
     input [15:0] delay_feedback,
     input [15:0] distortion_mix,
+    input [15:0] distortion_make_up,
     input [15:0] distortion_gain,
     input [15:0] distortion_tone,
     input [15:0] chorus_mix,
+    input [15:0] chorus_make_up,
     input [15:0] chorus_rate,
     input [7:0] chorus_depth,
     input [15:0] balance_volume,
@@ -53,7 +58,15 @@ module mixer #(
                BALANCE_SETUP = 5'd9, BALANCE_MULT = 5'd10,
                BALANCE_APPLY = 5'd11, MASTER_SETUP = 5'd12,
                MASTER_MULT = 5'd13, MASTER_APPLY = 5'd14,
-               WF_SEND = 5'd15;
+               WF_SEND = 5'd15,
+               DIST_GAIN_SETUP = 5'd16, DIST_GAIN_MULT = 5'd17,
+               DIST_GAIN_APPLY = 5'd18,
+               CHORUS_GAIN_SETUP = 5'd19, CHORUS_GAIN_MULT = 5'd20,
+               CHORUS_GAIN_APPLY = 5'd21,
+               DELAY_GAIN_SETUP = 5'd22, DELAY_GAIN_MULT = 5'd23,
+               DELAY_GAIN_APPLY = 5'd24,
+               REVERB_GAIN_SETUP = 5'd25, REVERB_GAIN_MULT = 5'd26,
+               REVERB_GAIN_APPLY = 5'd27;
 
     wire [4:0] stc;
     reg [4:0] stn;
@@ -68,10 +81,10 @@ module mixer #(
 
     reg signed [23:0] sample_r;
     reg [15:0] balance_r, master_r;
-    reg [15:0] reverb_mix_r, reverb_feedback_r, reverb_damping_r;
-    reg [15:0] delay_mix_r, delay_time_r, delay_feedback_r;
-    reg [15:0] distortion_mix_r, distortion_gain_r, distortion_tone_r;
-    reg [15:0] chorus_mix_r, chorus_rate_r;
+    reg [15:0] reverb_mix_r, reverb_make_up_r, reverb_feedback_r, reverb_damping_r;
+    reg [15:0] delay_mix_r, delay_make_up_r, delay_time_r, delay_feedback_r;
+    reg [15:0] distortion_mix_r, distortion_make_up_r, distortion_gain_r, distortion_tone_r;
+    reg [15:0] chorus_mix_r, chorus_make_up_r, chorus_rate_r;
     reg [7:0] chorus_depth_r;
     reg signed [15:0] audio_out_r;
     wire signed [23:0] dist_audio, chorus_audio, delay_audio, reverb_audio;
@@ -210,7 +223,8 @@ module mixer #(
         .oce(1'b1), .reset(~rst_n)
     );
 
-    // 复用一份同步乘法器。余额级结果存 26 位，主音量级结果存 27 位。
+    // 四级补偿和两级音量控制复用同一份同步乘法器。
+    // 每级补偿后回到效果器链的 24 位 SQ9.15 格式。
     reg signed [25:0] mult_a_r;
     reg signed [16:0] mult_b_r;
     wire signed [26:0] mult_result;
@@ -222,6 +236,10 @@ module mixer #(
         .clk(clk_sys), .rst_n(rst_n),
         .in_a(mult_a_r), .in_b(mult_b_r), .out(mult_result)
     );
+    wire signed [23:0] compensated_sample;
+    signed_fp_norm #(
+        .QII(12), .QIF(15), .QOI(9), .QOF(15)
+    ) gain_norm_u (.in(mult_result), .out(compensated_sample));
     wire signed [26:0] scaled_pcm = mult_result >>> 3;
     wire signed [15:0] saturated_pcm;
     signed_fp_norm #(
@@ -233,13 +251,25 @@ module mixer #(
         case (stc)
             WF_RECV: stn = in_valid ? SEND_DIST : WF_RECV;
             SEND_DIST: stn = dist_ready ? WAIT_DIST : SEND_DIST;
-            WAIT_DIST: stn = dist_valid ? SEND_CHORUS : WAIT_DIST;
+            WAIT_DIST: stn = dist_valid ? DIST_GAIN_SETUP : WAIT_DIST;
+            DIST_GAIN_SETUP: stn = DIST_GAIN_MULT;
+            DIST_GAIN_MULT: stn = DIST_GAIN_APPLY;
+            DIST_GAIN_APPLY: stn = SEND_CHORUS;
             SEND_CHORUS: stn = chorus_ready ? WAIT_CHORUS : SEND_CHORUS;
-            WAIT_CHORUS: stn = chorus_valid ? SEND_DELAY : WAIT_CHORUS;
+            WAIT_CHORUS: stn = chorus_valid ? CHORUS_GAIN_SETUP : WAIT_CHORUS;
+            CHORUS_GAIN_SETUP: stn = CHORUS_GAIN_MULT;
+            CHORUS_GAIN_MULT: stn = CHORUS_GAIN_APPLY;
+            CHORUS_GAIN_APPLY: stn = SEND_DELAY;
             SEND_DELAY: stn = delay_ready ? WAIT_DELAY : SEND_DELAY;
-            WAIT_DELAY: stn = delay_valid ? SEND_REVERB : WAIT_DELAY;
+            WAIT_DELAY: stn = delay_valid ? DELAY_GAIN_SETUP : WAIT_DELAY;
+            DELAY_GAIN_SETUP: stn = DELAY_GAIN_MULT;
+            DELAY_GAIN_MULT: stn = DELAY_GAIN_APPLY;
+            DELAY_GAIN_APPLY: stn = SEND_REVERB;
             SEND_REVERB: stn = reverb_ready ? WAIT_REVERB : SEND_REVERB;
-            WAIT_REVERB: stn = reverb_valid ? BALANCE_SETUP : WAIT_REVERB;
+            WAIT_REVERB: stn = reverb_valid ? REVERB_GAIN_SETUP : WAIT_REVERB;
+            REVERB_GAIN_SETUP: stn = REVERB_GAIN_MULT;
+            REVERB_GAIN_MULT: stn = REVERB_GAIN_APPLY;
+            REVERB_GAIN_APPLY: stn = BALANCE_SETUP;
             BALANCE_SETUP: stn = BALANCE_MULT;
             BALANCE_MULT: stn = BALANCE_APPLY;
             BALANCE_APPLY: stn = MASTER_SETUP;
@@ -259,15 +289,19 @@ module mixer #(
             balance_r <= '0;
             master_r <= '0;
             reverb_mix_r <= '0;
+            reverb_make_up_r <= '0;
             reverb_feedback_r <= '0;
             reverb_damping_r <= '0;
             delay_mix_r <= '0;
+            delay_make_up_r <= '0;
             delay_time_r <= '0;
             delay_feedback_r <= '0;
             distortion_mix_r <= '0;
+            distortion_make_up_r <= '0;
             distortion_gain_r <= '0;
             distortion_tone_r <= '0;
             chorus_mix_r <= '0;
+            chorus_make_up_r <= '0;
             chorus_rate_r <= '0;
             chorus_depth_r <= '0;
             audio_out_r <= '0;
@@ -285,23 +319,51 @@ module mixer #(
                         balance_r <= balance_volume;
                         master_r <= master_volume;
                         reverb_mix_r <= reverb_mix;
+                        reverb_make_up_r <= reverb_make_up;
                         reverb_feedback_r <= reverb_feedback;
                         reverb_damping_r <= reverb_damping;
                         delay_mix_r <= delay_mix;
+                        delay_make_up_r <= delay_make_up;
                         delay_time_r <= delay_time;
                         delay_feedback_r <= delay_feedback;
                         distortion_mix_r <= distortion_mix;
+                        distortion_make_up_r <= distortion_make_up;
                         distortion_gain_r <= distortion_gain;
                         distortion_tone_r <= distortion_tone;
                         chorus_mix_r <= chorus_mix;
+                        chorus_make_up_r <= chorus_make_up;
                         chorus_rate_r <= chorus_rate;
                         chorus_depth_r <= chorus_depth;
                     end
                 end
                 WAIT_DIST: if (dist_valid) sample_r <= dist_audio;
+                DIST_GAIN_SETUP:
+                begin
+                    mult_a_r <= {{2{sample_r[23]}}, sample_r};
+                    mult_b_r <= {1'b0, distortion_make_up_r};
+                end
+                DIST_GAIN_APPLY: sample_r <= compensated_sample;
                 WAIT_CHORUS: if (chorus_valid) sample_r <= chorus_audio;
+                CHORUS_GAIN_SETUP:
+                begin
+                    mult_a_r <= {{2{sample_r[23]}}, sample_r};
+                    mult_b_r <= {1'b0, chorus_make_up_r};
+                end
+                CHORUS_GAIN_APPLY: sample_r <= compensated_sample;
                 WAIT_DELAY: if (delay_valid) sample_r <= delay_audio;
+                DELAY_GAIN_SETUP:
+                begin
+                    mult_a_r <= {{2{sample_r[23]}}, sample_r};
+                    mult_b_r <= {1'b0, delay_make_up_r};
+                end
+                DELAY_GAIN_APPLY: sample_r <= compensated_sample;
                 WAIT_REVERB: if (reverb_valid) sample_r <= reverb_audio;
+                REVERB_GAIN_SETUP:
+                begin
+                    mult_a_r <= {{2{sample_r[23]}}, sample_r};
+                    mult_b_r <= {1'b0, reverb_make_up_r};
+                end
+                REVERB_GAIN_APPLY: sample_r <= compensated_sample;
                 BALANCE_SETUP:
                 begin
                     mult_a_r <= {{2{sample_r[23]}}, sample_r};

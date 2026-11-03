@@ -4,7 +4,7 @@
  * v3：存储请求 valid 直接由非复位状态产生，隔离复位到驱动数据 CE 的路径。
  * v2 版本修改：装载 valid 由复位后无效的状态产生，去掉重复复位门控。
  * 执行一次音色保存或读取，复用记录校验模块；最多有一笔未完成事务。
- * current_advanced/apply_advanced与基础参数和音色增益共用握手，保持原子性。
+ * 高级参数、基础参数、音色增益和四路补偿共用握手，保持原子性。
  * command_write=1 保存当前参数，=0 读取；命令握手时锁存槽号及参数。
  * storage_in_status: 0 成功、1 空槽、其余为失败。
  * 保存成功响应必须表示已可靠写入；复位时驱动须同时取消旧事务。
@@ -25,6 +25,8 @@ module ui_preset_controller
     output [127:0] apply_advanced,  // 随apply握手原子装载
     input [191:0] current_parameters,
     input [15:0] current_balance_gain,  // 音色增益，随命令与参数同时锁存；不是 master_volume
+    input [63:0] current_make_up_gains,
+    output [63:0] apply_make_up_gains,
     output storage_out_valid,
     input storage_out_ready,
     output storage_out_write,
@@ -58,6 +60,8 @@ module ui_preset_controller
     assign apply_advanced = advanced_r;
     reg [191:0] parameters_r;
     reg [15:0] balance_gain_r;
+    reg [63:0] make_up_gains_r;
+    wire [63:0] codec_make_up_gains;
     wire [15:0] codec_balance_gain;
     reg [511:0] record_r;
     reg [3:0] status_r;
@@ -78,6 +82,7 @@ module ui_preset_controller
     assign apply_valid = (current_state == STATE_APPLY_LOADED_PARAMETERS);
     assign apply_parameters = parameters_r;
     assign apply_balance_gain = balance_gain_r;
+    assign apply_make_up_gains = make_up_gains_r;
     assign result_valid = rst_n && (current_state == STATE_REPORT_RESULT);
     assign result_status = status_r;
 
@@ -88,7 +93,8 @@ module ui_preset_controller
         .clk_sys(clk_sys), .rst_n(rst_n), .decode(!write_r), .slot(slot_r),
         .advanced_parameters(advanced_r), .advanced_parameters_out(codec_advanced),
         .parameters(parameters_r), .balance_gain(balance_gain_r),
-        .balance_gain_out(codec_balance_gain), .record_in(record_r),
+        .balance_gain_out(codec_balance_gain), .make_up_gains(make_up_gains_r),
+        .make_up_gains_out(codec_make_up_gains), .record_in(record_r),
         .in_valid(current_state == STATE_START_RECORD_CODEC), .in_ready(codec_ready),
         .record_out(codec_record), .parameters_out(codec_parameters), .status(codec_status),
         .out_valid(codec_valid), .out_ready(current_state == STATE_WAIT_RECORD_CODEC)
@@ -134,6 +140,7 @@ module ui_preset_controller
             parameters_r <= 192'd0;
             advanced_r <= 128'h001840008000100090002ee02800b000;
             balance_gain_r <= 16'h8000;
+            make_up_gains_r <= {4{16'h8000}};
             record_r <= 512'd0;
             status_r <= 4'd0;
         end
@@ -147,6 +154,7 @@ module ui_preset_controller
                 parameters_r <= current_parameters;
                 advanced_r <= current_advanced;
                 balance_gain_r <= current_balance_gain;
+                make_up_gains_r <= current_make_up_gains;
                 record_r <= 512'd0;
                 status_r <= 4'd0;
             end
@@ -156,6 +164,7 @@ module ui_preset_controller
                 parameters_r <= codec_parameters;
                 advanced_r <= codec_advanced;
                 balance_gain_r <= codec_balance_gain;
+                make_up_gains_r <= codec_make_up_gains;
                 if (codec_status != 3'd0) status_r <= {1'b0, codec_status} + 4'd2;
             end
             if (storage_in_valid && (current_state == STATE_WAIT_STORAGE_RESPONSE))

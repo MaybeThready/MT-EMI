@@ -9,6 +9,7 @@ module knob_parameter_s2_tb;
     reg signed [1:0] knob_delta [7:0];
     reg [7:0] knob_pressed_event = 8'd0;
     reg [1:0] effect_select = 2'd0;
+    reg [1:0] mode = 2'd2;
     reg effect_reset = 1'b0;
     reg in_valid = 1'b0;
     wire in_ready;
@@ -20,6 +21,7 @@ module knob_parameter_s2_tb;
     wire [127:0] advanced, current_advanced;
     reg [127:0] held;
     wire [15:0] master, balance;
+    wire [63:0] make_up_gains, current_make_up;
     wire [191:0] current_base;
     reg test_passed = 1'b0;
     integer i, effect_index, j;
@@ -34,11 +36,13 @@ module knob_parameter_s2_tb;
     localparam [127:0] MINIMUMS = 128'h00000000000010000000000100000000;
     knob_parameter_controller #(.WAVE_SELECT_STEPS(4)) knob_parameter_controller_u (
         .clk_sys(clk_sys), .rst_n(rst_n), .knob_delta(knob_delta),
-        .knob_pressed_event(knob_pressed_event), .mode(2'd2), .fine_adjust(1'b0),
+        .knob_pressed_event(knob_pressed_event), .mode(mode), .fine_adjust(1'b0),
         .edit_enable(1'b1), .edit_target(1'b0), .clear_wave_progress(1'b0),
         .effect_select(effect_select), .effect_reset(effect_reset),
         .in_valid(in_valid), .in_ready(in_ready), .frame_done_valid(frame_done_valid), .frame_done_ready(1'b1),
         .advanced_parameters(advanced), .preset_current_advanced(current_advanced),
+        .make_up_gains(make_up_gains), .preset_current_make_up(current_make_up),
+        .preset_load_make_up({4{16'h8000}}),
         .master_gain(master), .balance_gain(balance),
         .parameter_valid(parameter_valid), .parameter_ready(parameter_ready),
         .preset_load_valid(load_valid), .preset_load_ready(load_ready),
@@ -57,7 +61,24 @@ module knob_parameter_s2_tb;
         input reset_effect;
         begin
             @(negedge clk_sys);
+            for (integer lane=0;lane<8;lane=lane+1) knob_delta[lane]=0;
             knob_delta[0]=delta; knob_delta[1]=delta;
+            knob_pressed_event=presses; effect_reset=reset_effect; in_valid=1;
+            do @(posedge clk_sys); while(!in_ready);
+            @(negedge clk_sys); in_valid=0;
+            wait(frame_done_valid);
+            @(negedge clk_sys);
+        end
+    endtask
+    task effect_knob;
+        input integer lane;
+        input signed [1:0] delta;
+        input [7:0] presses;
+        input reset_effect;
+        begin
+            @(negedge clk_sys);
+            for (integer k=0;k<8;k=k+1) knob_delta[k]=0;
+            knob_delta[lane]=delta;
             knob_pressed_event=presses; effect_reset=reset_effect; in_valid=1;
             do @(posedge clk_sys); while(!in_ready);
             @(negedge clk_sys); in_valid=0;
@@ -87,6 +108,28 @@ module knob_parameter_s2_tb;
             if(current_advanced!==wanted) $fatal(1,"K2 default");
             event_frame(1,0,0); event_frame(1,0,1);
             if(current_advanced!==wanted) $fatal(1,"Effect reset priority");
+            mode=2'd1;
+            effect_knob(4+effect_index,1,0,0);
+            if(current_base[128+16*effect_index +: 16] !== 16'd5)
+                $fatal(1,"Performance mix edit effect=%0d", effect_index);
+            mode=2'd2;
+            effect_knob(2,1,0,0);
+            if(current_base[128+16*effect_index +: 16] !== 16'd10)
+                $fatal(1,"Advanced K3 must edit same mix effect=%0d", effect_index);
+            effect_knob(3,1,0,0);
+            if(current_make_up[16*effect_index +: 16] !== 16'h8666)
+                $fatal(1,"Advanced K4 gain effect=%0d", effect_index);
+            effect_knob(2,0,8'd4,0);
+            effect_knob(3,0,8'd8,0);
+            if(current_base[128+16*effect_index +: 16] !== 16'd0 ||
+                current_make_up[16*effect_index +: 16] !== 16'h8000)
+                $fatal(1,"K3/K4 press defaults effect=%0d", effect_index);
+            effect_knob(2,1,0,0);
+            effect_knob(3,1,0,0);
+            effect_knob(0,0,0,1);
+            if(current_base[128+16*effect_index +: 16] !== 16'd0 ||
+                current_make_up[16*effect_index +: 16] !== 16'h8000)
+                $fatal(1,"Effect reset K3/K4 effect=%0d", effect_index);
         end
         repeat(20) @(negedge clk_sys);
         // 各字段仅改变最低一位，再只恢复该旋钮；八组变化必须分别触发新快照。
@@ -122,7 +165,7 @@ module knob_parameter_s2_tb;
         parameter_ready=1; repeat(25) @(negedge clk_sys);
         if(advanced!==DEFAULTS || balance!=12124 || master!=32768) $fatal(1,"Loaded advanced snapshot lost");
         test_passed=1;
-        $display("KNOB_S2_PASS all_effect_bounds individual_defaults reset_priority stalled_snapshot atomic_load master_preserved");
+        $display("KNOB_S2_PASS all_effect_bounds K3_shared_mix K4_make_up defaults reset_priority stalled_snapshot atomic_load master_preserved");
         $finish;
     end
     initial begin #1000000; $fatal(1,"S2 bank timeout"); end

@@ -82,6 +82,8 @@ module test_keyboard_interaction
         .out_valid(ui_out_valid), .out_ready(rack_in_ready),
         .master_volume(), .reverb_mix(), .delay_mix(),
         .distortion_mix(), .chorus_mix(),
+        .reverb_make_up(), .delay_make_up(),
+        .distortion_make_up(), .chorus_make_up(),
         .configuration_error(configuration_error), .sample_overrun(sample_overrun),
         .storage_out_valid(), .storage_out_ready(1'b0),
         .storage_out_write(), .storage_out_slot(), .storage_out_data(),

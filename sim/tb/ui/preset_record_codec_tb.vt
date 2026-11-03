@@ -10,6 +10,8 @@ module preset_record_codec_tb;
     reg rst_n = 1'b0;
     reg [15:0] balance_gain = 16'd12124;
     wire [15:0] balance_gain_out;
+    reg [63:0] make_up_gains = 64'h9000_7000_a000_8000;
+    wire [63:0] make_up_gains_out;
     reg decode = 1'b0;
     reg [3:0] slot = 4'd0;
     reg [191:0] parameters = 192'd0;
@@ -28,7 +30,8 @@ module preset_record_codec_tb;
     preset_record_codec preset_record_codec_u (
         .advanced_parameters(128'h001840008000100090002ee02800b000), .advanced_parameters_out(),
         .clk_sys(clk_sys), .rst_n(rst_n), .decode(decode), .slot(slot),
-        .parameters(parameters), .balance_gain(balance_gain), .balance_gain_out(balance_gain_out), .record_in(record_in),
+        .parameters(parameters), .balance_gain(balance_gain), .balance_gain_out(balance_gain_out),
+        .make_up_gains(make_up_gains), .make_up_gains_out(make_up_gains_out), .record_in(record_in),
         .in_valid(in_valid), .in_ready(in_ready), .record_out(record_out),
         .parameters_out(parameters_out), .status(status),
         .out_valid(out_valid), .out_ready(out_ready)
@@ -56,6 +59,7 @@ module preset_record_codec_tb;
         reg [511:0] accepted_record;
         reg [3:0] accepted_slot;
         reg [15:0] accepted_balance;
+        reg [63:0] accepted_make_up;
         begin
             @(negedge clk_sys);
             decode = do_decode;
@@ -67,10 +71,12 @@ module preset_record_codec_tb;
             accepted_record = record_in;
             accepted_slot = slot;
             accepted_balance = balance_gain;
+            accepted_make_up = make_up_gains;
             parameters = ~parameters;
             record_in = ~record_in;
             slot = ~slot;
             balance_gain = ~balance_gain;
+            make_up_gains = ~make_up_gains;
             decode = !do_decode;
             wait (out_valid);
             @(negedge clk_sys);
@@ -78,6 +84,7 @@ module preset_record_codec_tb;
             record_in = accepted_record;
             slot = accepted_slot;
             balance_gain = accepted_balance;
+            make_up_gains = accepted_make_up;
             decode = do_decode;
             if (status !== expected_status) $fatal(1, "记录状态错误 got=%0d expected=%0d", status, expected_status);
             saved = record_out;
@@ -101,13 +108,15 @@ module preset_record_codec_tb;
         begin
             slot = i[3:0];
             balance_gain = (i == 0) ? 16'h0000 : ((i == 1) ? 16'h8000 : ((i == 2) ? 16'hc000 : 16'hffff));
-            golden = {112'd0,balance_gain,128'h001840008000100090002ee02800b000,parameters,16'd21,12'd0,slot,16'd5,16'h5549};
+            golden = {48'd0,make_up_gains,balance_gain,128'h001840008000100090002ee02800b000,
+                parameters,16'd25,12'd0,slot,16'd6,16'h5549};
             golden[511:496] = reference_crc(golden[495:0]);
             run_request(1'b0, 3'd0);
             if (saved !== golden) $fatal(1, "封装结果不符合独立参考");
             record_in = golden;
             run_request(1'b1, 3'd0);
-            if (parameters_out !== parameters || balance_gain_out !== balance_gain) $fatal(1, "读取参数不一致");
+            if (parameters_out !== parameters || balance_gain_out !== balance_gain ||
+                make_up_gains_out !== make_up_gains) $fatal(1, "读取参数不一致");
         end
         // 新格式原样保存全16位；覆盖0、1、1.5和最大增益。
         for (i = 0; i < 4; i = i + 1)
@@ -130,6 +139,8 @@ module preset_record_codec_tb;
             begin
                 record_in = golden;
                 record_in[31:16] = field_index;
+                record_in[63:48] = 16'd21;
+                record_in[463:400] = 64'd0;
                 if (field_index == 3)
                 begin
                     record_in[63:48] = 16'd13;
@@ -140,8 +151,17 @@ module preset_record_codec_tb;
                 run_request(1'b1, (i <= 100) ? 3'd0 : 3'd3);
                 if (i <= 100 && balance_gain_out != (i * 32768 + 50) / 100)
                     $fatal(1, "Legacy gain conversion version=%0d percent=%0d", field_index, i);
+                if (i <= 100 && make_up_gains_out !== {4{16'h8000}})
+                    $fatal(1, "Legacy make-up default version=%0d", field_index);
             end
         end
+        record_in = golden;
+        record_in[31:16] = 16'd5;
+        record_in[63:48] = 16'd21;
+        record_in[463:400] = 64'd0;
+        record_in[511:496] = reference_crc(record_in[495:0]);
+        run_request(1'b1, 3'd0);
+        if (make_up_gains_out !== {4{16'h8000}}) $fatal(1, "Format 5 make-up default");
         for (bit_index = 0; bit_index < 512; bit_index = bit_index + 1)
         begin
             record_in = golden ^ (512'd1 << bit_index);
@@ -160,7 +180,7 @@ module preset_record_codec_tb;
         record_in[511:496] = reference_crc(record_in[495:0]);
         run_request(1'b1, 3'd3);
         record_in = golden;
-        record_in[400] = 1'b1;
+        record_in[464] = 1'b1;
         record_in[511:496] = reference_crc(record_in[495:0]);
         run_request(1'b1, 3'd4);
         record_in = golden;

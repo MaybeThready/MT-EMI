@@ -5,6 +5,10 @@ add wave -radix unsigned sim:/mixer_tb/sample_index
 add wave -radix decimal sim:/mixer_tb/audio_in
 add wave -radix hex sim:/mixer_tb/balance_volume
 add wave -radix hex sim:/mixer_tb/master_volume
+add wave -radix hex sim:/mixer_tb/distortion_make_up
+add wave -radix hex sim:/mixer_tb/chorus_make_up
+add wave -radix hex sim:/mixer_tb/delay_make_up
+add wave -radix hex sim:/mixer_tb/reverb_make_up
 add wave -label {PCM waveform} -format Analog-Interpolated -height 100 -radix decimal sim:/mixer_tb/observed_audio
 add wave -radix decimal sim:/mixer_tb/expected_audio
 add wave -radix decimal sim:/mixer_tb/audio_out

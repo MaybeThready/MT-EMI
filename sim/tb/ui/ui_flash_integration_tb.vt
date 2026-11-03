@@ -39,6 +39,7 @@ module ui_flash_integration_tb;
         .clk_sys(clk_sys), .rst_n(rst_n), .command_valid(command_valid), .command_ready(command_ready),
         .command_write(command_write), .command_slot(command_slot), .current_parameters(current_parameters),
         .current_balance_gain(current_balance_gain), .apply_balance_gain(apply_balance_gain),
+        .current_make_up_gains({4{16'h8000}}), .apply_make_up_gains(),
         .storage_out_valid(storage_out_valid), .storage_out_ready(storage_out_ready),
         .storage_out_write(storage_out_write), .storage_out_slot(storage_out_slot), .storage_out_data(storage_out_data),
         .storage_in_valid(storage_in_valid), .storage_in_ready(storage_in_ready),

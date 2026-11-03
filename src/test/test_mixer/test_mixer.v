@@ -40,6 +40,10 @@ module test_mixer
     localparam [15:0] BALANCE_VOLUME = 16'h8000;  // 1.875 倍
     // localparam [15:0] MASTER_VOLUME = 16'hf000;   // 1.875 倍
     localparam [15:0] MASTER_VOLUME = 16'h8000;
+    localparam [15:0] REVERB_MAKE_UP = 16'h8000;
+    localparam [15:0] DELAY_MAKE_UP = 16'h8000;
+    localparam [15:0] DISTORTION_MAKE_UP = 16'h8000;
+    localparam [15:0] CHORUS_MAKE_UP = 16'h8000;
 
     wire clk_sys, rst_sys_n;
     wire i2s_tick_up, i2s_tick_down, smp_tick_up, scan_tick_up;
@@ -104,6 +108,8 @@ module test_mixer
         .out_valid(ui_out_valid), .out_ready(rack_in_ready),
         .master_volume(), .reverb_mix(), .delay_mix(),
         .distortion_mix(), .chorus_mix(),
+        .reverb_make_up(), .delay_make_up(),
+        .distortion_make_up(), .chorus_make_up(),
         .configuration_error(configuration_error), .sample_overrun(sample_overrun),
         .storage_out_valid(), .storage_out_ready(1'b0),
         .storage_out_write(), .storage_out_slot(), .storage_out_data(),
@@ -142,13 +148,13 @@ module test_mixer
     ) mixer_u (
         .clk_sys(clk_sys), .rst_n(rst_sys_n), .smp_tick_up(smp_tick_up),
         .audio_in(rack_audio),
-        .reverb_mix(REVERB_MIX), .reverb_feedback(REVERB_FEEDBACK),
+        .reverb_mix(REVERB_MIX), .reverb_make_up(REVERB_MAKE_UP), .reverb_feedback(REVERB_FEEDBACK),
         .reverb_damping(REVERB_DAMPING),
-        .delay_mix(DELAY_MIX), .delay_time(DELAY_TIME),
+        .delay_mix(DELAY_MIX), .delay_make_up(DELAY_MAKE_UP), .delay_time(DELAY_TIME),
         .delay_feedback(DELAY_FEEDBACK),
-        .distortion_mix(DISTORTION_MIX), .distortion_gain(DISTORTION_GAIN),
+        .distortion_mix(DISTORTION_MIX), .distortion_make_up(DISTORTION_MAKE_UP), .distortion_gain(DISTORTION_GAIN),
         .distortion_tone(DISTORTION_TONE),
-        .chorus_mix(CHORUS_MIX), .chorus_rate(CHORUS_RATE),
+        .chorus_mix(CHORUS_MIX), .chorus_make_up(CHORUS_MAKE_UP), .chorus_rate(CHORUS_RATE),
         .chorus_depth(CHORUS_DEPTH),
         .balance_volume(BALANCE_VOLUME), .master_volume(MASTER_VOLUME),
         .audio_out(mixer_audio),

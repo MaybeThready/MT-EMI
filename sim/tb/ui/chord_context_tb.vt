@@ -83,7 +83,7 @@ module chord_context_tb;
     reg keyboard_context_ready;
     wire [BATCH_ID_WIDTH-1:0] keyboard_context_batch_id;
     wire keyboard_context_play_mode;
-    wire [495:0] display_model_payload;
+    wire [512:0] display_model_payload;
 
     always #5 clk_sys=~clk_sys;
     integer batch,joiner_count=0,keyboard_count=0,old_joiner,old_keyboard,cycles;
@@ -127,6 +127,7 @@ module chord_context_tb;
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .out_valid(out_valid),
         .out_ready(out_ready),
         .protocol_error(protocol_error),

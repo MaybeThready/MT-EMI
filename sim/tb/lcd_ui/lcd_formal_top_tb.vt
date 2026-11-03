@@ -23,7 +23,7 @@ module lcd_formal_top_tb;
     integer ui_updates = 0, pcm_updates = 0, nonzero_pcm = 0, active_pixels = 0;
     integer samples = 0, cx, cy;
     reg [31:0] last_note_on = 32'd0;
-    reg [527:0] last_display = 528'd0;
+    reg [544:0] last_display = 545'd0;
     reg checking = 1'b1;
     integer commits=0,visible_pixels=0;
 

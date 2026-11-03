@@ -106,6 +106,7 @@ module ui_control_pipeline_tb;
         .delay_mix(delay_mix),
         .distortion_mix(distortion_mix),
         .chorus_mix(chorus_mix),
+        .reverb_make_up(), .delay_make_up(), .distortion_make_up(), .chorus_make_up(),
         .out_valid(out_valid),
         .out_ready(out_ready),
         .protocol_error(protocol_error),
